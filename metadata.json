@@ -1,0 +1,6 @@
+{
+  "name": "Школа Делай — Личный Кабинет",
+  "description": "Интерактивный Telegram Mini App и бот личного кабинета ученика «Школа Делай» (@Delayschool_bot)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
