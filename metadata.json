@@ -1,6 +1,6 @@
 {
-  "name": "Делай и Точка",
-  "description": "Образовательная платформа Telegram Mini App для подготовки к ЕГЭ/ОГЭ: база вебинаров, 3 формата ДЗ (тесты, устная часть, эссе) и кабинет преподавателя Ангелины.",
-  "requestFramePermissions": ["microphone"],
+  "name": "Школа Делай — Личный Кабинет",
+  "description": "Интерактивный Telegram Mini App и бот личного кабинета ученика «Школа Делай» (@Delayschool_bot)",
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

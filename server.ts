@@ -1,145 +1,224 @@
-import express from "express";
-import path from "path";
-import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
-import dotenv from "dotenv";
+import express from 'express';
+import path from 'path';
+import dotenv from 'dotenv';
+import TelegramBot from 'node-telegram-bot-api';
+import { GoogleGenAI } from '@google/genai';
+import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
 
 const app = express();
+app.use(express.json());
+
 const PORT = 3000;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8861478620:AAGa98oVaswBGv2u5DuwMIeyONdbCtEF2LQ';
+const BOT_USERNAME = 'Delayschool_bot';
+const MINI_APP_SHORT_NAME = 'delaylk';
+const DEFAULT_APP_URL = 'https://botjfsdf-production.up.railway.app';
 
-app.use(express.json({ limit: "20mb" }));
-
-// Initialize Gemini client server-side lazily / safely
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return null;
+function getPublicAppUrl(): string {
+  const customUrl = process.env.PUBLIC_APP_URL || process.env.APP_URL;
+  if (customUrl && !customUrl.includes('ais-dev') && !customUrl.includes('ais-pre') && !customUrl.includes('run.app')) {
+    return customUrl;
   }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
-      },
-    },
-  });
+  return DEFAULT_APP_URL;
 }
 
-// API Health Check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+let bot: TelegramBot | null = null;
+let botStatus: {
+  online: boolean;
+  username: string;
+  appUrl: string;
+  lastError: string | null;
+  commandsCount: number;
+} = {
+  online: false,
+  username: BOT_USERNAME,
+  appUrl: DEFAULT_APP_URL,
+  lastError: null,
+  commandsCount: 0,
+};
 
-// AI Essay Pre-check endpoint for students
-app.post("/api/ai-essay-review", async (req, res) => {
+// Function to initialize Telegram Bot safely
+function initTelegramBot() {
   try {
-    const { topic, essayText } = req.body;
-    if (!essayText) {
-      return res.status(400).json({ error: "Текст эссе не предоставлен" });
+    if (!BOT_TOKEN) {
+      console.warn('Telegram Bot Token missing.');
+      return;
     }
 
-    const ai = getGeminiClient();
-    if (!ai) {
-      return res.json({
-        success: true,
-        aiGenerated: false,
-        feedback: "ИИ готов к работе при наличии GEMINI_API_KEY. Работа отправлена Ангелине на личную проверку!",
-      });
-    }
+    bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-    const prompt = `Ты — опытный эксперт ЕГЭ по английскому/русскому языку на платформе «Делай и Точка».
-Проведи быстрый предварительный экспресс-анализ письменной работы ученика перед финальной проверкой преподавателем Ангелиной.
-
-Тема/Задание: "${topic || "Эссе/Письмо ФИПИ"}"
-Текст работы ученика:
-"""
-${essayText}
-"""
-
-Дай конструктивную, подбадривающую обратную связь по 3 пунктам на русском языке:
-1. Сильные стороны работы (2-3 пункта)
-2. На что обратить внимание (структура, вводные слова, грамматика/лексика)
-3. Ориентировочный предварительный прогноз балла (из 14 баллов) с отметкой, что окончательный вердикт вынесет Ангелина.
-
-Форматируй ответ понятно и доброжелательно, используй эмодзи.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
+    bot.on('polling_error', (err) => {
+      console.error('Telegram Bot Polling Error:', err.message);
+      botStatus.lastError = err.message;
     });
 
-    res.json({
-      success: true,
-      aiGenerated: true,
-      feedback: response.text || "Предварительная ИИ-проверка завершена.",
+    bot.onText(/\/start|\/lk|\/app|\/help/, async (msg) => {
+      botStatus.commandsCount++;
+      const chatId = msg.chat.id;
+      const firstName = msg.from?.first_name || 'Ученик';
+      const currentAppUrl = getPublicAppUrl();
+
+      const welcomeMessage = `👋 *Привет, ${firstName}!*
+
+Добро пожаловать в *Школу Делай*! 🎓
+
+В твоём личном кабинете доступно:
+• 📅 *Расписание и уроки* — видео, материалы, онлайн-встречи
+• 📝 *Домашние задания* — отправка решений и помощь ИИ
+• 🤖 *ИИ-Тьютор «Делай»* — ответит на любые вопросы по учёбе
+• 🪙 *Магазин наград* — зарабатывай Delay Coins за успехи!
+
+Жми кнопку ниже, чтобы открыть Личный Кабинет 👇`;
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: 'Личный кабинет',
+              web_app: { url: currentAppUrl },
+            },
+          ],
+        ],
+      };
+
+      try {
+        await bot?.sendMessage(chatId, welcomeMessage, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard,
+        });
+      } catch (e: any) {
+        console.error('Error sending message:', e.message);
+      }
     });
-  } catch (err: any) {
-    console.error("Gemini API Error:", err);
-    res.status(500).json({ error: "Ошибка при вызове ИИ-проверки", details: err.message });
+
+    botStatus.online = true;
+    console.log(`Telegram Bot @${BOT_USERNAME} initialized successfully!`);
+
+    // Configure Chat Menu Button to use the clean public Railway URL
+    updateBotMenuButton();
+  } catch (error: any) {
+    console.error('Failed to init Telegram Bot:', error.message);
+    botStatus.lastError = error.message;
   }
+}
+
+async function updateBotMenuButton() {
+  const targetUrl = getPublicAppUrl();
+  if (!BOT_TOKEN) return;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        menu_button: {
+          type: 'web_app',
+          text: 'Личный кабинет',
+          web_app: { url: targetUrl },
+        },
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      console.log('Telegram Bot Menu Button successfully updated to WebApp:', targetUrl);
+      botStatus.appUrl = targetUrl;
+    } else {
+      console.warn('Telegram setChatMenuButton response:', data);
+    }
+  } catch (err: any) {
+    console.error('Error updating menu button:', err.message);
+  }
+}
+
+// Trigger initial bot setup
+initTelegramBot();
+
+// API Endpoints
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// AI Assistant for Angelina (Teacher) to draft criteria comments
-app.post("/api/ai-teacher-assistant", async (req, res) => {
-  try {
-    const { hwTitle, studentSubmission, criteriaScores } = req.body;
+app.get('/api/bot-info', (req, res) => {
+  const currentAppUrl = getPublicAppUrl();
+  res.json({
+    ...botStatus,
+    botUsername: BOT_USERNAME,
+    miniAppShortName: MINI_APP_SHORT_NAME,
+    currentAppUrl,
+    telegramLink: currentAppUrl,
+    botDirectLink: `https://t.me/${BOT_USERNAME}`,
+  });
+});
 
-    const ai = getGeminiClient();
-    if (!ai) {
+app.post('/api/bot-configure', async (req, res) => {
+  const { appUrl } = req.body;
+  if (appUrl && !appUrl.includes('ais-dev') && !appUrl.includes('ais-pre') && !appUrl.includes('run.app')) {
+    process.env.PUBLIC_APP_URL = appUrl;
+  }
+  await updateBotMenuButton();
+  res.json({ success: true, appUrl: getPublicAppUrl() });
+});
+
+// Gemini AI Tutor Endpoint
+app.post('/api/ai/ask', async (req, res) => {
+  try {
+    const { prompt, context } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // Fallback friendly AI response when key is not set
       return res.json({
-        success: true,
-        aiGenerated: false,
-        suggestedComment: "Отличная работа! Все критерии ФИПИ учтены. Продолжай в том же духе!",
+        reply: `Привет! Я ИИ-Тьютор «Делай». Для активации полного интеллекта Gemini добавьте ключ GEMINI_API_KEY в переменные окружения. \n\nПо твоему вопросу: "${prompt}" — рекомендуем повторить тему урока, составить конспект и обратиться к куратору при любых трудностях! 🚀`,
+        fallback: true,
       });
     }
 
-    const prompt = `Ты — ассистент преподавателя Ангелины в онлайн-школе «Делай и Точка».
-Сформируй профессиональный, вежливый и детальный разбор работы ученика для отправки в Telegram Mini App.
-
-Задание: "${hwTitle}"
-Работа ученика: "${studentSubmission || "Письменный текст / Голосовой ответ"}"
-Баллы по критериям: ${JSON.stringify(criteriaScores || { K1: 3, K2: 3, K3: 2, K4: 2 })}
-
-Напиши персональный комментарий от лица Ангелины:
-- Похвали за успехи
-- Точечно укажи на ошибки (если есть)
-- Дай конкретный совет по улучшению к следующему уроку.`;
+    const ai = new GoogleGenAI({ apiKey });
+    const systemInstruction = `Ты — дружелюбный ИИ-тьютор и наставник онлайн-школы «Школа Делай». Твоя цель — в понятной, доступной и мотивирующей форме помогать школьникам и студентам с учёбой, домашними заданиями, программированием, математикой, дизайном и мотивацией. 
+Используй эмоциональный, современный русский язык, смайлы, выделяй ключевые мысли жирным шрифтом и форматируй формулы/код при необходимости. Относись к ученику с теплотой.
+Контекст ученика: ${context || 'Личный Кабинет ученика «Школа Делай»'}`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents: prompt,
+      model: 'gemini-2.5-flash',
+      contents: [
+        { role: 'user', parts: [{ text: systemInstruction }, { text: prompt }] },
+      ],
     });
 
-    res.json({
-      success: true,
-      aiGenerated: true,
-      suggestedComment: response.text || "Черновик комментария сформирован.",
+    const reply = response.text || 'К сожалению, не удалось сгенерировать ответ. Попробуй ещё раз!';
+    return res.json({ reply, fallback: false });
+  } catch (error: any) {
+    console.error('Gemini API error:', error.message);
+    return res.status(500).json({
+      error: 'Ошибка при обращении к ИИ',
+      reply: 'Извини, возникли временные неполадки при вызове ИИ-тьютора. Попробуй задать вопрос ещё раз через минутку!',
     });
-  } catch (err: any) {
-    console.error("Gemini Assistant Error:", err);
-    res.status(500).json({ error: "Ошибка формирования ответа ИИ", details: err.message });
   }
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  // Vite middleware setup
+  if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 

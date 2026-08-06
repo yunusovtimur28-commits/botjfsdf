@@ -1,931 +1,200 @@
 import React, { useState, useEffect } from 'react';
+import { Header } from './components/Header';
+import { Navigation, TabType } from './components/Navigation';
+import { DashboardView } from './components/DashboardView';
+import { LessonsView } from './components/LessonsView';
+import { HomeworkView } from './components/HomeworkView';
+import { AiTutorView } from './components/AiTutorView';
+import { ShopView } from './components/ShopView';
+import { ProfileView } from './components/ProfileView';
+
 import {
-  UserRole,
-  Webinar,
-  Homework,
-  Submission,
-  StudentProfile as StudentProfileType,
-  TGNotification,
-} from './types';
-import {
-  initialWebinars,
-  initialHomeworks,
-  initialSubmissions,
   initialStudentProfile,
-  initialNotifications,
-  initialRegisteredStudents,
+  initialLessons,
+  initialHomeworks,
+  initialShopItems,
+  initialAnnouncements,
 } from './data/mockData';
-import { RegisteredStudent } from './types';
-import { HeaderTelegram } from './components/HeaderTelegram';
-import { Navigation, NavTab } from './components/Navigation';
-import { WebinarLibrary } from './components/WebinarLibrary';
-import { HomeworkList } from './components/HomeworkList';
-import { SpeakingSimulator } from './components/SpeakingSimulator';
-import { StudentProfile } from './components/StudentProfile';
-import { TeacherCabinet } from './components/TeacherCabinet';
-import { AuthModal, AuthUser } from './components/AuthModal';
-import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
-import {
-  subscribeWebinars,
-  subscribeHomeworks,
-  subscribeSubmissions,
-  subscribeNotifications,
-  subscribeStudents,
-  dbAddWebinar,
-  dbDeleteWebinar,
-  dbAddHomework,
-  dbAddSubmission,
-  dbUpdateSubmission,
-  dbAddNotification,
-  dbMarkNotificationRead,
-  dbAddStudent,
-  dbDeleteStudent,
-  dbUpdateStudent,
-} from './lib/firebase';
+
+import { Lesson, Homework, ShopItem, BotInfo, StudentProfile } from './types';
+import { initTelegramApp, getTelegramUser } from './lib/telegram';
 
 export default function App() {
-  // Auth State
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('ege_app_is_logged_in') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
-
-  const [currentUser, setCurrentUser] = useState<AuthUser>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_user_auth');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Failed to load auth from localStorage', e);
-    }
-    return {
-      name: 'Александр Ковалев',
-      role: 'student',
-      telegramHandle: '@sasha_koval',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-    };
-  });
-
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<NavTab>('webinars');
-  const [isDarkMode, setIsDarkMode] = useState(true);
-
-  // Firestore Real-time Application State with Fallback Defaults
-  const [webinars, setWebinars] = useState<Webinar[]>(initialWebinars);
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [profile, setProfile] = useState<StudentProfile>(initialStudentProfile);
+  const [lessons, setLessons] = useState<Lesson[]>(initialLessons);
   const [homeworks, setHomeworks] = useState<Homework[]>(initialHomeworks);
-  const [submissions, setSubmissions] = useState<Submission[]>(initialSubmissions);
-  const [notifications, setNotifications] = useState<TGNotification[]>(initialNotifications);
+  const [shopItems] = useState<ShopItem[]>(initialShopItems);
+  const [announcements] = useState(initialAnnouncements);
 
-  // Registered Students Management
-  const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_registered_students');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return initialRegisteredStudents;
-  });
+  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
+  const [initialAiPrompt, setInitialAiPrompt] = useState<string | undefined>(undefined);
+  const [botInfo, setBotInfo] = useState<BotInfo | null>(null);
 
+  // Initialize Telegram WebApp SDK & Sync profile if opened inside Telegram
   useEffect(() => {
-    try {
-      localStorage.setItem('ege_app_registered_students', JSON.stringify(registeredStudents));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [registeredStudents]);
+    initTelegramApp();
 
-  const handleAddStudent = (login: string, name?: string) => {
-    localStorage.setItem('ege_app_students_seeded', 'true');
-    const cleanLogin = login.trim().toLowerCase().replace('@', '');
-    const newStudent: RegisteredStudent = {
-      id: `st-${Date.now()}`,
-      login: cleanLogin,
-      name: name?.trim() || '',
-      telegramHandle: `@${cleanLogin}`,
-      password: '',
-      addedAt: 'Сегодня',
-      isFirstLogin: true,
-    };
-    setRegisteredStudents((prev) => [newStudent, ...prev]);
-    dbAddStudent(newStudent);
-  };
-
-  const handleDeleteStudent = (studentId: string) => {
-    localStorage.setItem('ege_app_students_seeded', 'true');
-    setRegisteredStudents((prev) => prev.filter((st) => st.id !== studentId));
-    dbDeleteStudent(studentId);
-  };
-
-  const handleSetStudentPassword = (studentLogin: string, newPassword: string, studentName?: string) => {
-    const cleanLogin = studentLogin.trim().toLowerCase().replace('@', '');
-    setRegisteredStudents((prev) => {
-      let matched = false;
-      const updated = prev.map((st) => {
-        const matches =
-          (st.login && st.login.trim().toLowerCase() === cleanLogin) ||
-          (st.telegramHandle && st.telegramHandle.trim().toLowerCase().replace('@', '') === cleanLogin) ||
-          (st.name && st.name.trim().toLowerCase() === cleanLogin) ||
-          (st.id === studentLogin);
-        if (matches) {
-          matched = true;
-          const finalName = studentName?.trim() || st.name || 'Ученик';
-          dbUpdateStudent(st.id, { login: st.login || cleanLogin, name: finalName, password: newPassword, isFirstLogin: false });
-          return {
-            ...st,
-            login: st.login || cleanLogin,
-            name: finalName,
-            password: newPassword,
-            isFirstLogin: false,
-          };
-        }
-        return st;
-      });
-
-      if (!matched) {
-        const newStudent: RegisteredStudent = {
-          id: `st-${Date.now()}`,
-          login: cleanLogin,
-          name: studentName?.trim() || cleanLogin,
-          telegramHandle: `@${cleanLogin}`,
-          password: newPassword,
-          addedAt: 'Сегодня',
-          isFirstLogin: false,
-        };
-        dbAddStudent(newStudent);
-        return [newStudent, ...updated];
-      }
-
-      return updated;
-    });
-  };
-
-  const [customTargetScore, setCustomTargetScore] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_target_score');
-      if (saved) return Number(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return 90;
-  });
-
-  // Helper to track and accumulate daily visits per student across calendar days
-  const getUserStreakDays = (userName: string, defaultBaselineStreak: number = 1): number => {
-    const storageKey = `ege_app_user_visits_${userName}`;
-    const now = new Date();
-
-    const getLocalDateStr = (d: Date) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    const todayStr = getLocalDateStr(now);
-
-    let visits: string[] = [];
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        visits = JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error(e);
+    const tgUser = getTelegramUser();
+    if (tgUser) {
+      setProfile((prev) => ({
+        ...prev,
+        name: `${tgUser.first_name} ${tgUser.last_name || ''}`.trim(),
+        username: tgUser.username ? `@${tgUser.username}` : prev.username,
+        avatar: tgUser.photo_url || prev.avatar,
+      }));
     }
 
-    // Populate baseline if visits is not initialized yet
-    if (!Array.isArray(visits) || visits.length === 0) {
-      visits = [];
-      for (let i = defaultBaselineStreak - 1; i >= 0; i--) {
-        const pastDate = new Date(now);
-        pastDate.setDate(pastDate.getDate() - i);
-        visits.push(getLocalDateStr(pastDate));
-      }
-    }
-
-    // Always register today's login visit
-    if (!visits.includes(todayStr)) {
-      visits.push(todayStr);
-    }
-
-    // Persist unique visit dates
-    visits = Array.from(new Set(visits));
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(visits));
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Accumulate total active training days across calendar logins without upper limits or resets
-    return Math.max(1, visits.length);
-  };
-
-  // Dynamic student profile based on logged in user & their actual submissions
-  const currentStudentSubmissions = submissions.filter((s) => s.studentName === currentUser.name);
-
-  const activeStudentProfile: StudentProfileType = React.useMemo(() => {
-    const defaultBaseline = currentUser.name === initialStudentProfile.name ? (initialStudentProfile.streakDays || 7) : 1;
-    const currentStreak = getUserStreakDays(currentUser.name, defaultBaseline);
-
-    if (currentUser.name === initialStudentProfile.name) {
-      const isSprinterUnlocked = currentStreak >= 7;
-      return {
-        ...initialStudentProfile,
-        streakDays: currentStreak,
-        targetExamScore: customTargetScore,
-        avatarUrl: currentUser.avatarUrl || initialStudentProfile.avatarUrl,
-        telegramHandle: currentUser.telegramHandle || initialStudentProfile.telegramHandle,
-        totalHwSubmitted: currentStudentSubmissions.length || initialStudentProfile.totalHwSubmitted,
-        badges: initialStudentProfile.badges.map((b) =>
-          b.id === 'b1'
-            ? { ...b, unlocked: isSprinterUnlocked, unlockedAt: isSprinterUnlocked ? 'Сегодня' : b.unlockedAt }
-            : b
-        ),
-      };
-    }
-
-    const isNinjaUnlocked = currentStudentSubmissions.some((s) => s.type === 'test' && s.status === 'graded');
-    const isSprinterUnlocked = currentStreak >= 7;
-
-    // Dynamic exam progress based on student activity
-    let dynamicExamProgress = [
-      {
-        trialName: 'Старт обучения',
-        date: 'Старт',
-        listening: 0,
-        reading: 0,
-        grammarVocabulary: 0,
-        writing: 0,
-        speaking: 0,
-        total: 0,
-      },
-    ];
-
-    if (currentStudentSubmissions.length === 1) {
-      dynamicExamProgress.push({
-        trialName: 'ДЗ №1 (Первый результат)',
-        date: 'Сегодня',
-        listening: 14,
-        reading: 14,
-        grammarVocabulary: 12,
-        writing: 12,
-        speaking: 12,
-        total: 64,
-      });
-    } else if (currentStudentSubmissions.length >= 2) {
-      dynamicExamProgress.push(
-        {
-          trialName: 'ДЗ №1 (Первый результат)',
-          date: 'Вчера',
-          listening: 15,
-          reading: 15,
-          grammarVocabulary: 14,
-          writing: 13,
-          speaking: 13,
-          total: 70,
-        },
-        {
-          trialName: 'Пробник №2 (Высокий балл)',
-          date: 'Сегодня',
-          listening: 18,
-          reading: 18,
-          grammarVocabulary: 17,
-          writing: 16,
-          speaking: 16,
-          total: 85,
-        }
-      );
-    }
-
-    return {
-      name: currentUser.name,
-      telegramHandle: currentUser.telegramHandle,
-      avatarUrl: currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534188753412-3e26d0d618d6?auto=format&fit=crop&w=300&q=80',
-      streakDays: currentStreak,
-      streakHistory: [false, false, false, false, false, false, true],
-      totalHwSubmitted: currentStudentSubmissions.length,
-      averageScorePercent: currentStudentSubmissions.length > 0 ? 100 : 0,
-      targetExamScore: customTargetScore,
-      badges: [
-        {
-          id: 'b-welcome',
-          title: '🚀 Старт обучения',
-          description: 'Успешная авторизация в платформе «Делай и Точка»',
-          iconName: 'Flame',
-          unlocked: true,
-          unlockedAt: 'Сегодня',
-        },
-        {
-          id: 'b1',
-          title: '🔥 Спринтер 7 Дней',
-          description: 'Сдавай ДЗ и смотри вебинары 7 дней подряд без пропусков',
-          iconName: 'Flame',
-          unlocked: isSprinterUnlocked,
-          unlockedAt: isSprinterUnlocked ? 'Сегодня' : undefined,
-        },
-        {
-          id: 'b2',
-          title: '👑 Король Speaking',
-          description: 'Получи максимум за устные ДЗ',
-          iconName: 'Crown',
-          unlocked: false,
-        },
-        {
-          id: 'b3',
-          title: '⚡ Грамматический ниндзя',
-          description: 'Реши тест на грамматику на 100% результат',
-          iconName: 'Zap',
-          unlocked: isNinjaUnlocked,
-          unlockedAt: isNinjaUnlocked ? 'Сегодня' : undefined,
-        },
-        {
-          id: 'b4',
-          title: '✍️ Мастер Эссе',
-          description: 'Сдай эссе задание 38 на высший балл',
-          iconName: 'Feather',
-          unlocked: false,
-        },
-      ],
-      examProgress: dynamicExamProgress,
-    };
-  }, [currentUser, currentStudentSubmissions]);
-
-  // Save Auth User to LocalStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('ege_app_user_auth', JSON.stringify(currentUser));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [currentUser]);
-
-  // Connect Real-Time Listeners & Seed Firestore if empty
-  useEffect(() => {
-    const unsubWebinars = subscribeWebinars(
-      (list) => {
-        if (list.length === 0) {
-          initialWebinars.forEach((w) => dbAddWebinar(w));
-          setWebinars(initialWebinars);
-        } else {
-          setWebinars(list);
-        }
-      },
-      () => setWebinars((prev) => (prev.length > 0 ? prev : initialWebinars))
-    );
-
-    const unsubHomeworks = subscribeHomeworks(
-      (list) => {
-        if (list.length === 0) {
-          initialHomeworks.forEach((h) => dbAddHomework(h));
-          setHomeworks(initialHomeworks);
-        } else {
-          setHomeworks(list);
-        }
-      },
-      () => setHomeworks((prev) => (prev.length > 0 ? prev : initialHomeworks))
-    );
-
-    const unsubSubmissions = subscribeSubmissions(
-      (list) => {
-        if (list.length === 0) {
-          initialSubmissions.forEach((s) => dbAddSubmission(s));
-          setSubmissions(initialSubmissions);
-        } else {
-          setSubmissions(list);
-        }
-      },
-      () => setSubmissions((prev) => (prev.length > 0 ? prev : initialSubmissions))
-    );
-
-    const unsubNotifications = subscribeNotifications(
-      (list) => {
-        if (list.length === 0) {
-          initialNotifications.forEach((n) => dbAddNotification(n));
-          setNotifications(initialNotifications);
-        } else {
-          setNotifications(list);
-        }
-      },
-      () => setNotifications((prev) => (prev.length > 0 ? prev : initialNotifications))
-    );
-
-    const unsubStudents = subscribeStudents(
-      (list) => {
-        const isSeeded = localStorage.getItem('ege_app_students_seeded');
-        if (list.length === 0 && !isSeeded) {
-          localStorage.setItem('ege_app_students_seeded', 'true');
-          initialRegisteredStudents.forEach((st) => dbAddStudent(st));
-          setRegisteredStudents(initialRegisteredStudents);
-        } else {
-          localStorage.setItem('ege_app_students_seeded', 'true');
-          setRegisteredStudents(list);
-        }
-      },
-      () => setRegisteredStudents((prev) => prev)
-    );
-
-    return () => {
-      unsubWebinars();
-      unsubHomeworks();
-      unsubSubmissions();
-      unsubNotifications();
-      unsubStudents();
-    };
+    fetchBotInfo();
   }, []);
 
-  // Handle Login / Switch Account
-  const handleLogin = (user: AuthUser) => {
-    setCurrentUser(user);
-    setIsLoggedIn(true);
+  const fetchBotInfo = async () => {
     try {
-      localStorage.setItem('ege_app_is_logged_in', 'true');
-      localStorage.setItem('ege_app_user_auth', JSON.stringify(user));
+      const res = await fetch('/api/bot-info');
+      if (res.ok) {
+        const data = await res.json();
+        setBotInfo(data);
+      }
     } catch (e) {
-      console.error(e);
-    }
-    if (user.role === 'teacher') {
-      setActiveTab('teacher');
-    } else {
-      setActiveTab('webinars');
+      console.warn('Failed to fetch bot info:', e);
     }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    try {
-      localStorage.setItem('ege_app_is_logged_in', 'false');
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Add Video Lesson / Webinar (Admin Feature)
-  const handleAddWebinar = async (newWebinar: Webinar) => {
-    await dbAddWebinar(newWebinar);
-
-    // Send Notification to Students
-    const newNotif: TGNotification = {
-      id: `n-${Date.now()}`,
-      title: '🎥 Новый видеоурок от Ангелины!',
-      text: `Опубликован новый урок: «${newWebinar.title}». Смотрите с таймкодами и конспектом!`,
-      time: 'Только что',
-      isRead: false,
-      type: 'webinar',
-    };
-    await dbAddNotification(newNotif);
-  };
-
-  // Delete Video Lesson (Admin Feature)
-  const handleDeleteWebinar = async (webinarId: string) => {
-    await dbDeleteWebinar(webinarId);
-  };
-
-  // Add Homework (Admin Feature)
-  const handleAddHomework = async (newHw: Homework) => {
-    await dbAddHomework(newHw);
-
-    const newNotif: TGNotification = {
-      id: `n-${Date.now()}`,
-      title: '📌 Новое домашнее задание!',
-      text: `Ангелина опубликовала задание: «${newHw.title}». Дедлайн: ${newHw.deadline}`,
-      time: 'Только что',
-      isRead: false,
-      type: 'deadline',
-    };
-    await dbAddNotification(newNotif);
-  };
-
-  // Save Webinar Video Progress
-  const handleSaveWebinarProgress = (webinarId: string, positionSeconds: number) => {
-    setWebinars((prev) =>
-      prev.map((w) =>
-        w.id === webinarId ? { ...w, viewedPositionSeconds: positionSeconds } : w
-      )
-    );
-  };
-
-  // Student Submits HW
-  const handleSubmitHomework = async (submissionData: Partial<Submission>) => {
-    if (!submissionData.homeworkId) return;
-
-    const newSub: Submission = {
-      id: `sub-${Date.now()}`,
-      homeworkId: submissionData.homeworkId,
-      studentName: currentUser.name,
-      submittedAt: 'Только что',
-      status: submissionData.status || 'pending',
-      type: submissionData.type || 'written',
-      testAnswers: submissionData.testAnswers,
-      testScore: submissionData.testScore,
-      speakingAudioUrl: submissionData.speakingAudioUrl,
-      essayText: submissionData.essayText,
-      writtenFileName: submissionData.writtenFileName,
-      aiPreviewFeedback: submissionData.aiPreviewFeedback,
-      totalScore: submissionData.totalScore,
-      maxScore: submissionData.maxScore,
-      teacherFeedbackText: submissionData.teacherFeedbackText,
-    };
-
-    await dbAddSubmission(newSub);
-
-    const newNotif: TGNotification = {
-      id: `n-${Date.now()}`,
-      title: '📤 ДЗ отправлено Ангелине!',
-      text: 'Ангелина скоро проверит работу и вышлет разбор. Ожидайте уведомления!',
-      time: 'Только что',
-      isRead: false,
-      type: 'check',
-    };
-    await dbAddNotification(newNotif);
-  };
-
-  // Teacher Grades Submission
-  const handleGradeSubmission = async (submissionId: string, updatedData: Partial<Submission>) => {
-    await dbUpdateSubmission(submissionId, updatedData);
-
-    const sub = submissions.find((s) => s.id === submissionId);
-    if (sub) {
-      const hw = homeworks.find((h) => h.id === sub.homeworkId);
-      const newNotif: TGNotification = {
-        id: `n-${Date.now()}`,
-        title: '🎧 Ангелина проверила твой ' + (hw?.title || 'ДЗ') + '!',
-        text: `Оценка: ${updatedData.totalScore}/${updatedData.maxScore || 14} баллов. Послушай разбор!`,
-        time: 'Только что',
-        isRead: false,
-        type: 'check',
-      };
-      await dbAddNotification(newNotif);
-    }
-  };
-
-  // Finish Speaking Simulator -> Auto create submission
-  const handleFinishSimulatedSpeaking = (audioUrl: string) => {
-    const hw = homeworks.find((h) => h.type === 'speaking') || homeworks[0];
-    if (hw) {
-      handleSubmitHomework({
-        homeworkId: hw.id,
-        status: 'pending',
-        type: 'speaking',
-        speakingAudioUrl: audioUrl,
-      });
-    }
-    setActiveTab('homeworks');
-  };
-
-  // Update Student Profile (Name, Avatar, Target Score, Telegram Handle)
-  const handleUpdateProfile = async (updated: {
-    name: string;
-    targetExamScore: number;
-    avatarUrl: string;
-    telegramHandle: string;
-    newPassword?: string;
-  }) => {
-    const prevName = currentUser.name;
-
-    setCurrentUser((prev) => ({
-      ...prev,
-      name: updated.name,
-      avatarUrl: updated.avatarUrl,
-      telegramHandle: updated.telegramHandle,
-    }));
-
-    setCustomTargetScore(updated.targetExamScore);
-
-    // If password was changed
-    if (updated.newPassword) {
-      if (currentUser.role === 'student') {
-        const studentToUpdate = registeredStudents.find(
-          (s) => s.name === prevName || s.name === updated.name || s.login === currentUser.login
-        );
-        if (studentToUpdate) {
-          const updatedStudentObj = {
-            ...studentToUpdate,
-            name: updated.name,
-            password: updated.newPassword,
-            isFirstLogin: false,
+  const handleHomeworkSubmit = (hwId: string, solutionText: string, fileName?: string) => {
+    setHomeworks((prev) =>
+      prev.map((hw) => {
+        if (hw.id === hwId) {
+          return {
+            ...hw,
+            status: 'submitted',
+            submittedText: solutionText,
+            submittedFile: fileName,
           };
-          setRegisteredStudents((prev) =>
-            prev.map((s) => (s.id === studentToUpdate.id ? updatedStudentObj : s))
-          );
-          await dbUpdateStudent(updatedStudentObj);
         }
-      } else {
-        localStorage.setItem('ege_app_admin_pin', updated.newPassword);
-        localStorage.setItem('ege_app_admin_password', updated.newPassword);
-      }
-    }
-
-    // If student changed their name, update active submissions studentName
-    if (prevName !== updated.name) {
-      setSubmissions((prev) =>
-        prev.map((s) => (s.studentName === prevName ? { ...s, studentName: updated.name } : s))
-      );
-    }
-
-    try {
-      localStorage.setItem('ege_app_target_score', String(updated.targetExamScore));
-      localStorage.setItem(
-        'ege_app_user_auth',
-        JSON.stringify({
-          ...currentUser,
-          name: updated.name,
-          avatarUrl: updated.avatarUrl,
-          telegramHandle: updated.telegramHandle,
-        })
-      );
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_read_notif_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('ege_app_read_notif_ids', JSON.stringify(readNotifIds));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [readNotifIds]);
-
-  // Compute notifications based on current user role & active profile
-  const visibleNotifications = React.useMemo(() => {
-    if (!isLoggedIn) return [];
-
-    if (currentUser.role === 'teacher') {
-      const list: TGNotification[] = [];
-
-      // 1. Student joined notifications
-      registeredStudents.forEach((st) => {
-        list.push({
-          id: `notif-joined-${st.id}`,
-          title: `👤 Ученик присоединился: ${st.name}`,
-          text: `Ученик авторизовался в системе (${st.telegramHandle}).`,
-          time: st.addedAt || 'Недавно',
-          isRead: false,
-          type: 'webinar',
-        });
-      });
-
-      // 2. Submissions submitted by real students
-      const realStudentSubmissions = submissions.filter((s) =>
-        registeredStudents.some((st) => st.name === s.studentName)
-      );
-      realStudentSubmissions.forEach((sub) => {
-        const hw = homeworks.find((h) => h.id === sub.homeworkId);
-        list.push({
-          id: `notif-sub-${sub.id}`,
-          title: `📝 Ученик ${sub.studentName} сдал ДЗ!`,
-          text: `Задание "${hw?.title || 'Практическое ДЗ'}" ожидает вашей проверки в кабинете.`,
-          time: sub.submittedAt || 'Недавно',
-          isRead: sub.status === 'graded',
-          type: 'check',
-        });
-      });
-
-      // 3. Streak record notifications for students with streaks
-      registeredStudents.forEach((st) => {
-        list.push({
-          id: `notif-streak-${st.id}`,
-          title: `🔥 Рекорд по стрику дней: ${st.name}`,
-          text: `Ученик успешно заходит в систему и поддерживает ежедневную активность!`,
-          time: 'Сегодня',
-          isRead: true,
-          type: 'streak',
-        });
-      });
-
-      // 4. Achievement notification
-      if (registeredStudents.length > 0) {
-        list.push({
-          id: `notif-achievement-active`,
-          title: `🏆 Достижение: Активная группа 2026`,
-          text: `Все ученики успешно приступили к подготовке к ЕГЭ!`,
-          time: 'Сегодня',
-          isRead: false,
-          type: 'streak',
-        });
-      }
-
-      return list.map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n));
-    }
-
-    const isDefaultStudent = currentUser.name === initialStudentProfile.name;
-    const streakDays = activeStudentProfile.streakDays;
-    const streakDaysStr =
-      streakDays % 10 === 1 && streakDays % 100 !== 11
-        ? `${streakDays} день`
-        : streakDays % 10 >= 2 && streakDays % 10 <= 4 && (streakDays % 100 < 10 || streakDays % 100 >= 20)
-        ? `${streakDays} дня`
-        : `${streakDays} дней`;
-
-    if (!isDefaultStudent) {
-      // New or custom student (e.g. Тимур)
-      const list: TGNotification[] = [];
-
-      // 1. Welcome Notification
-      list.push({
-        id: `welcome-${currentUser.name}`,
-        title: `👋 Добро пожаловать, ${currentUser.name}!`,
-        text: `Вы успешно авторизовались в платформе «Делай и Точка». Смотрите видеоуроки, сдавайте ДЗ и развивайте свой ударный счёт!`,
-        time: 'Только что',
-        isRead: false,
-        type: 'webinar',
-      });
-
-      // 2. Dynamic Streak Notification (1st day or current streak)
-      list.push({
-        id: `streak-${currentUser.name}`,
-        title: `🔥 Твой ударный счёт: ${streakDaysStr}!`,
-        text: `Так держать, ${currentUser.name}! Твоя серия активности составляет ${streakDaysStr}. Выполняй задания ежедневно!`,
-        time: 'Сегодня',
-        isRead: false,
-        type: 'streak',
-      });
-
-      // 3. Homework Available Notification
-      list.push({
-        id: `hw-notice-${currentUser.name}`,
-        title: '⏳ Доступны практические ДЗ к ЕГЭ 2026',
-        text: 'Перейдите во вкладку «ДЗ», чтобы сдать первое домашнее задание преподавателю Ангелине.',
-        time: 'Сегодня',
-        isRead: true,
-        type: 'deadline',
-      });
-
-      // 4. Any real checked HW notifications for THIS student specifically
-      const userGradedHWs = currentStudentSubmissions.filter((s) => s.status === 'graded');
-      userGradedHWs.forEach((sub) => {
-        const hw = homeworks.find((h) => h.id === sub.homeworkId);
-        list.push({
-          id: `graded-${sub.id}`,
-          title: `🎧 Ангелина проверила твой ${hw?.title || 'ответ'}!`,
-          text: `Оценка: ${sub.totalScore}/${sub.maxScore || 14} баллов. Заходи посмотреть комментарий и аудиоразбор!`,
-          time: sub.submittedAt || 'Недавно',
-          isRead: false,
-          type: 'check',
-        });
-      });
-
-      // Append any new notifications created during session (excluding n1/n2/n3 defaults)
-      const sessionNewNotifs = notifications.filter(
-        (n) => n.id !== 'n1' && n.id !== 'n2' && n.id !== 'n3' && !n.id.startsWith('welcome-') && !n.id.startsWith('streak-')
-      );
-
-      const combined = [...list, ...sessionNewNotifs];
-      return combined.map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n));
-    }
-
-    // Default student (Александр Ковалев) - update streak notification text to match actual streakDays
-    const result = notifications.map((n) => {
-      if (n.type === 'streak') {
-        return {
-          ...n,
-          title: `🔥 Твой ударный счёт: ${streakDaysStr}!`,
-          text: `Так держать! Твоя серия активности составляет ${streakDaysStr}.`,
-        };
-      }
-      return n;
-    });
-
-    return result.map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n));
-  }, [currentUser.name, activeStudentProfile.streakDays, currentStudentSubmissions, homeworks, notifications, readNotifIds]);
-
-  // Mark notification read
-  const handleNotificationRead = async (id: string) => {
-    setReadNotifIds((prev) => [...prev, id]);
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+        return hw;
+      })
     );
-    await dbMarkNotificationRead(id);
+
+    // Reward student with XP and Delay Coins
+    setProfile((prev) => {
+      const newXp = prev.xp + 50;
+      const newLevel = newXp >= prev.nextLevelXp ? prev.level + 1 : prev.level;
+      const nextLevelXp = newLevel > prev.level ? prev.nextLevelXp + 1000 : prev.nextLevelXp;
+
+      return {
+        ...prev,
+        xp: newXp,
+        level: newLevel,
+        nextLevelXp,
+        coins: prev.coins + 30,
+        completedHomeworks: prev.completedHomeworks + 1,
+      };
+    });
   };
 
-  const pendingHwCount = homeworks.filter((hw) => {
-    const sub = submissions.find((s) => s.homeworkId === hw.id && s.studentName === currentUser.name);
-    return !sub && hw.deadline !== 'Просрочено';
-  }).length;
+  const handleBuyShopItem = (item: ShopItem) => {
+    setProfile((prev) => ({
+      ...prev,
+      coins: prev.coins - item.priceCoins,
+    }));
+  };
+
+  const handleAskAiForHelp = (promptText: string) => {
+    setInitialAiPrompt(promptText);
+    setActiveTab('ai_tutor');
+  };
+
+  const pendingHwCount = homeworks.filter((h) => h.status === 'pending').length;
 
   return (
-    <div
-      className={`min-h-screen font-sans antialiased transition-colors duration-200 ${
-        isDarkMode ? 'bg-[#0f1721] text-slate-100' : 'bg-slate-100 text-slate-900'
-      }`}
-    >
-      {/* Telegram App Frame Container */}
-      <div className="max-w-md mx-auto min-h-screen flex flex-col shadow-2xl relative bg-inherit">
-        {/* Top Header */}
-        <HeaderTelegram
-          currentUser={currentUser}
-          isLoggedIn={isLoggedIn}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          onSelectTab={setActiveTab}
-          onLogout={handleLogout}
-          streakDays={activeStudentProfile.streakDays}
-          notifications={visibleNotifications}
-          onNotificationRead={handleNotificationRead}
-          isDarkMode={isDarkMode}
-          onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-        />
+    <div className="min-h-screen bg-[#0a0a0c] text-slate-200 font-sans selection:bg-indigo-500 selection:text-white">
+      {/* Top Sticky Header */}
+      <Header
+        profile={profile}
+        botInfo={botInfo}
+        onOpenProfile={() => setActiveTab('profile')}
+        onOpenShop={() => setActiveTab('shop')}
+        onOpenBotInfo={() => setActiveTab('profile')}
+      />
 
-        {/* Main View Body */}
-        <main className="flex-1 px-3.5 pt-3 pb-20">
-          {!isLoggedIn ? (
-            <WelcomeAuthScreen
-              onLogin={handleLogin}
-              registeredStudents={registeredStudents}
-              onSetStudentPassword={handleSetStudentPassword}
-              isDarkMode={isDarkMode}
-            />
-          ) : (
-            <>
-              {activeTab === 'webinars' && (
-                <WebinarLibrary
-                  webinars={webinars}
-                  isDarkMode={isDarkMode}
-                  onSaveProgress={handleSaveWebinarProgress}
-                />
-              )}
-
-              {activeTab === 'homeworks' && (
-                <HomeworkList
-                  homeworks={homeworks}
-                  submissions={submissions}
-                  onSubmitHomework={handleSubmitHomework}
-                  isDarkMode={isDarkMode}
-                  currentUserName={currentUser.name}
-                />
-              )}
-
-              {activeTab === 'simulator' && (
-                <SpeakingSimulator
-                  isDarkMode={isDarkMode}
-                  onFinishSimulatedSpeaking={handleFinishSimulatedSpeaking}
-                />
-              )}
-
-              {activeTab === 'profile' && (
-                <StudentProfile
-                  profile={activeStudentProfile}
-                  isDarkMode={isDarkMode}
-                  onUpdateProfile={handleUpdateProfile}
-                  isAdmin={currentUser.role === 'teacher'}
-                  registeredStudents={registeredStudents}
-                  submissions={submissions}
-                />
-              )}
-
-              {activeTab === 'teacher' && (
-                <TeacherCabinet
-                  submissions={submissions}
-                  homeworks={homeworks}
-                  webinars={webinars}
-                  registeredStudents={registeredStudents}
-                  onAddStudent={handleAddStudent}
-                  onDeleteStudent={handleDeleteStudent}
-                  onGradeSubmission={handleGradeSubmission}
-                  onAddWebinar={handleAddWebinar}
-                  onDeleteWebinar={handleDeleteWebinar}
-                  onAddHomework={handleAddHomework}
-                  isDarkMode={isDarkMode}
-                />
-              )}
-            </>
-          )}
-        </main>
-
-        {/* Bottom Navigation (Only visible after authorization) */}
-        {isLoggedIn && (
-          <Navigation
-            activeTab={activeTab}
-            onSelectTab={setActiveTab}
-            pendingCount={pendingHwCount}
-            currentRole={currentUser.role}
-            isDarkMode={isDarkMode}
+      {/* Main Tab Content */}
+      <main className="min-h-[calc(100vh-120px)]">
+        {activeTab === 'dashboard' && (
+          <DashboardView
+            profile={profile}
+            lessons={lessons}
+            homeworks={homeworks}
+            announcements={announcements}
+            botInfo={botInfo}
+            onRefreshBot={fetchBotInfo}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onSelectLesson={(lesson) => {
+              setSelectedLesson(lesson);
+              setActiveTab('lessons');
+            }}
+            onSelectHomework={(hw) => {
+              setSelectedHomework(hw);
+              setActiveTab('homework');
+            }}
           />
         )}
 
-        {/* Auth & Role Switch Modal */}
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-          currentUser={currentUser}
-          isLoggedIn={isLoggedIn}
-          onLogin={handleLogin}
-          onLogout={handleLogout}
-          isDarkMode={isDarkMode}
-          registeredStudents={registeredStudents}
-        />
-      </div>
+        {activeTab === 'lessons' && (
+          <LessonsView
+            lessons={lessons}
+            selectedLesson={selectedLesson}
+            onSelectLesson={setSelectedLesson}
+            onGoToHomework={(hwId) => {
+              const hw = homeworks.find((h) => h.id === hwId);
+              if (hw) {
+                setSelectedHomework(hw);
+                setActiveTab('homework');
+              }
+            }}
+          />
+        )}
+
+        {activeTab === 'homework' && (
+          <HomeworkView
+            homeworks={homeworks}
+            selectedHomework={selectedHomework}
+            onSelectHomework={setSelectedHomework}
+            onSubmitHomework={handleHomeworkSubmit}
+            onAskAiForHelp={handleAskAiForHelp}
+          />
+        )}
+
+        {activeTab === 'ai_tutor' && (
+          <AiTutorView
+            initialPrompt={initialAiPrompt}
+            onClearInitialPrompt={() => setInitialAiPrompt(undefined)}
+          />
+        )}
+
+        {activeTab === 'shop' && (
+          <ShopView
+            items={shopItems}
+            profile={profile}
+            onBuyItem={handleBuyShopItem}
+          />
+        )}
+
+        {activeTab === 'profile' && (
+          <ProfileView
+            profile={profile}
+            botInfo={botInfo}
+            onRefreshBot={fetchBotInfo}
+          />
+        )}
+      </main>
+
+      {/* Bottom Sticky Navigation Bar */}
+      <Navigation
+        activeTab={activeTab}
+        onChangeTab={setActiveTab}
+        pendingHomeworkCount={pendingHwCount}
+      />
     </div>
   );
 }
