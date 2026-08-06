@@ -1,97 +1,179 @@
-export interface TelegramUser {
-  id: number;
-  first_name: string;
-  last_name?: string;
-  username?: string;
-  language_code?: string;
-  photo_url?: string;
-  is_premium?: boolean;
+export type UserRole = 'student' | 'teacher';
+
+export type BlockCategory = 'speaking' | 'grammar' | 'writing' | 'vocabulary';
+
+export interface Timecode {
+  timeInSeconds: number;
+  label: string;
 }
 
-export interface StudentProfile {
+export interface MaterialFile {
   id: string;
   name: string;
-  username: string;
-  avatar: string;
-  level: number;
-  xp: number;
-  nextLevelXp: number;
-  coins: number;
-  streakDays: number;
-  courseName: string;
-  groupName: string;
-  completedHomeworks: number;
-  totalHomeworks: number;
-  attendanceRate: number;
+  type: 'pdf' | 'doc' | 'script' | 'checklist';
+  size: string;
+  url: string;
 }
 
-export interface Lesson {
+export interface Webinar {
   id: string;
   title: string;
-  subject: string;
-  date: string;
-  time: string;
-  duration: string;
-  tutorName: string;
-  tutorAvatar: string;
-  status: 'upcoming' | 'live' | 'completed';
+  block: BlockCategory;
   description: string;
-  zoomUrl?: string;
-  videoRecordUrl?: string;
-  materialsCount: number;
-  homeworkId?: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  duration: string;
+  durationSeconds: number;
+  timecodes: Timecode[];
+  materials: MaterialFile[];
+  date: string;
+  viewedPositionSeconds?: number;
+}
+
+export type HomeworkType = 'test' | 'speaking' | 'written';
+
+export type HomeworkStatus = 'todo' | 'pending' | 'graded' | 'overdue';
+
+export interface TestOption {
+  id: string;
+  text: string;
+}
+
+export interface TestQuestion {
+  id: string;
+  question: string;
+  type: 'choice' | 'input' | 'match';
+  options?: TestOption[];
+  correctAnswer: string;
+  explanation: string;
+}
+
+export interface HomeworkTask {
+  id: string;
+  block: BlockCategory;
+  taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
+  instruction?: string; // Инструкция к заданию
+  taskPrompt: string; // Задание / Условие
+  taskImageUrl?: string; // Фото / Схема / Иллюстрация к заданию
+  taskAudioUrl?: string; // Голосовое / Аудиозапись к заданию (для Speaking)
+  sampleAnswer?: string;
 }
 
 export interface Homework {
   id: string;
-  lessonId: string;
+  webinarId?: string;
   title: string;
-  subject: string;
-  deadline: string;
-  status: 'pending' | 'submitted' | 'approved' | 'revision';
-  score?: number;
-  maxScore: number;
+  block: BlockCategory;
+  type: HomeworkType;
+  deadline: string; // ISO or readable
+  deadlineDate: string;
+  maxPoints: number;
   description: string;
-  taskDetails: string;
-  submittedText?: string;
-  submittedFile?: string;
-  tutorFeedback?: string;
+  tasks?: HomeworkTask[];
+  testQuestions?: TestQuestion[];
+  speakingPrompt?: {
+    taskNumber: string;
+    textPrompt: string;
+    imageUrl?: string;
+    preparationSeconds: number; // e.g. 40
+    answerSeconds: number; // e.g. 90
+    requirements: string[];
+  };
+  writtenPrompt?: {
+    taskTitle: string;
+    instructions: string;
+    minWords?: number;
+    maxWords?: number;
+    samplePdfUrl?: string;
+  };
 }
 
-export interface ShopItem {
+export interface FipiCriteriaScores {
+  k1_taskSolution: number; // Max 3 or 4
+  k2_organization: number; // Max 3
+  k3_vocabulary: number; // Max 3
+  k4_grammar: number; // Max 3
+}
+
+export interface Submission {
+  id: string;
+  homeworkId: string;
+  studentName: string;
+  submittedAt: string;
+  status: HomeworkStatus;
+  type: HomeworkType;
+  // Test data
+  testAnswers?: Record<string, string>;
+  testScore?: number;
+  // Speaking data
+  speakingAudioUrl?: string;
+  speakingDurationSeconds?: number;
+  // Multi-task answers
+  taskAnswers?: Record<string, { textAnswer?: string; voiceAudioUrl?: string; imageUrls?: string[] }>;
+  // Written data
+  writtenFileUrl?: string;
+  writtenFileName?: string;
+  writtenImageUrls?: string[];
+  essayText?: string;
+  // Feedback from Angelina
+  criteriaScores?: FipiCriteriaScores;
+  totalScore?: number;
+  maxScore?: number;
+  teacherFeedbackText?: string;
+  teacherVoiceAudioUrl?: string;
+  teacherCheckedAt?: string;
+  // AI Pre-check feedback
+  aiPreviewFeedback?: string;
+}
+
+export interface Badge {
   id: string;
   title: string;
-  category: 'merch' | 'boost' | 'stickers' | 'consultation';
-  priceCoins: number;
-  image: string;
   description: string;
-  badge?: string;
-  stock: number;
+  iconName: string;
+  unlocked: boolean;
+  unlockedAt?: string;
 }
 
-export interface AiChatMessage {
-  id: string;
-  sender: 'user' | 'ai';
-  text: string;
-  timestamp: string;
-  isCode?: boolean;
-}
-
-export interface Announcement {
-  id: string;
-  title: string;
-  content: string;
+export interface ExamBlockScore {
+  trialName: string;
   date: string;
-  type: 'info' | 'urgent' | 'contest';
-  linkText?: string;
+  listening: number; // out of 20
+  reading: number; // out of 20
+  grammarVocabulary: number; // out of 20
+  writing: number; // out of 20
+  speaking: number; // out of 20
+  total: number; // out of 100
 }
 
-export interface BotInfo {
-  online: boolean;
-  username: string;
-  appUrl: string;
-  lastError: string | null;
-  commandsCount: number;
-  telegramLink: string;
-  botDirectLink: string;
+export interface StudentProfile {
+  name: string;
+  telegramHandle: string;
+  avatarUrl: string;
+  streakDays: number;
+  streakHistory: boolean[]; // last 7 days
+  totalHwSubmitted: number;
+  averageScorePercent: number;
+  targetExamScore: number;
+  badges: Badge[];
+  examProgress: ExamBlockScore[];
+}
+
+export interface RegisteredStudent {
+  id: string;
+  name: string;
+  login: string;
+  telegramHandle?: string;
+  password?: string;
+  addedAt: string;
+  isFirstLogin: boolean;
+}
+
+export interface TGNotification {
+  id: string;
+  title: string;
+  text: string;
+  time: string;
+  isRead: boolean;
+  type: 'check' | 'deadline' | 'webinar' | 'streak';
 }

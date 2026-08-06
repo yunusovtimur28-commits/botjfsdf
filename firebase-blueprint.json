@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "webinars": {
+      "title": "Webinar",
+      "description": "Video lessons and webinars published by admin/teacher",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "block": { "type": "string" },
+        "description": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "duration": { "type": "string" },
+        "durationSeconds": { "type": "number" },
+        "date": { "type": "string" },
+        "timecodes": { "type": "array" },
+        "materials": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "block", "videoUrl"]
+    },
+    "homeworks": {
+      "title": "Homework",
+      "description": "Homework assignments created by admin",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "block": { "type": "string" },
+        "type": { "type": "string" },
+        "deadline": { "type": "string" },
+        "deadlineDate": { "type": "string" },
+        "maxPoints": { "type": "number" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "block", "type"]
+    },
+    "submissions": {
+      "title": "Submission",
+      "description": "Student homework submissions and teacher grading",
+      "type": "object",
+      "properties": {
+        "homeworkId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "status": { "type": "string" },
+        "type": { "type": "string" },
+        "testAnswers": { "type": "object" },
+        "testScore": { "type": "number" },
+        "speakingAudioUrl": { "type": "string" },
+        "essayText": { "type": "string" },
+        "writtenFileName": { "type": "string" },
+        "aiPreviewFeedback": { "type": "string" },
+        "criteriaScores": { "type": "object" },
+        "totalScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "teacherFeedbackText": { "type": "string" },
+        "teacherVoiceAudioUrl": { "type": "string" },
+        "teacherCheckedAt": { "type": "string" }
+      },
+      "required": ["homeworkId", "studentName"]
+    },
+    "notifications": {
+      "title": "Notification",
+      "description": "System and Telegram bot notifications",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "text": { "type": "string" },
+        "time": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "text"]
+    }
+  }
+}

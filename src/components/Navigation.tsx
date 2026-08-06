@@ -1,81 +1,103 @@
 import React from 'react';
-import { Home, Calendar, CheckSquare, Bot, ShoppingBag, User } from 'lucide-react';
-import { triggerHapticFeedback } from '../lib/telegram';
+import { UserRole } from '../types';
+import {
+  BookOpen,
+  FileCheck2,
+  Timer,
+  User,
+  GraduationCap,
+} from 'lucide-react';
 
-export type TabType = 'dashboard' | 'lessons' | 'homework' | 'ai_tutor' | 'shop' | 'profile';
+export type NavTab = 'webinars' | 'homeworks' | 'simulator' | 'profile' | 'teacher';
 
 interface NavigationProps {
-  activeTab: TabType;
-  onChangeTab: (tab: TabType) => void;
-  pendingHomeworkCount?: number;
-}
-
-interface TabItem {
-  id: TabType;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  badge?: number;
-  isAi?: boolean;
+  activeTab: NavTab;
+  onSelectTab: (tab: NavTab) => void;
+  pendingCount: number;
+  currentRole: UserRole;
+  isDarkMode: boolean;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
-  onChangeTab,
-  pendingHomeworkCount = 0,
+  onSelectTab,
+  pendingCount,
+  currentRole,
+  isDarkMode,
 }) => {
-  const tabs: TabItem[] = [
-    { id: 'dashboard', label: 'Главная', icon: Home },
-    { id: 'lessons', label: 'Уроки', icon: Calendar },
-    { id: 'homework', label: 'ДЗ', icon: CheckSquare, badge: pendingHomeworkCount },
-    { id: 'ai_tutor', label: 'ИИ Тьютор', icon: Bot, isAi: true },
-    { id: 'shop', label: 'Магазин', icon: ShoppingBag },
-    { id: 'profile', label: 'Профиль', icon: User },
+  const navItems = currentRole === 'teacher' ? [
+    {
+      id: 'teacher' as NavTab,
+      label: 'Кабинет',
+      icon: GraduationCap,
+      badge: null,
+    },
+    {
+      id: 'profile' as NavTab,
+      label: 'Профиль',
+      icon: User,
+      badge: null,
+    },
+  ] : [
+    {
+      id: 'webinars' as NavTab,
+      label: 'База знаний',
+      icon: BookOpen,
+      badge: null,
+    },
+    {
+      id: 'homeworks' as NavTab,
+      label: 'ДЗ',
+      icon: FileCheck2,
+      badge: pendingCount > 0 ? pendingCount : null,
+    },
+    {
+      id: 'simulator' as NavTab,
+      label: 'Тренажёр',
+      icon: Timer,
+      badge: null,
+    },
+    {
+      id: 'profile' as NavTab,
+      label: 'Профиль',
+      icon: User,
+      badge: null,
+    },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#121214]/95 backdrop-blur-lg border-t border-white/5 py-2 px-3">
-      <div className="max-w-xl mx-auto flex items-center justify-around">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-
+    <nav className={`fixed bottom-0 left-0 right-0 z-40 border-t transition-colors ${
+      isDarkMode
+        ? 'bg-[#17212b]/95 border-[#0b141d] text-slate-300'
+        : 'bg-white/95 border-slate-200 text-slate-600'
+    } backdrop-blur-lg`}>
+      <div className="max-w-md mx-auto px-2 py-1.5 flex items-center justify-around">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
           return (
             <button
-              key={tab.id}
-              id={`nav-tab-${tab.id}`}
-              onClick={() => {
-                triggerHapticFeedback('light');
-                onChangeTab(tab.id as TabType);
-              }}
-              className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+              key={item.id}
+              onClick={() => onSelectTab(item.id)}
+              className={`relative flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
                 isActive
-                  ? tab.isAi
-                    ? 'text-purple-400 font-semibold scale-105'
-                    : 'text-indigo-400 font-semibold scale-105'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? isDarkMode
+                    ? 'text-sky-400 font-bold scale-105'
+                    : 'text-sky-600 font-bold scale-105'
+                  : 'hover:opacity-80 font-medium text-xs'
               }`}
             >
               <div className="relative">
-                <Icon
-                  className={`w-5 h-5 transition-transform ${
-                    isActive ? 'stroke-[2.5px]' : 'stroke-2'
-                  }`}
-                />
-                {tab.badge && tab.badge > 0 ? (
-                  <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-[#0a0a0c] animate-pulse">
-                    {tab.badge}
+                <Icon className={`w-5 h-5 transition-transform ${isActive ? 'scale-110' : ''}`} />
+                {item.badge !== null && (
+                  <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full border border-white dark:border-[#17212b]">
+                    {item.badge}
                   </span>
-                ) : null}
+                )}
               </div>
-              <span className="text-[10px] mt-1 font-medium tracking-tight whitespace-nowrap">
-                {tab.label}
-              </span>
+              <span className="text-[10px] mt-1 tracking-tight leading-none">{item.label}</span>
               {isActive && (
-                <span
-                  className={`absolute bottom-0 w-5 h-0.5 rounded-full ${
-                    tab.isAi ? 'bg-purple-400' : 'bg-indigo-500'
-                  }`}
-                />
+                <span className="absolute -bottom-1 w-5 h-0.5 bg-sky-500 rounded-full" />
               )}
             </button>
           );
