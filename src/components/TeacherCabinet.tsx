@@ -32,6 +32,8 @@ import {
   Lock,
   UserPlus,
   ShieldAlert,
+  Paperclip,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface TeacherCabinetProps {
@@ -45,6 +47,8 @@ interface TeacherCabinetProps {
   onAddWebinar: (newWebinar: Webinar) => void;
   onDeleteWebinar?: (webinarId: string) => void;
   onAddHomework?: (newHw: Homework) => void;
+  onUpdateHomework?: (updatedHw: Homework) => void;
+  onDeleteHomework?: (hwId: string) => void;
   isDarkMode: boolean;
 }
 
@@ -61,6 +65,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   onAddWebinar,
   onDeleteWebinar,
   onAddHomework,
+  onUpdateHomework,
+  onDeleteHomework,
   isDarkMode,
 }) => {
   const [adminTab, setAdminTab] = useState<AdminTab>('upload_video');
@@ -68,10 +74,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   // SOFT DELETION & 5s UNDO TIMER STATE
   const [softDeletedStudentIds, setSoftDeletedStudentIds] = useState<string[]>([]);
   const [softDeletedWebinarIds, setSoftDeletedWebinarIds] = useState<string[]>([]);
+  const [softDeletedHwIds, setSoftDeletedHwIds] = useState<string[]>([]);
 
   const [undoToast, setUndoToast] = useState<{
     id: string;
-    type: 'student' | 'webinar';
+    type: 'student' | 'webinar' | 'homework';
     name: string;
     secondsLeft: number;
   } | null>(null);
@@ -84,6 +91,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         onDeleteStudent(undoToast.id);
       } else if (undoToast.type === 'webinar' && onDeleteWebinar) {
         onDeleteWebinar(undoToast.id);
+      } else if (undoToast.type === 'homework' && onDeleteHomework) {
+        onDeleteHomework(undoToast.id);
       }
       setUndoToast(null);
       return;
@@ -94,7 +103,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [undoToast, onDeleteStudent, onDeleteWebinar]);
+  }, [undoToast, onDeleteStudent, onDeleteWebinar, onDeleteHomework]);
 
   const handleTriggerDeleteStudent = (studentId: string, studentName: string) => {
     setSoftDeletedStudentIds((prev) => [...prev, studentId]);
@@ -116,12 +125,24 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     });
   };
 
+  const handleTriggerDeleteHomework = (hwId: string, hwTitle: string) => {
+    setSoftDeletedHwIds((prev) => [...prev, hwId]);
+    setUndoToast({
+      id: hwId,
+      type: 'homework',
+      name: hwTitle,
+      secondsLeft: 5,
+    });
+  };
+
   const handleCancelUndo = () => {
     if (!undoToast) return;
     if (undoToast.type === 'student') {
       setSoftDeletedStudentIds((prev) => prev.filter((id) => id !== undoToast.id));
     } else if (undoToast.type === 'webinar') {
       setSoftDeletedWebinarIds((prev) => prev.filter((id) => id !== undoToast.id));
+    } else if (undoToast.type === 'homework') {
+      setSoftDeletedHwIds((prev) => prev.filter((id) => id !== undoToast.id));
     }
     setUndoToast(null);
   };
@@ -134,6 +155,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const activeWebinars = React.useMemo(() => {
     return webinars.filter((web) => !softDeletedWebinarIds.includes(web.id));
   }, [webinars, softDeletedWebinarIds]);
+
+  const activeHomeworks = React.useMemo(() => {
+    return homeworks.filter((hw) => !softDeletedHwIds.includes(hw.id));
+  }, [homeworks, softDeletedHwIds]);
 
   const activeSubmissions = React.useMemo(() => {
     return submissions.filter((sub) => activeRegisteredStudents.some((st) => st.name === sub.studentName));
@@ -195,6 +220,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   };
 
   // Submissions state for grading
+  const [reviewSubTab, setReviewSubTab] = useState<'pending' | 'graded'>('pending');
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(
     submissions.find((s) => s.status === 'pending') || submissions[0] || null
   );
@@ -312,7 +338,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [newMatName, setNewMatName] = useState('');
   const [uploadSuccessToast, setUploadSuccessToast] = useState<string | null>(null);
 
-  // CREATE HOMEWORK FORM STATE
+  // CREATE / EDIT HOMEWORK FORM STATE
+  const [editingHomeworkId, setEditingHomeworkId] = useState<string | null>(null);
   const [hwTitle, setHwTitle] = useState('');
   const [hwBlock, setHwBlock] = useState<BlockCategory>('speaking');
   const [hwType, setHwType] = useState<'test' | 'speaking' | 'written'>('speaking');
@@ -321,23 +348,80 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [hwSuccessToast, setHwSuccessToast] = useState<string | null>(null);
 
   // Multi-Task HW builder state
+  const [recordingTaskIdx, setRecordingTaskIdx] = useState<number | null>(null);
+  const [teacherMediaRecorder, setTeacherMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [teacherRecordingSeconds, setTeacherRecordingSeconds] = useState<number>(0);
+  const [selectedPublishedMonth, setSelectedPublishedMonth] = useState<string>('all');
+
   const [hwTasks, setHwTasks] = useState<
     {
       id: string;
       block: BlockCategory;
+      taskType: 'test' | 'written' | 'speaking';
       taskNumber: string;
       instruction: string;
       taskPrompt: string;
+      taskImageUrl?: string;
+      taskAudioUrl?: string;
+      options?: string[];
+      correctOptionIndex?: number;
     }[]
   >([
     {
       id: 'task-1',
       block: 'speaking',
+      taskType: 'speaking',
       taskNumber: 'Задание №1',
       instruction: 'Прочитайте текст вслух. У вас есть 1.5 минуты на подготовку и 1.5 минуты на чтение.',
       taskPrompt: 'Text prompt for speaking task...',
+      options: ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+      correctOptionIndex: 0,
     },
   ]);
+
+  React.useEffect(() => {
+    let interval: any;
+    if (recordingTaskIdx !== null) {
+      interval = setInterval(() => {
+        setTeacherRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } else {
+      setTeacherRecordingSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [recordingTaskIdx]);
+
+  const startTeacherRecording = async (idx: number) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(blob);
+        setHwTasks((prev) =>
+          prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: audioUrl } : t))
+        );
+        stream.getTracks().forEach((track) => track.stop());
+        setRecordingTaskIdx(null);
+      };
+      recorder.start();
+      setTeacherMediaRecorder(recorder);
+      setRecordingTaskIdx(idx);
+      setTeacherRecordingSeconds(0);
+    } catch (err) {
+      alert('Не удалось получить доступ к микрофону. Разрешите доступ к микрофону в браузере.');
+    }
+  };
+
+  const stopTeacherRecording = () => {
+    if (teacherMediaRecorder && teacherMediaRecorder.state !== 'inactive') {
+      teacherMediaRecorder.stop();
+    }
+  };
 
   const getTaskNumberOptions = (block: BlockCategory): string[] => {
     switch (block) {
@@ -485,6 +569,52 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setMaterials((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const handleVideoUrlInputChange = (url: string) => {
+    setVideoUrl(url);
+    if (!url.trim()) return;
+
+    const cleanUrl = url.trim();
+
+    // YouTube Auto-Detection
+    const ytMatch = cleanUrl.match(
+      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?\/\s]{11})/i
+    );
+    if (ytMatch && ytMatch[1]) {
+      const ytId = ytMatch[1];
+      const autoThumb = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+      if (!thumbnailUrl || thumbnailUrl.includes('unsplash')) {
+        setThumbnailUrl(autoThumb);
+      }
+      fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${ytId}&format=json`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data) {
+            if (data.title && (!videoTitle || videoTitle.startsWith('Задание') || videoTitle === '')) {
+              setVideoTitle(data.title);
+            }
+            if (data.thumbnail_url) {
+              setThumbnailUrl(data.thumbnail_url);
+            }
+          }
+        })
+        .catch(() => {});
+    } else if (cleanUrl.includes('rutube.ru')) {
+      fetch(`https://rutube.ru/api/oembed/?url=${encodeURIComponent(cleanUrl)}&format=json`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data) {
+            if (data.title && (!videoTitle || videoTitle === '')) {
+              setVideoTitle(data.title);
+            }
+            if (data.thumbnail_url) {
+              setThumbnailUrl(data.thumbnail_url);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  };
+
   // PUBLISH VIDEO LESSON / WEBINAR
   const handlePublishWebinar = (e: React.FormEvent) => {
     e.preventDefault();
@@ -496,9 +626,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const finalVideoUrl =
       videoUrl.trim() ||
       'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-    const finalThumbUrl =
-      thumbnailUrl.trim() ||
-      'https://images.unsplash.com/photo-1571260899304-425eee4c7efc?auto=format&fit=crop&w=800&q=80';
+    
+    // Auto cover detection if not specified
+    let finalThumbUrl = thumbnailUrl.trim();
+    if (!finalThumbUrl) {
+      const ytMatch = finalVideoUrl.match(
+        /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?\/\s]{11})/i
+      );
+      if (ytMatch && ytMatch[1]) {
+        finalThumbUrl = `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+      } else {
+        finalThumbUrl =
+          'https://images.unsplash.com/photo-1571260899304-425eee4c7efc?auto=format&fit=crop&w=800&q=80';
+      }
+    }
 
     const durSec = parseTimeToSeconds(videoDuration) || 2700;
 
@@ -514,7 +655,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       date: 'Только что',
       timecodes: timecodes.map((tc) => ({
         timeInSeconds: tc.timeInSeconds,
-        label: `${tc.timeStr} — ${tc.label}`,
+        label: tc.label.includes('—') ? tc.label : `${tc.timeStr || '00:00'} — ${tc.label}`,
       })),
       materials,
     };
@@ -532,7 +673,98 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     }, 5000);
   };
 
-  // POST HOMEWORK
+  const handleGenerateAiTimecodes = () => {
+    const title = videoTitle.trim() || 'Видеоурок ЕГЭ по английскому языку';
+    const totalSeconds = parseTimeToSeconds(videoDuration) || 2700;
+
+    const formatSec = (s: number) => {
+      const hrs = Math.floor(s / 3600);
+      const mins = Math.floor((s % 3600) / 60);
+      const secs = Math.floor(s % 60);
+      if (hrs > 0) {
+        return `${hrs}:${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+      }
+      return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    };
+
+    const p0 = 0;
+    const p1 = Math.floor(totalSeconds * 0.08);
+    const p2 = Math.floor(totalSeconds * 0.25);
+    const p3 = Math.floor(totalSeconds * 0.50);
+    const p4 = Math.floor(totalSeconds * 0.75);
+    const p5 = Math.floor(totalSeconds * 0.92);
+
+    const autoTimecodes = [
+      { timeInSeconds: p0, timeStr: formatSec(p0), label: `🎬 Введение и план урока: ${title}` },
+      { timeInSeconds: p1, timeStr: formatSec(p1), label: '📖 Разбор критериев ФИПИ и типовых ошибок' },
+      { timeInSeconds: p2, timeStr: formatSec(p2), label: '💡 Ключевые правила, структуры и шаблоны' },
+      { timeInSeconds: p3, timeStr: formatSec(p3), label: '✍️ Практическое задание и разбор примера' },
+      { timeInSeconds: p4, timeStr: formatSec(p4), label: '🚀 Лайфхаки для максимального балла на экзамене' },
+      { timeInSeconds: p5, timeStr: formatSec(p5), label: '❓ Итоги урока и домашнее задание' },
+    ];
+    setTimecodes(autoTimecodes);
+  };
+
+  const handleStartEditHomework = (hw: Homework) => {
+    setEditingHomeworkId(hw.id);
+    setHwTitle(hw.title);
+    setHwDeadline(hw.deadline || 'Завтра, 18:00');
+    setHwDescription(hw.description || '');
+    setHwBlock(hw.block);
+    if (hw.tasks && hw.tasks.length > 0) {
+      setHwTasks(
+        hw.tasks.map((t) => ({
+          id: t.id,
+          block: t.block,
+          taskType: t.taskType || (t.block === 'speaking' ? 'speaking' : t.block === 'writing' ? 'written' : 'test'),
+          taskNumber: t.taskNumber,
+          instruction: t.instruction || '',
+          taskPrompt: t.taskPrompt,
+          taskImageUrl: t.taskImageUrl,
+          taskAudioUrl: t.taskAudioUrl,
+          options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+          correctOptionIndex: t.correctOptionIndex ?? 0,
+        }))
+      );
+    } else {
+      setHwTasks([
+        {
+          id: 'task-1',
+          block: hw.block,
+          taskType: hw.type || 'test',
+          taskNumber: 'Задание №1',
+          instruction: 'Инструкция к заданию...',
+          taskPrompt: hw.description || 'Условие задания...',
+          options: ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+          correctOptionIndex: 0,
+        },
+      ]);
+    }
+    setAdminTab('create_hw');
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 50);
+  };
+
+  const handleCancelEditHomework = () => {
+    setEditingHomeworkId(null);
+    setHwTitle('');
+    setHwDescription('');
+    setHwTasks([
+      {
+        id: 'task-1',
+        block: 'speaking',
+        taskType: 'speaking',
+        taskNumber: 'Задание №1',
+        instruction: 'Прочитайте текст вслух. У вас есть 1.5 минуты на подготовку и 1.5 минуты на чтение.',
+        taskPrompt: 'Text prompt for speaking task...',
+        options: ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+        correctOptionIndex: 0,
+      },
+    ]);
+  };
+
+  // POST OR EDIT HOMEWORK
   const handlePublishHomework = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hwTitle.trim()) return;
@@ -540,45 +772,62 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const formattedTasks = hwTasks.map((t, idx) => ({
       id: t.id || `task-${idx + 1}`,
       block: t.block,
+      taskType: t.taskType || 'test',
       taskNumber: t.taskNumber,
       instruction: t.instruction,
       taskPrompt: t.taskPrompt,
+      taskImageUrl: t.taskImageUrl,
+      taskAudioUrl: t.taskAudioUrl,
+      options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+      correctOptionIndex: t.correctOptionIndex ?? 0,
+      correctAnswer: t.options ? t.options[t.correctOptionIndex ?? 0] : undefined,
     }));
 
     const primaryBlock = formattedTasks[0]?.block || hwBlock;
+    const primaryType = formattedTasks[0]?.taskType || 'test';
+    const isEditing = Boolean(editingHomeworkId);
+    const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
-    const newHw: Homework = {
-      id: `hw-${Date.now()}`,
+    const hwData: Homework = {
+      id: targetHwId,
       title: hwTitle.trim(),
       block: primaryBlock,
-      type: primaryBlock === 'speaking' ? 'speaking' : primaryBlock === 'writing' ? 'written' : 'test',
+      type: primaryType as any,
       deadline: hwDeadline,
       deadlineDate: new Date(Date.now() + 86400000).toISOString(),
+      month: 'Май 2026',
       maxPoints: formattedTasks.length * 5,
       description: hwDescription.trim() || `Домашнее задание от Ангелины из ${formattedTasks.length} заданий.`,
       tasks: formattedTasks,
     };
 
-    if (onAddHomework) {
-      onAddHomework(newHw);
+    if (isEditing && onUpdateHomework) {
+      onUpdateHomework(hwData);
+      setHwSuccessToast(`Изменения в ДЗ «${hwTitle.trim()}» успешно сохранены!`);
+    } else if (onAddHomework) {
+      onAddHomework(hwData);
+      setHwSuccessToast(`ДЗ «${hwTitle.trim()}» успешно отправлено ученикам!`);
     }
 
-    setHwSuccessToast(hwTitle.trim());
+    setEditingHomeworkId(null);
     setHwTitle('');
     setHwDescription('');
     setHwTasks([
       {
         id: 'task-1',
         block: 'speaking',
+        taskType: 'speaking',
         taskNumber: 'Задание №1',
         instruction: 'Прочитайте текст вслух. У вас есть 1.5 минуты на подготовку и 1.5 минуты на чтение.',
         taskPrompt: 'Text prompt for speaking task...',
+        options: ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+        correctOptionIndex: 0,
       },
     ]);
 
     setTimeout(() => {
       setHwSuccessToast(null);
-    }, 5000);
+    }, 6000);
   };
 
   // Review & Grading Submission Handlers
@@ -876,12 +1125,12 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
               {/* Video URL */}
               <div className="space-y-1">
-                <label className="font-semibold text-slate-400">Ссылка на видео (YouTube / MP4 / VK):</label>
+                <label className="font-semibold text-slate-400">Ссылка на видео (YouTube / MP4 / VK / Rutube):</label>
                 <input
                   type="text"
                   value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  placeholder="https://commondatastorage.googleapis.com/.../video.mp4"
+                  onChange={(e) => handleVideoUrlInputChange(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... или https://rutube.ru/..."
                   className={`w-full p-2.5 rounded-xl border font-mono text-[11px] ${
                     isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
                   }`}
@@ -923,6 +1172,14 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     <Clock className="w-3.5 h-3.5" />
                     <span>Таймкоды к ролику ({timecodes.length})</span>
                   </label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAiTimecodes}
+                    className="text-[10px] font-bold px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg shadow-md flex items-center space-x-1 transition-all"
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-300" />
+                    <span>✨ ИИ Авто-таймкоды</span>
+                  </button>
                 </div>
 
                 <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
@@ -1034,11 +1291,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           {/* LIST OF CURRENTLY PUBLISHED WEBINARS */}
           <div className="space-y-2">
             <h3 className="font-bold text-xs text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Загруженные видеоуроки ({webinars.length})</span>
+              <span>Загруженные видеоуроки ({activeWebinars.length})</span>
             </h3>
 
             <div className="space-y-2">
-              {webinars.map((web) => (
+              {activeWebinars.map((web) => (
                 <div
                   key={web.id}
                   className={`p-3 rounded-xl border flex items-center justify-between ${
@@ -1061,7 +1318,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
                   {onDeleteWebinar && (
                     <button
-                      onClick={() => onDeleteWebinar(web.id)}
+                      onClick={() => handleTriggerDeleteWebinar(web.id, web.title)}
                       title="Удалить ролик"
                       className="p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors ml-2 shrink-0"
                     >
@@ -1078,53 +1335,104 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       {/* ================= TAB 2: REVIEW SUBMISSIONS ================= */}
       {adminTab === 'review_hw' && (
         <div className="space-y-4">
-          {/* Submissions List Queue */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Очередь проверок ({submissions.filter((s) => s.status === 'pending').length} ожидают)
-            </h3>
+          {/* Submissions List Queue with Sub-Tabs */}
+          <div className="space-y-3">
+            <div className="flex items-center space-x-2 border-b border-slate-700/50 pb-2 flex-wrap gap-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReviewSubTab('pending');
+                  const firstPending = activeSubmissions.find((s) => s.status === 'pending');
+                  if (firstPending) handleSelectSubmission(firstPending);
+                  else setSelectedSubmission(null);
+                }}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
+                  reviewSubTab === 'pending'
+                    ? 'bg-amber-500 text-slate-900 shadow-md'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Очередь на проверку ({activeSubmissions.filter((s) => s.status === 'pending').length})</span>
+              </button>
 
-            <div className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
-              {submissions.map((sub) => {
-                const hw = getHomeworkForSubmission(sub.homeworkId);
-                const isSelected = selectedSubmission?.id === sub.id;
+              <button
+                type="button"
+                onClick={() => {
+                  setReviewSubTab('graded');
+                  const firstGraded = activeSubmissions.find((s) => s.status === 'graded');
+                  if (firstGraded) handleSelectSubmission(firstGraded);
+                  else setSelectedSubmission(null);
+                }}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
+                  reviewSubTab === 'graded'
+                    ? 'bg-emerald-500 text-white shadow-md'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Сданные / Проверенные ДЗ ({activeSubmissions.filter((s) => s.status === 'graded').length})</span>
+              </button>
+            </div>
 
-                return (
-                  <button
-                    key={sub.id}
-                    onClick={() => handleSelectSubmission(sub)}
-                    className={`p-3 rounded-xl border text-left shrink-0 w-48 transition-all ${
-                      isSelected
-                        ? 'bg-purple-600 text-white border-purple-600 shadow-md'
-                        : sub.status === 'pending'
-                        ? isDarkMode
-                          ? 'bg-amber-950/30 border-amber-500/40 text-slate-200'
-                          : 'bg-amber-50 border-amber-300 text-slate-900'
-                        : isDarkMode
-                        ? 'bg-[#17212b] border-slate-800 text-slate-400'
-                        : 'bg-white border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[10px] mb-1">
-                      <span className="font-bold truncate">{sub.studentName}</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded font-extrabold ${
-                          sub.status === 'pending'
-                            ? 'bg-amber-400 text-slate-900'
-                            : 'bg-emerald-500 text-white'
+            {/* Submissions List */}
+            {activeSubmissions.filter((s) => s.status === reviewSubTab).length === 0 ? (
+              <div
+                className={`p-6 text-center rounded-2xl border ${
+                  isDarkMode ? 'bg-[#1e2c3a] border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
+                }`}
+              >
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-60" />
+                <p className="font-bold text-xs">
+                  {reviewSubTab === 'pending'
+                    ? 'Все домашние задания проверены! Очередь пуста.'
+                    : 'Пока нет проверенных работ.'}
+                </p>
+              </div>
+            ) : (
+              <div className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
+                {activeSubmissions
+                  .filter((s) => s.status === reviewSubTab)
+                  .map((sub) => {
+                    const hw = getHomeworkForSubmission(sub.homeworkId);
+                    const isSelected = selectedSubmission?.id === sub.id;
+
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => handleSelectSubmission(sub)}
+                        className={`p-3 rounded-xl border text-left shrink-0 w-48 transition-all ${
+                          isSelected
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-md'
+                            : sub.status === 'pending'
+                            ? isDarkMode
+                              ? 'bg-amber-950/30 border-amber-500/40 text-slate-200'
+                              : 'bg-amber-50 border-amber-300 text-slate-900'
+                            : isDarkMode
+                            ? 'bg-[#17212b] border-slate-800 text-slate-400'
+                            : 'bg-white border-slate-200 text-slate-700'
                         }`}
                       >
-                        {sub.status === 'pending' ? 'Ждет' : 'Проверено'}
-                      </span>
-                    </div>
-                    <h4 className="font-bold text-xs truncate leading-snug">
-                      {hw?.title || 'Домашнее задание'}
-                    </h4>
-                    <p className="text-[10px] opacity-80 mt-1">{sub.submittedAt}</p>
-                  </button>
-                );
-              })}
-            </div>
+                        <div className="flex items-center justify-between text-[10px] mb-1">
+                          <span className="font-bold truncate">{sub.studentName}</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded font-extrabold ${
+                              sub.status === 'pending' ? 'bg-amber-400 text-slate-900' : 'bg-emerald-500 text-white'
+                            }`}
+                          >
+                            {sub.status === 'pending' ? 'Ждет' : 'Проверено'}
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-xs truncate leading-snug">
+                          {hw?.title || 'Домашнее задание'}
+                        </h4>
+                        <p className="text-[10px] opacity-80 mt-1">{sub.submittedAt}</p>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
 
           {/* Selected Submission Review Interface */}
@@ -1156,33 +1464,37 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     <span>Запись ответа ученика</span>
                   </h4>
 
-                  <div className="flex items-center space-x-3 bg-black/30 p-2.5 rounded-xl">
-                    <audio
-                      ref={studentAudioRef}
-                      src={selectedSubmission.speakingAudioUrl || 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'}
-                      controls
-                      className="w-full h-8 accent-sky-500"
-                    />
+                  {Boolean(selectedSubmission.speakingAudioUrl && selectedSubmission.speakingAudioUrl.trim()) ? (
+                    <div className="flex items-center space-x-3 bg-black/30 p-2.5 rounded-xl">
+                      <audio
+                        ref={studentAudioRef}
+                        src={selectedSubmission.speakingAudioUrl}
+                        controls
+                        className="w-full h-8 accent-sky-500"
+                      />
 
-                    <div className="flex items-center space-x-1">
-                      {[1.0, 1.25, 1.5].map((sp) => (
-                        <button
-                          key={sp}
-                          onClick={() => {
-                            setPlaybackSpeed(sp);
-                            if (studentAudioRef.current) {
-                              studentAudioRef.current.playbackRate = sp;
-                            }
-                          }}
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                            playbackSpeed === sp ? 'bg-sky-500 text-white' : 'text-slate-400'
-                          }`}
-                        >
-                          {sp}x
-                        </button>
-                      ))}
+                      <div className="flex items-center space-x-1">
+                        {[1.0, 1.25, 1.5].map((sp) => (
+                          <button
+                            key={sp}
+                            onClick={() => {
+                              setPlaybackSpeed(sp);
+                              if (studentAudioRef.current) {
+                                studentAudioRef.current.playbackRate = sp;
+                              }
+                            }}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                              playbackSpeed === sp ? 'bg-sky-500 text-white' : 'text-slate-400'
+                            }`}
+                          >
+                            {sp}x
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">Аудиозапись не прикреплена</p>
+                  )}
                 </div>
               )}
 
@@ -1236,11 +1548,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     📋 Ответы по индивидуальным заданиям:
                   </h4>
                   <div className="space-y-2">
-                    {Object.entries(selectedSubmission.taskAnswers).map(([taskId, ans], aIdx) => (
+                    {Object.entries(selectedSubmission.taskAnswers).map(([taskId, ans]: [string, any], aIdx) => (
                       <div key={taskId} className="p-2.5 rounded-lg bg-black/30 border border-slate-700 text-xs space-y-1">
                         <span className="font-bold text-purple-400">Задание #{aIdx + 1}:</span>
                         {ans.textAnswer && <p className="text-slate-200">{ans.textAnswer}</p>}
-                        {ans.voiceAudioUrl && <audio controls src={ans.voiceAudioUrl} className="w-full h-7 mt-1" />}
+                        {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
+                          <audio controls src={ans.voiceAudioUrl} className="w-full h-7 mt-1" />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1384,10 +1698,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   </div>
 
                   {/* Audio Playback for Teacher to listen back */}
-                  {teacherVoiceUrl && (
-                    <div className="pt-1">
-                      <audio controls src={teacherVoiceUrl} className="w-full h-8 rounded-lg" />
-                      <p className="text-[10px] text-slate-400 mt-1">Прослушайте свою запись перед отправкой ученику</p>
+                  {Boolean(teacherVoiceUrl && teacherVoiceUrl.trim()) && (
+                    <div className="pt-1 space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <audio controls src={teacherVoiceUrl} className="w-full h-8 rounded-lg flex-1" />
+                        <button
+                          type="button"
+                          onClick={() => setTeacherVoiceUrl(null)}
+                          className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 transition-colors shrink-0"
+                          title="Удалить голосовой ответ"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400">Прослушайте или удалите свою запись перед отправкой ученику</p>
                     </div>
                   )}
                 </div>
@@ -1413,10 +1737,31 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         <div className={`p-4 rounded-2xl border space-y-4 ${
           isDarkMode ? 'bg-[#1e2c3a] border-slate-800' : 'bg-white border-slate-200'
         }`}>
+          {/* Edit mode banner */}
+          {editingHomeworkId && (
+            <div className="p-3.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 flex items-center justify-between shadow-lg animate-in fade-in duration-300">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
+                <span className="font-bold text-xs sm:text-sm">
+                  ✏️ Редактирование ДЗ: «{hwTitle || 'Домашнее задание'}»
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelEditHomework}
+                className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs border border-slate-600 transition-all flex items-center space-x-1"
+              >
+                <span>❌ Отмена</span>
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
             <div className="flex items-center space-x-2">
               <PlusCircle className="w-5 h-5 text-purple-400" />
-              <h3 className="font-bold text-sm">Опубликовать новое домашнее задание</h3>
+              <h3 className="font-bold text-sm">
+                {editingHomeworkId ? '✏️ Редактирование домашнего задания' : 'Опубликовать новое домашнее задание'}
+              </h3>
             </div>
             <button
               type="button"
@@ -1491,7 +1836,37 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {/* Task Type selector */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-300 block">Тип задания:</label>
+                        <select
+                          value={task.taskType || 'test'}
+                          onChange={(e) => {
+                            const val = e.target.value as 'test' | 'written' | 'speaking';
+                            setHwTasks((prev) =>
+                              prev.map((t, i) =>
+                                i === idx
+                                  ? {
+                                      ...t,
+                                      taskType: val,
+                                      options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
+                                      correctOptionIndex: t.correctOptionIndex ?? 0,
+                                    }
+                                  : t
+                              )
+                            );
+                          }}
+                          className={`w-full p-2 rounded-xl text-xs font-bold border ${
+                            isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-amber-300' : 'bg-white border-slate-300 text-slate-900'
+                          }`}
+                        >
+                          <option value="test">📝 Тест (С выбором ответа)</option>
+                          <option value="written">✍️ Письменно / Файл</option>
+                          <option value="speaking">🗣 Говорение (Аудио)</option>
+                        </select>
+                      </div>
+
                       {/* Section select */}
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-slate-400 block">Раздел:</label>
@@ -1541,6 +1916,77 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       </div>
                     </div>
 
+                    {/* TEST TYPE OPTIONS EDITOR */}
+                    {(task.taskType === 'test' || !task.taskType) && (
+                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-amber-300">Варианты ответа (отметьте правильный):</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHwTasks((prev) =>
+                                prev.map((t, i) => {
+                                  if (i === idx) {
+                                    const opts = t.options || ['Вариант A', 'Вариант B'];
+                                    return { ...t, options: [...opts, `Вариант ${String.fromCharCode(65 + opts.length)}`] };
+                                  }
+                                  return t;
+                                })
+                              );
+                            }}
+                            className="text-[11px] font-bold text-amber-400 hover:underline"
+                          >
+                            + Вариант
+                          </button>
+                        </div>
+                        <div className="space-y-1.5">
+                          {(task.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']).map((opt, optIdx) => {
+                            const isCorrect = (task.correctOptionIndex ?? 0) === optIdx;
+                            return (
+                              <div key={optIdx} className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) => (i === idx ? { ...t, correctOptionIndex: optIdx } : t))
+                                    );
+                                  }}
+                                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all shrink-0 ${
+                                    isCorrect
+                                      ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                                  }`}
+                                >
+                                  {isCorrect ? '✅ Правильный' : 'Отметить'}
+                                </button>
+                                <input
+                                  type="text"
+                                  value={opt}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) => {
+                                        if (i === idx) {
+                                          const newOpts = [...(t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'])];
+                                          newOpts[optIdx] = val;
+                                          return { ...t, options: newOpts };
+                                        }
+                                        return t;
+                                      })
+                                    );
+                                  }}
+                                  placeholder={`Вариант ${optIdx + 1}`}
+                                  className={`flex-1 p-2 rounded-xl text-xs border ${
+                                    isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                                  }`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Instruction input */}
                     <div className="space-y-1">
                       <label className="text-[11px] font-semibold text-slate-400 block">
@@ -1582,6 +2028,156 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         }`}
                       />
                     </div>
+
+                    {/* 2 ORGANIZED ATTACHMENT ROWS */}
+                    <div className="space-y-2.5 pt-2 border-t border-slate-700/50">
+                      {/* ROW 1: PHOTO ATTACHMENT */}
+                      <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-purple-300 flex items-center space-x-1.5">
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>🖼 Строка 1: Иллюстрация / Фотография к заданию</span>
+                          </span>
+                          {task.taskImageUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) => (i === idx ? { ...t, taskImageUrl: undefined } : t))
+                                );
+                              }}
+                              className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
+                            >
+                              Удалить фото
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="text"
+                            value={task.taskImageUrl || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHwTasks((prev) =>
+                                prev.map((t, i) => (i === idx ? { ...t, taskImageUrl: val || undefined } : t))
+                              );
+                            }}
+                            placeholder="Ссылка на фото или загрузите файл..."
+                            className={`flex-1 p-2 rounded-xl text-xs border ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                            }`}
+                          />
+                          <label className="cursor-pointer px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
+                            <Paperclip className="w-3.5 h-3.5" />
+                            <span>Прикрепить</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const url = URL.createObjectURL(file);
+                                  setHwTasks((prev) =>
+                                    prev.map((t, i) => (i === idx ? { ...t, taskImageUrl: url } : t))
+                                  );
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                        {task.taskImageUrl && (
+                          <img
+                            src={task.taskImageUrl}
+                            alt="Превью"
+                            className="h-24 max-w-full rounded-xl object-contain border border-slate-700 bg-black/40 mt-1"
+                          />
+                        )}
+                      </div>
+
+                      {/* ROW 2: AUDIO / VOICE ATTACHMENT + RECORD BUTTON */}
+                      <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-sky-300 flex items-center space-x-1.5">
+                            <Mic className="w-3.5 h-3.5" />
+                            <span>🎙 Строка 2: Голосовое / Аудио от учителя</span>
+                          </span>
+                          {task.taskAudioUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: undefined } : t))
+                                );
+                              }}
+                              className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
+                            >
+                              Удалить аудио
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="text"
+                            value={task.taskAudioUrl || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHwTasks((prev) =>
+                                prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: val || undefined } : t))
+                              );
+                            }}
+                            placeholder="Ссылка на аудио файл..."
+                            className={`flex-1 min-w-[160px] p-2 rounded-xl text-xs border ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                            }`}
+                          />
+                          <label className="cursor-pointer px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
+                            <Paperclip className="w-3.5 h-3.5" />
+                            <span>Файл</span>
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const url = URL.createObjectURL(file);
+                                  setHwTasks((prev) =>
+                                    prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: url } : t))
+                                  );
+                                }
+                              }}
+                            />
+                          </label>
+
+                          {/* DIRECT VOICE RECORDING BUTTON */}
+                          {recordingTaskIdx === idx ? (
+                            <button
+                              type="button"
+                              onClick={stopTeacherRecording}
+                              className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl animate-pulse flex items-center space-x-1.5 shadow-lg"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                              <span>Стоп ({teacherRecordingSeconds}с)</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startTeacherRecording(idx)}
+                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1 shadow-sm shrink-0"
+                            >
+                              <Mic className="w-3.5 h-3.5" />
+                              <span>🎙 Записать голосовое</span>
+                            </button>
+                          )}
+                        </div>
+                        {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) && (
+                          <div className="pt-1">
+                            <audio controls src={task.taskAudioUrl} className="w-full h-8" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -1603,10 +2199,98 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-xl shadow-purple-600/25 transition-all flex items-center justify-center space-x-2"
               >
                 <Send className="w-4 h-4" />
-                <span>Опубликовать ДЗ и оповестить учеников</span>
+                <span>{editingHomeworkId ? 'Сохранить изменения в ДЗ' : 'Опубликовать ДЗ и оповестить учеников'}</span>
               </button>
             </div>
           </form>
+
+          {/* LIST OF PUBLISHED HOMEWORKS WITH EDIT AND DELETE BUTTONS AND MONTH FILTER */}
+          <div className="pt-4 border-t border-slate-700/50 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h4 className="font-bold text-xs text-purple-300 flex items-center space-x-2">
+                <BookOpen className="w-4 h-4" />
+                <span>Опубликованные задания ({activeHomeworks.filter(h => selectedPublishedMonth === 'all' || (h.month || 'Май 2026') === selectedPublishedMonth).length}):</span>
+              </h4>
+
+              {/* Month Selector Buttons */}
+              <div className="flex items-center space-x-1 overflow-x-auto max-w-full pb-1">
+                {[
+                  { id: 'all', label: 'Все' },
+                  { id: 'Январь 2026', label: 'Янв' },
+                  { id: 'Февраль 2026', label: 'Фев' },
+                  { id: 'Март 2026', label: 'Мар' },
+                  { id: 'Апрель 2026', label: 'Апр' },
+                  { id: 'Май 2026', label: 'Май' },
+                  { id: 'Июнь 2026', label: 'Июн' },
+                  { id: 'Июль 2026', label: 'Июл' },
+                  { id: 'Август 2026', label: 'Авг' },
+                  { id: 'Сентябрь 2026', label: 'Сен' },
+                  { id: 'Октябрь 2026', label: 'Окт' },
+                  { id: 'Ноябрь 2026', label: 'Ноя' },
+                  { id: 'Декабрь 2026', label: 'Дек' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedPublishedMonth(m.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
+                      selectedPublishedMonth === m.id
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {activeHomeworks
+                .filter((hw) => selectedPublishedMonth === 'all' || (hw.month || 'Май 2026') === selectedPublishedMonth)
+                .map((hw) => (
+                <div
+                  key={hw.id}
+                  className={`p-3.5 rounded-2xl border space-y-2 flex flex-col justify-between ${
+                    isDarkMode ? 'bg-[#17212b] border-slate-700' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        {hw.block === 'speaking' ? '🗣 Говорение' : hw.block === 'writing' ? '✍️ Письмо' : '📝 Тест'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">{hw.month || 'Май 2026'} | {hw.deadline}</span>
+                    </div>
+                    <h5 className="font-bold text-xs text-white leading-tight">{hw.title}</h5>
+                    <p className="text-[11px] text-slate-400 line-clamp-2">{hw.description}</p>
+                    <p className="text-[10px] text-sky-400 font-mono">
+                      {hw.tasks?.length || 1} заданий | Макс. {hw.maxPoints} баллов
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-700/50">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditHomework(hw)}
+                      className="py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 font-bold text-xs rounded-xl border border-purple-500/40 transition-all flex items-center justify-center space-x-1"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>✏️ Изменить</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerDeleteHomework(hw.id, hw.title)}
+                      className="py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-bold text-xs rounded-xl border border-rose-500/40 transition-all flex items-center justify-center space-x-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>🗑️ Удалить</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1721,24 +2405,37 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 Ученики ещё не добавлены. Заполните форму выше, чтобы добавить ученика.
               </p>
             ) : (
-              activeRegisteredStudents.map((st) => (
-                <div
-                  key={st.id}
-                  className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
-                    isDarkMode ? 'bg-[#17212b] border-slate-800' : 'bg-white border-slate-200'
-                  }`}
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center space-x-2">
-                      <h5 className="font-bold text-sm">{st.name || 'Имя не выбрано'}</h5>
-                      <span className="text-[10px] text-sky-400 font-mono bg-sky-500/10 px-1.5 py-0.5 rounded">
-                        логин: {st.login || st.telegramHandle}
-                      </span>
+              activeRegisteredStudents.map((st) => {
+                const stSubmissions = submissions.filter(
+                  (s) => (s.studentName === st.name || s.studentName === st.login) && s.status === 'graded'
+                );
+                const totalStudentPoints = stSubmissions.reduce((acc, s) => acc + (s.score || 0), 0);
+                const maxStudentPoints = stSubmissions.reduce((acc, s) => acc + (s.maxScore || 100), 0);
+                const stAveragePercent =
+                  maxStudentPoints > 0 ? Math.round((totalStudentPoints / maxStudentPoints) * 100) : null;
+
+                return (
+                  <div
+                    key={st.id}
+                    className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-800' : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <div className="space-y-0.5">
+                      <div className="flex items-center space-x-2">
+                        <h5 className="font-bold text-sm">{st.name || 'Имя не выбрано'}</h5>
+                        <span className="text-[10px] text-sky-400 font-mono bg-sky-500/10 px-1.5 py-0.5 rounded">
+                          логин: {st.login || st.telegramHandle}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-[10px] text-slate-400">
+                        <span>Добавлен: {st.addedAt}</span>
+                        <span>•</span>
+                        <span className="font-bold text-emerald-400">
+                          Балл ДЗ: {stAveragePercent !== null ? `${stAveragePercent}% (${stSubmissions.length} пров.)` : '85%'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2 text-[10px] text-slate-400">
-                      <span>Добавлен: {st.addedAt}</span>
-                    </div>
-                  </div>
 
                   <div className="flex items-center space-x-2">
                     {st.isFirstLogin || !st.password ? (
@@ -1763,7 +2460,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     </button>
                   </div>
                 </div>
-              ))
+              );
+            })
             )}
           </div>
         </div>

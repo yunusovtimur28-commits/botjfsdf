@@ -139,19 +139,56 @@ export async function dbDeleteWebinar(webinarId: string) {
   }
 }
 
+function cleanUndefined<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(cleanUndefined) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const key of Object.keys(obj as Record<string, any>)) {
+    const value = (obj as Record<string, any>)[key];
+    if (value !== undefined) {
+      cleaned[key] = cleanUndefined(value);
+    }
+  }
+  return cleaned as T;
+}
+
 export async function dbAddHomework(hw: Homework) {
   try {
     const docRef = doc(db, 'homeworks', hw.id);
-    await setDoc(docRef, { ...hw, createdAt: new Date().toISOString() });
+    const cleaned = cleanUndefined({ ...hw, createdAt: new Date().toISOString() });
+    await setDoc(docRef, cleaned, { merge: true });
   } catch (e) {
     console.error('Error adding homework to Firestore:', e);
+  }
+}
+
+export async function dbUpdateHomework(hw: Homework) {
+  try {
+    const docRef = doc(db, 'homeworks', hw.id);
+    const cleaned = cleanUndefined(hw);
+    await setDoc(docRef, cleaned, { merge: true });
+  } catch (e) {
+    console.error('Error updating homework in Firestore:', e);
+  }
+}
+
+export async function dbDeleteHomework(hwId: string) {
+  try {
+    const docRef = doc(db, 'homeworks', hwId);
+    await deleteDoc(docRef);
+  } catch (e) {
+    console.error('Error deleting homework from Firestore:', e);
   }
 }
 
 export async function dbAddSubmission(submission: Submission) {
   try {
     const docRef = doc(db, 'submissions', submission.id);
-    await setDoc(docRef, { ...submission, createdAt: new Date().toISOString() });
+    const cleaned = cleanUndefined({ ...submission, createdAt: new Date().toISOString() });
+    await setDoc(docRef, cleaned, { merge: true });
   } catch (e) {
     console.error('Error adding submission to Firestore:', e);
   }
@@ -160,7 +197,8 @@ export async function dbAddSubmission(submission: Submission) {
 export async function dbUpdateSubmission(submissionId: string, updatedData: Partial<Submission>) {
   try {
     const docRef = doc(db, 'submissions', submissionId);
-    await updateDoc(docRef, updatedData);
+    const cleaned = cleanUndefined(updatedData);
+    await setDoc(docRef, cleaned, { merge: true });
   } catch (e) {
     console.error('Error updating submission in Firestore:', e);
   }
@@ -169,7 +207,8 @@ export async function dbUpdateSubmission(submissionId: string, updatedData: Part
 export async function dbAddNotification(notification: TGNotification) {
   try {
     const docRef = doc(db, 'notifications', notification.id);
-    await setDoc(docRef, { ...notification, createdAt: new Date().toISOString() });
+    const cleaned = cleanUndefined({ ...notification, createdAt: new Date().toISOString() });
+    await setDoc(docRef, cleaned, { merge: true });
   } catch (e) {
     console.error('Error adding notification to Firestore:', e);
   }
@@ -181,6 +220,14 @@ export async function dbMarkNotificationRead(id: string) {
     await setDoc(docRef, { isRead: true }, { merge: true });
   } catch (e) {
     console.error('Error marking notification read in Firestore:', e);
+  }
+}
+
+export async function dbDeleteNotification(id: string) {
+  try {
+    await deleteDoc(doc(db, 'notifications', id));
+  } catch (e) {
+    console.error('Error deleting notification from Firestore:', e);
   }
 }
 

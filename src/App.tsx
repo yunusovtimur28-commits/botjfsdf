@@ -34,10 +34,13 @@ import {
   dbAddWebinar,
   dbDeleteWebinar,
   dbAddHomework,
+  dbUpdateHomework,
+  dbDeleteHomework,
   dbAddSubmission,
   dbUpdateSubmission,
   dbAddNotification,
   dbMarkNotificationRead,
+  dbDeleteNotification,
   dbAddStudent,
   dbDeleteStudent,
   dbUpdateStudent,
@@ -78,7 +81,42 @@ export default function App() {
   const [submissions, setSubmissions] = useState<Submission[]>(initialSubmissions);
   const [notifications, setNotifications] = useState<TGNotification[]>(initialNotifications);
 
-  // Registered Students Management
+  // Deleted Homeworks & Notifications Persistence
+  const [deletedHwIds, setDeletedHwIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_deleted_hw_ids');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ege_app_deleted_hw_ids', JSON.stringify(deletedHwIds));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [deletedHwIds]);
+
+  const [deletedNotifIds, setDeletedNotifIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_deleted_notif_ids');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ege_app_deleted_notif_ids', JSON.stringify(deletedNotifIds));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [deletedNotifIds]);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>(() => {
     try {
       const saved = localStorage.getItem('ege_app_registered_students');
@@ -366,10 +404,13 @@ export default function App() {
   useEffect(() => {
     const unsubWebinars = subscribeWebinars(
       (list) => {
-        if (list.length === 0) {
+        const isSeeded = localStorage.getItem('ege_app_webinars_seeded');
+        if (list.length === 0 && !isSeeded) {
+          localStorage.setItem('ege_app_webinars_seeded', 'true');
           initialWebinars.forEach((w) => dbAddWebinar(w));
           setWebinars(initialWebinars);
         } else {
+          localStorage.setItem('ege_app_webinars_seeded', 'true');
           setWebinars(list);
         }
       },
@@ -378,10 +419,13 @@ export default function App() {
 
     const unsubHomeworks = subscribeHomeworks(
       (list) => {
-        if (list.length === 0) {
+        const isSeeded = localStorage.getItem('ege_app_homeworks_seeded');
+        if (list.length === 0 && !isSeeded) {
+          localStorage.setItem('ege_app_homeworks_seeded', 'true');
           initialHomeworks.forEach((h) => dbAddHomework(h));
           setHomeworks(initialHomeworks);
         } else {
+          localStorage.setItem('ege_app_homeworks_seeded', 'true');
           setHomeworks(list);
         }
       },
@@ -390,10 +434,13 @@ export default function App() {
 
     const unsubSubmissions = subscribeSubmissions(
       (list) => {
-        if (list.length === 0) {
+        const isSeeded = localStorage.getItem('ege_app_submissions_seeded');
+        if (list.length === 0 && !isSeeded) {
+          localStorage.setItem('ege_app_submissions_seeded', 'true');
           initialSubmissions.forEach((s) => dbAddSubmission(s));
           setSubmissions(initialSubmissions);
         } else {
+          localStorage.setItem('ege_app_submissions_seeded', 'true');
           setSubmissions(list);
         }
       },
@@ -402,10 +449,13 @@ export default function App() {
 
     const unsubNotifications = subscribeNotifications(
       (list) => {
-        if (list.length === 0) {
+        const isSeeded = localStorage.getItem('ege_app_notifs_seeded');
+        if (list.length === 0 && !isSeeded) {
+          localStorage.setItem('ege_app_notifs_seeded', 'true');
           initialNotifications.forEach((n) => dbAddNotification(n));
           setNotifications(initialNotifications);
         } else {
+          localStorage.setItem('ege_app_notifs_seeded', 'true');
           setNotifications(list);
         }
       },
@@ -464,6 +514,8 @@ export default function App() {
 
   // Add Video Lesson / Webinar (Admin Feature)
   const handleAddWebinar = async (newWebinar: Webinar) => {
+    localStorage.setItem('ege_app_webinars_seeded', 'true');
+    setWebinars((prev) => [newWebinar, ...prev.filter((w) => w.id !== newWebinar.id)]);
     await dbAddWebinar(newWebinar);
 
     // Send Notification to Students
@@ -480,11 +532,14 @@ export default function App() {
 
   // Delete Video Lesson (Admin Feature)
   const handleDeleteWebinar = async (webinarId: string) => {
+    localStorage.setItem('ege_app_webinars_seeded', 'true');
+    setWebinars((prev) => prev.filter((w) => w.id !== webinarId));
     await dbDeleteWebinar(webinarId);
   };
 
   // Add Homework (Admin Feature)
   const handleAddHomework = async (newHw: Homework) => {
+    setHomeworks((prev) => [newHw, ...prev.filter((h) => h.id !== newHw.id)]);
     await dbAddHomework(newHw);
 
     const newNotif: TGNotification = {
@@ -496,6 +551,47 @@ export default function App() {
       type: 'deadline',
     };
     await dbAddNotification(newNotif);
+  };
+
+  // Update Homework (Admin Feature)
+  const handleUpdateHomework = async (updatedHw: Homework) => {
+    setHomeworks((prev) => prev.map((h) => (h.id === updatedHw.id ? updatedHw : h)));
+    await dbUpdateHomework(updatedHw);
+
+    const newNotif: TGNotification = {
+      id: `n-${Date.now()}`,
+      title: `📝 ДЗ обновлено: «${updatedHw.title}»`,
+      text: 'Преподаватель внес изменения в домашнее задание. Ознакомьтесь с обновленными инструкциями!',
+      time: 'Только что',
+      isRead: false,
+      type: 'webinar',
+    };
+    await dbAddNotification(newNotif);
+  };
+
+  // Delete Homework (Admin Feature)
+  const handleDeleteHomework = async (hwId: string) => {
+    localStorage.setItem('ege_app_homeworks_seeded', 'true');
+    setDeletedHwIds((prev) => [...prev, hwId]);
+    setHomeworks((prev) => prev.filter((h) => h.id !== hwId));
+    await dbDeleteHomework(hwId);
+  };
+
+  // Delete Individual Notification
+  const handleDeleteNotification = async (notifId: string) => {
+    setDeletedNotifIds((prev) => [...prev, notifId]);
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    await dbDeleteNotification(notifId);
+  };
+
+  // Clear All Notifications
+  const handleClearAllNotifications = async () => {
+    const idsToClear = visibleNotifications.map((n) => n.id);
+    setDeletedNotifIds((prev) => Array.from(new Set([...prev, ...idsToClear])));
+    setNotifications([]);
+    for (const id of idsToClear) {
+      await dbDeleteNotification(id);
+    }
   };
 
   // Save Webinar Video Progress
@@ -523,12 +619,15 @@ export default function App() {
       speakingAudioUrl: submissionData.speakingAudioUrl,
       essayText: submissionData.essayText,
       writtenFileName: submissionData.writtenFileName,
+      writtenImageUrls: submissionData.writtenImageUrls,
+      taskAnswers: submissionData.taskAnswers,
       aiPreviewFeedback: submissionData.aiPreviewFeedback,
       totalScore: submissionData.totalScore,
       maxScore: submissionData.maxScore,
       teacherFeedbackText: submissionData.teacherFeedbackText,
     };
 
+    setSubmissions((prev) => [newSub, ...prev.filter((s) => s.id !== newSub.id)]);
     await dbAddSubmission(newSub);
 
     const newNotif: TGNotification = {
@@ -544,11 +643,14 @@ export default function App() {
 
   // Teacher Grades Submission
   const handleGradeSubmission = async (submissionId: string, updatedData: Partial<Submission>) => {
+    setSubmissions((prev) =>
+      prev.map((s) => (s.id === submissionId ? { ...s, ...updatedData } : s))
+    );
     await dbUpdateSubmission(submissionId, updatedData);
 
     const sub = submissions.find((s) => s.id === submissionId);
     if (sub) {
-      const hw = homeworks.find((h) => h.id === sub.homeworkId);
+      const hw = visibleHomeworks.find((h) => h.id === sub.homeworkId);
       const newNotif: TGNotification = {
         id: `n-${Date.now()}`,
         title: '🎧 Ангелина проверила твой ' + (hw?.title || 'ДЗ') + '!',
@@ -610,7 +712,7 @@ export default function App() {
           setRegisteredStudents((prev) =>
             prev.map((s) => (s.id === studentToUpdate.id ? updatedStudentObj : s))
           );
-          await dbUpdateStudent(updatedStudentObj);
+          await dbUpdateStudent(studentToUpdate.id, updatedStudentObj);
         }
       } else {
         localStorage.setItem('ege_app_admin_pin', updated.newPassword);
@@ -657,6 +759,10 @@ export default function App() {
       console.error(e);
     }
   }, [readNotifIds]);
+
+  const visibleHomeworks = React.useMemo(() => {
+    return homeworks.filter((hw) => !deletedHwIds.includes(hw.id));
+  }, [homeworks, deletedHwIds]);
 
   // Compute notifications based on current user role & active profile
   const visibleNotifications = React.useMemo(() => {
@@ -717,7 +823,9 @@ export default function App() {
         });
       }
 
-      return list.map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n));
+      return list
+        .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
+        .filter((n) => !deletedNotifIds.includes(n.id));
     }
 
     const isDefaultStudent = currentUser.name === initialStudentProfile.name;
@@ -783,7 +891,9 @@ export default function App() {
       );
 
       const combined = [...list, ...sessionNewNotifs];
-      return combined.map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n));
+      return combined
+        .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
+        .filter((n) => !deletedNotifIds.includes(n.id));
     }
 
     // Default student (Александр Ковалев) - update streak notification text to match actual streakDays
@@ -798,8 +908,10 @@ export default function App() {
       return n;
     });
 
-    return result.map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n));
-  }, [currentUser.name, activeStudentProfile.streakDays, currentStudentSubmissions, homeworks, notifications, readNotifIds]);
+    return result
+      .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
+      .filter((n) => !deletedNotifIds.includes(n.id));
+  }, [currentUser.name, activeStudentProfile.streakDays, currentStudentSubmissions, homeworks, notifications, readNotifIds, deletedNotifIds]);
 
   // Mark notification read
   const handleNotificationRead = async (id: string) => {
@@ -833,6 +945,8 @@ export default function App() {
           streakDays={activeStudentProfile.streakDays}
           notifications={visibleNotifications}
           onNotificationRead={handleNotificationRead}
+          onDeleteNotification={handleDeleteNotification}
+          onClearAllNotifications={handleClearAllNotifications}
           isDarkMode={isDarkMode}
           onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
         />
@@ -858,7 +972,7 @@ export default function App() {
 
               {activeTab === 'homeworks' && (
                 <HomeworkList
-                  homeworks={homeworks}
+                  homeworks={visibleHomeworks}
                   submissions={submissions}
                   onSubmitHomework={handleSubmitHomework}
                   isDarkMode={isDarkMode}
@@ -887,7 +1001,7 @@ export default function App() {
               {activeTab === 'teacher' && (
                 <TeacherCabinet
                   submissions={submissions}
-                  homeworks={homeworks}
+                  homeworks={visibleHomeworks}
                   webinars={webinars}
                   registeredStudents={registeredStudents}
                   onAddStudent={handleAddStudent}
@@ -896,6 +1010,8 @@ export default function App() {
                   onAddWebinar={handleAddWebinar}
                   onDeleteWebinar={handleDeleteWebinar}
                   onAddHomework={handleAddHomework}
+                  onUpdateHomework={handleUpdateHomework}
+                  onDeleteHomework={handleDeleteHomework}
                   isDarkMode={isDarkMode}
                 />
               )}

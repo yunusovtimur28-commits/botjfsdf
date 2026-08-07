@@ -312,7 +312,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
             </h4>
 
             {/* Audio Preview */}
-            {recordedAudioUrl && (
+            {Boolean(recordedAudioUrl) && (
               <div className="flex items-center justify-center space-x-3 bg-black/30 p-3 rounded-xl max-w-sm mx-auto">
                 <button
                   onClick={() => {
@@ -331,7 +331,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
                 </button>
                 <audio
                   ref={audioPlayerRef}
-                  src={recordedAudioUrl}
+                  src={recordedAudioUrl || undefined}
                   onEnded={() => setIsPlayingRecorded(false)}
                 />
                 <span className="text-xs font-mono text-slate-300">Прослушать ответ (1:15)</span>

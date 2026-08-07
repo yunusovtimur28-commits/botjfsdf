@@ -4,6 +4,7 @@ export type BlockCategory = 'speaking' | 'grammar' | 'writing' | 'vocabulary';
 
 export interface Timecode {
   timeInSeconds: number;
+  timeStr?: string;
   label: string;
 }
 
@@ -51,11 +52,15 @@ export interface TestQuestion {
 export interface HomeworkTask {
   id: string;
   block: BlockCategory;
+  taskType?: 'test' | 'written' | 'speaking'; // Тип задания: тест, письмо, говорение
   taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
   instruction?: string; // Инструкция к заданию
   taskPrompt: string; // Задание / Условие
   taskImageUrl?: string; // Фото / Схема / Иллюстрация к заданию
-  taskAudioUrl?: string; // Голосовое / Аудиозапись к заданию (для Speaking)
+  taskAudioUrl?: string; // Голосовое / Аудиозапись к заданию (от учителя)
+  options?: string[]; // Варианты ответов для тестовых заданий
+  correctOptionIndex?: number; // Индекс правильного ответа (0, 1, 2, 3...)
+  correctAnswer?: string; // Текст правильного ответа
   sampleAnswer?: string;
 }
 
@@ -67,6 +72,7 @@ export interface Homework {
   type: HomeworkType;
   deadline: string; // ISO or readable
   deadlineDate: string;
+  month?: string; // Месяц для группировки ("Май 2026", "Апрель 2026", etc.)
   maxPoints: number;
   description: string;
   tasks?: HomeworkTask[];

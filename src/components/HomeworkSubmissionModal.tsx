@@ -7,6 +7,7 @@ import {
   Play,
   RotateCcw,
   Upload,
+  UploadCloud,
   FileText,
   CheckCircle,
   AlertCircle,
@@ -19,6 +20,7 @@ import {
   Trash2,
   Plus,
   Check,
+  Paperclip,
 } from 'lucide-react';
 
 interface HomeworkSubmissionModalProps {
@@ -80,8 +82,57 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   // Multi-Task & Photo state
   const [taskAnswers, setTaskAnswers] = useState<
-    Record<string, { textAnswer?: string; voiceAudioUrl?: string }>
+    Record<string, { textAnswer?: string; voiceAudioUrl?: string; selectedOptionIndex?: number }>
   >(existingSubmission?.taskAnswers || {});
+
+  const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null);
+  const [studentTaskMediaRecorder, setStudentTaskMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [studentRecordingSeconds, setStudentRecordingSeconds] = useState<number>(0);
+
+  useEffect(() => {
+    let interval: any;
+    if (recordingTaskId !== null) {
+      interval = setInterval(() => {
+        setStudentRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } else {
+      setStudentRecordingSeconds(0);
+    }
+    return () => clearInterval(interval);
+  }, [recordingTaskId]);
+
+  const startTaskStudentRecording = async (taskId: string) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(blob);
+        setTaskAnswers((prev) => ({
+          ...prev,
+          [taskId]: { ...prev[taskId], voiceAudioUrl: audioUrl },
+        }));
+        stream.getTracks().forEach((track) => track.stop());
+        setRecordingTaskId(null);
+      };
+      recorder.start();
+      setStudentTaskMediaRecorder(recorder);
+      setRecordingTaskId(taskId);
+      setStudentRecordingSeconds(0);
+    } catch (err) {
+      alert('Не удалось получить доступ к микрофону. Пожалуйста, разрешите доступ в браузере.');
+    }
+  };
+
+  const stopTaskStudentRecording = () => {
+    if (studentTaskMediaRecorder && studentTaskMediaRecorder.state !== 'inactive') {
+      studentTaskMediaRecorder.stop();
+    }
+  };
 
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>(
     existingSubmission?.writtenImageUrls || []
@@ -91,8 +142,8 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   const handleAddPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const fileList = Array.from(e.target.files);
-      fileList.forEach((file) => {
+      const fileList = Array.from(e.target.files) as File[];
+      fileList.forEach((file: File) => {
         const reader = new FileReader();
         reader.onload = (event) => {
           if (event.target?.result) {
@@ -326,7 +377,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
               )}
 
               {/* Teacher Voice Recording */}
-              {existingSubmission.teacherVoiceAudioUrl && (
+              {Boolean(existingSubmission.teacherVoiceAudioUrl && existingSubmission.teacherVoiceAudioUrl.trim()) && (
                 <div className="pt-2 flex items-center space-x-3 bg-black/30 p-2.5 rounded-xl">
                   <button
                     onClick={() => {
@@ -530,61 +581,81 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                 {/* Recorder Control Buttons */}
                 {!recordedAudioUrl ? (
-                  <div>
-                    {!isRecording ? (
-                      <button
-                        onClick={startRecording}
-                        className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-2 mx-auto"
-                      >
-                        <Mic className="w-4 h-4" />
-                        <span>Начать запись ответа</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={stopRecording}
-                        className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-2 mx-auto"
-                      >
-                        <Square className="w-4 h-4 fill-white" />
-                        <span>Завершить запись</span>
-                      </button>
-                    )}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {!isRecording ? (
+                        <button
+                          type="button"
+                          onClick={startRecording}
+                          className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-2"
+                        >
+                          <Mic className="w-4 h-4" />
+                          <span>Начать запись ответа</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={stopRecording}
+                          className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-2"
+                        >
+                          <Square className="w-4 h-4 fill-white" />
+                          <span>Завершить запись</span>
+                        </button>
+                      )}
+
+                      <label className="cursor-pointer px-4 py-2.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-xs rounded-xl border border-sky-500/30 inline-flex items-center space-x-2 transition-all">
+                        <UploadCloud className="w-4 h-4" />
+                        <span>Загрузить аудиофайл</span>
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const url = URL.createObjectURL(file);
+                              setRecordedAudioUrl(url);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {/* Recorded Audio Preview Player */}
-                    <div className="flex items-center justify-center space-x-3 bg-black/30 p-2.5 rounded-xl max-w-sm mx-auto">
-                      <button
-                        onClick={() => {
-                          if (audioPlayerRef.current) {
-                            if (isPlayingRecorded) {
-                              audioPlayerRef.current.pause();
-                            } else {
-                              audioPlayerRef.current.play();
-                            }
-                            setIsPlayingRecorded(!isPlayingRecorded);
-                          }
-                        }}
-                        className="w-8 h-8 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0"
-                      >
-                        {isPlayingRecorded ? <Square className="w-3.5 h-3.5 fill-white" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
-                      </button>
-                      <audio
-                        ref={audioPlayerRef}
-                        src={recordedAudioUrl}
-                        onEnded={() => setIsPlayingRecorded(false)}
-                      />
-                      <span className="text-xs font-mono text-slate-300">
-                        {formatSeconds(recordingSeconds || 45)}
-                      </span>
-                    </div>
+                    {Boolean(recordedAudioUrl) && (
+                      <div className="flex items-center justify-center space-x-2 bg-black/40 p-2.5 rounded-xl max-w-md mx-auto border border-sky-500/30">
+                        <audio
+                          ref={audioPlayerRef}
+                          src={recordedAudioUrl || undefined}
+                          controls
+                          className="w-full h-8"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecordedAudioUrl(null);
+                            setIsPlayingRecorded(false);
+                          }}
+                          className="p-2 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 transition-colors shrink-0"
+                          title="Удалить запись"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
 
-                    <button
-                      onClick={resetRecording}
-                      className="text-xs text-rose-400 hover:text-rose-300 flex items-center space-x-1 mx-auto font-medium"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Перезаписать аудио</span>
-                    </button>
+                    <div className="flex items-center justify-center space-x-3">
+                      <button
+                        type="button"
+                        onClick={resetRecording}
+                        className="text-xs text-rose-400 hover:text-rose-300 flex items-center space-x-1 font-medium"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Перезаписать голосовой ответ</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -772,7 +843,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                     )}
 
                     {/* Task Audio Prompt Attachment */}
-                    {task.taskAudioUrl && (
+                    {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) && (
                       <div className="p-2.5 rounded-xl bg-sky-950/40 border border-sky-500/40 space-y-1">
                         <p className="text-[10px] font-bold text-sky-400 flex items-center gap-1">
                           <Volume2 className="w-3.5 h-3.5" />
@@ -782,17 +853,78 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                       </div>
                     )}
 
-                    {/* Response Input based on Block */}
+                    {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
                       <label className="text-[11px] font-semibold text-slate-300 block">
                         Ваш ответ на {task.taskNumber || `Задание #${tIdx + 1}`}:
                       </label>
 
-                      {task.block === 'speaking' ? (
+                      {/* TEST TASK TYPE WITH OPTIONS & IMMEDIATE FEEDBACK */}
+                      {task.taskType === 'test' || (task.options && task.options.length > 0) ? (
                         <div className="space-y-2">
-                          <p className="text-[10px] text-slate-400">
-                            Используйте кнопку аудиозаписи верху или введите пояснение:
+                          <p className="text-[10px] text-amber-300 font-bold">
+                            Выберите вариант ответа (мгновенная проверка):
                           </p>
+                          <div className="space-y-1.5">
+                            {(task.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']).map((opt, optIdx) => {
+                              const isSelected = currentAnswer.selectedOptionIndex === optIdx;
+                              const targetCorrectIdx = task.correctOptionIndex ?? 0;
+                              const isCorrectOpt = optIdx === targetCorrectIdx;
+
+                              return (
+                                <button
+                                  key={optIdx}
+                                  type="button"
+                                  onClick={() => {
+                                    setTaskAnswers((prev) => ({
+                                      ...prev,
+                                      [task.id]: {
+                                        ...prev[task.id],
+                                        selectedOptionIndex: optIdx,
+                                        textAnswer: opt,
+                                      },
+                                    }));
+                                  }}
+                                  className={`w-full text-left p-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center justify-between ${
+                                    isSelected
+                                      ? isCorrectOpt
+                                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-md'
+                                        : 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-md'
+                                      : 'bg-black/20 border-slate-700/60 text-slate-200 hover:bg-black/30'
+                                  }`}
+                                >
+                                  <span>{opt}</span>
+                                  {isSelected && (
+                                    <span
+                                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        isCorrectOpt ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'
+                                      }`}
+                                    >
+                                      {isCorrectOpt ? '🎉 Правильно!' : '❌ Неправильно'}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {currentAnswer.selectedOptionIndex !== undefined && (
+                            <div
+                              className={`p-2.5 rounded-xl text-xs font-semibold ${
+                                currentAnswer.selectedOptionIndex === (task.correctOptionIndex ?? 0)
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                              }`}
+                            >
+                              {currentAnswer.selectedOptionIndex === (task.correctOptionIndex ?? 0)
+                                ? 'Отлично! Вы выбрали верный ответ 🎉'
+                                : `Неправильный ответ. Правильный вариант: ${
+                                    task.options?.[task.correctOptionIndex ?? 0] || 'выделенный зеленым'
+                                  }`}
+                            </div>
+                          )}
+                        </div>
+                      ) : task.block === 'speaking' ? (
+                        <div className="space-y-2">
                           <input
                             type="text"
                             value={currentAnswer.textAnswer || ''}
@@ -803,7 +935,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                 [task.id]: { ...prev[task.id], textAnswer: val },
                               }));
                             }}
-                            placeholder="Комментарий к устному ответу..."
+                            placeholder="Комментарий или пояснение к устному ответу..."
                             className={`w-full p-2.5 rounded-xl text-xs border ${
                               isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
                             }`}
@@ -830,6 +962,75 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                           }`}
                         />
                       )}
+
+                      {/* TASK ATTACHMENT TOOLS FOR STUDENT (VOICE RECORD & FILE UPLOAD) */}
+                      <div className="pt-2 border-t border-slate-700/40 flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-bold text-slate-400">Прикрепить к заданию:</span>
+
+                        {/* File upload */}
+                        <label className="cursor-pointer px-2.5 py-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-[10px] border border-sky-500/30 rounded-lg flex items-center space-x-1 transition-all">
+                          <Paperclip className="w-3 h-3" />
+                          <span>Загрузить фото/аудио</span>
+                          <input
+                            type="file"
+                            accept="audio/*,image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const url = URL.createObjectURL(file);
+                                if (file.type.startsWith('image/')) {
+                                  setUploadedPhotos((prev) => [...prev, url]);
+                                } else {
+                                  setTaskAnswers((prev) => ({
+                                    ...prev,
+                                    [task.id]: { ...prev[task.id], voiceAudioUrl: url },
+                                  }));
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+
+                        {/* Record Voice Button */}
+                        {recordingTaskId === task.id ? (
+                          <button
+                            type="button"
+                            onClick={stopTaskStudentRecording}
+                            className="px-2.5 py-1 bg-rose-600 text-white font-bold text-[10px] rounded-lg animate-pulse"
+                          >
+                            ⏹ Стоп ({studentRecordingSeconds}с)
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startTaskStudentRecording(task.id)}
+                            className="px-2.5 py-1 bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] rounded-lg flex items-center space-x-1 hover:bg-emerald-600/40 transition-all"
+                          >
+                            <Mic className="w-3 h-3" />
+                            <span>🎙 Записать голосовой ответ</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Preview recorded/uploaded voice answer */}
+                      {Boolean(currentAnswer.voiceAudioUrl && currentAnswer.voiceAudioUrl.trim()) && (
+                        <div className="pt-1 flex items-center space-x-2 bg-black/30 p-2 rounded-xl border border-sky-500/30">
+                          <audio controls src={currentAnswer.voiceAudioUrl} className="w-full h-7" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTaskAnswers((prev) => ({
+                                ...prev,
+                                [task.id]: { ...prev[task.id], voiceAudioUrl: undefined },
+                              }));
+                            }}
+                            className="text-rose-400 hover:text-rose-300 text-[10px] font-bold shrink-0"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -837,28 +1038,43 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             </div>
           )}
 
-          {/* Submit Button for Speaking & Written */}
-          {homework.type !== 'test' && existingSubmission?.status !== 'graded' && (() => {
+          {/* Main Submit Button for Student */}
+          {existingSubmission?.status !== 'graded' && (() => {
             const hasAnyAnswer = Boolean(
+              Object.keys(testAnswers).length > 0 ||
               recordedAudioUrl ||
               uploadedFileName ||
               essayText.trim() ||
               uploadedPhotos.length > 0 ||
-              Object.values(taskAnswers).some((ans) => (ans.textAnswer && ans.textAnswer.trim()) || ans.voiceAudioUrl)
+              Object.values(taskAnswers).some(
+                (ans: any) =>
+                  (ans?.textAnswer && ans.textAnswer.trim()) ||
+                  ans?.voiceAudioUrl ||
+                  ans?.selectedOptionIndex !== undefined
+              )
             );
 
+            const handleMainSubmit = () => {
+              if (homework.type === 'test' && homework.testQuestions && homework.testQuestions.length > 0) {
+                handleTestSubmit();
+              } else {
+                handleSubmitHomework();
+              }
+            };
+
             return (
-              <div className="pt-3">
+              <div className="pt-3 sticky bottom-0 bg-inherit border-t border-slate-700/80 -mx-4 -mb-4 p-4 shadow-2xl z-10">
                 <button
-                  onClick={handleSubmitHomework}
+                  type="button"
+                  onClick={handleMainSubmit}
                   disabled={!hasAnyAnswer}
-                  className="w-full py-3 bg-sky-500 hover:bg-sky-600 disabled:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
+                  className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 disabled:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-sky-500/30 transition-all flex items-center justify-center space-x-2"
                 >
                   <Send className="w-4 h-4" />
                   <span>
                     {hasAnyAnswer
-                      ? 'Отправить ДЗ на проверку Ангелине'
-                      : 'Заполните хотя бы одно задание или прикрепите аудио/фото/файл'}
+                      ? '🚀 Отправить ДЗ на проверку Ангелине'
+                      : 'Заполните задания или прикрепите ответ для отправки'}
                   </span>
                 </button>
               </div>

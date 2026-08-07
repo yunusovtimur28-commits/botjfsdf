@@ -19,12 +19,71 @@ interface WebinarModalProps {
   onSaveProgress?: (webinarId: string, positionSeconds: number) => void;
 }
 
+function getVideoEmbedInfo(url: string) {
+  if (!url) return { isEmbed: false, embedUrl: '', type: 'direct' as const };
+  const cleanUrl = url.trim();
+
+  // 1. YouTube
+  const ytMatch = cleanUrl.match(
+    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?\/\s]{11})/i
+  );
+  if (ytMatch && ytMatch[1]) {
+    return {
+      isEmbed: true,
+      embedUrl: `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&rel=0&enablejsapi=1`,
+      type: 'youtube' as const,
+      ytId: ytMatch[1],
+    };
+  }
+
+  // 2. Rutube
+  const rutubeMatch = cleanUrl.match(/rutube\.ru\/(?:video|play\/embed)\/([a-zA-Z0-9]+)/i);
+  if (rutubeMatch && rutubeMatch[1]) {
+    return {
+      isEmbed: true,
+      embedUrl: `https://rutube.ru/play/embed/${rutubeMatch[1]}?autoStart=true`,
+      type: 'rutube' as const,
+    };
+  }
+
+  // 3. VK Video
+  const vkMatch = cleanUrl.match(/vk\.com\/video_ext\.php|vk\.com\/video-?(\d+)_(\d+)|vkvideo\.ru\/video-?(\d+)_(\d+)/i);
+  if (vkMatch) {
+    if (cleanUrl.includes('video_ext.php')) {
+      return { isEmbed: true, embedUrl: cleanUrl, type: 'vk' as const };
+    }
+    const oid = vkMatch[1] || vkMatch[3];
+    const id = vkMatch[2] || vkMatch[4];
+    if (oid && id) {
+      return {
+        isEmbed: true,
+        embedUrl: `https://vk.com/video_ext.php?oid=-${oid}&id=${id}&autoplay=1`,
+        type: 'vk' as const,
+      };
+    }
+  }
+
+  // 4. Vimeo
+  const vimeoMatch = cleanUrl.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+  if (vimeoMatch && vimeoMatch[1]) {
+    return {
+      isEmbed: true,
+      embedUrl: `https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1`,
+      type: 'vimeo' as const,
+    };
+  }
+
+  return { isEmbed: false, embedUrl: cleanUrl, type: 'direct' as const };
+}
+
 export const WebinarModal: React.FC<WebinarModalProps> = ({
   webinar,
   onClose,
   isDarkMode,
   onSaveProgress,
 }) => {
+  const embedInfo = getVideoEmbedInfo(webinar.videoUrl);
+  const [iframeUrl, setIframeUrl] = useState<string>(() => embedInfo.embedUrl);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
@@ -32,6 +91,10 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
   const [duration, setDuration] = useState<number>(webinar.durationSeconds || 0);
   const [activeTab, setActiveTab] = useState<'timecodes' | 'materials'>('timecodes');
   const [downloadSuccessMessage, setDownloadSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIframeUrl(embedInfo.embedUrl);
+  }, [webinar.videoUrl]);
 
   // Set initial video time if saved
   useEffect(() => {
@@ -58,7 +121,12 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
   };
 
   const handleSeekTimecode = (timeInSeconds: number) => {
-    if (videoRef.current) {
+    if (embedInfo.isEmbed) {
+      if (embedInfo.type === 'youtube' && embedInfo.ytId) {
+        setIframeUrl(`https://www.youtube.com/embed/${embedInfo.ytId}?autoplay=1&start=${timeInSeconds}&rel=0`);
+      }
+      setCurrentTime(timeInSeconds);
+    } else if (videoRef.current) {
       videoRef.current.currentTime = timeInSeconds;
       setCurrentTime(timeInSeconds);
       if (!isPlaying) {
@@ -126,79 +194,91 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
 
         {/* Video Player Area */}
         <div className="relative bg-black aspect-video flex items-center justify-center group overflow-hidden">
-          <video
-            ref={videoRef}
-            src={webinar.videoUrl}
-            poster={webinar.thumbnailUrl}
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onEnded={() => setIsPlaying(false)}
-            className="w-full h-full object-contain"
-          />
-
-          {/* Overlay Controls */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-0 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-between">
-            <div className="flex justify-between items-center text-xs text-white/90">
-              <span className="font-semibold drop-shadow">{webinar.title}</span>
-              <span className="bg-black/60 px-2 py-0.5 rounded font-mono">
-                {formatSeconds(currentTime)} / {formatSeconds(duration)}
-              </span>
-            </div>
-
-            {/* Center Big Play Button */}
-            <button
-              onClick={togglePlay}
-              className="self-center w-14 h-14 rounded-full bg-sky-500/90 text-white flex items-center justify-center hover:scale-110 transition-transform shadow-lg"
-            >
-              {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
-            </button>
-
-            {/* Bottom Controls Bar */}
-            <div className="space-y-1.5">
-              {/* Progress Slider */}
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = val;
-                    setCurrentTime(val);
-                  }
-                }}
-                className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-sky-500"
+          {embedInfo.isEmbed ? (
+            <iframe
+              src={iframeUrl}
+              title={webinar.title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="w-full h-full border-0"
+            />
+          ) : (
+            <>
+              <video
+                ref={videoRef}
+                src={webinar.videoUrl}
+                poster={webinar.thumbnailUrl}
+                onTimeUpdate={handleTimeUpdate}
+                onLoadedMetadata={handleLoadedMetadata}
+                onEnded={() => setIsPlaying(false)}
+                className="w-full h-full object-contain"
               />
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <button onClick={togglePlay} className="text-white hover:text-sky-400">
-                    {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  </button>
-                  <span className="text-[11px] text-white/80 font-mono">
-                    {formatSeconds(currentTime)}
+              {/* Overlay Controls */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-0 group-hover:opacity-100 transition-opacity p-3 flex flex-col justify-between">
+                <div className="flex justify-between items-center text-xs text-white/90">
+                  <span className="font-semibold drop-shadow">{webinar.title}</span>
+                  <span className="bg-black/60 px-2 py-0.5 rounded font-mono">
+                    {formatSeconds(currentTime)} / {formatSeconds(duration)}
                   </span>
                 </div>
 
-                {/* Speed Controls */}
-                <div className="flex items-center space-x-1 bg-black/60 p-1 rounded-lg">
-                  <span className="text-[10px] text-slate-400 mr-1 hidden sm:inline">Скорость:</span>
-                  {[1.0, 1.25, 1.5, 2.0].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => handleSpeedChange(s)}
-                      className={`text-[11px] px-1.5 py-0.5 rounded font-bold transition-colors ${
-                        playbackSpeed === s ? 'bg-sky-500 text-white' : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      {s}x
-                    </button>
-                  ))}
+                {/* Center Big Play Button */}
+                <button
+                  onClick={togglePlay}
+                  className="self-center w-14 h-14 rounded-full bg-sky-500/90 text-white flex items-center justify-center hover:scale-110 transition-transform shadow-lg"
+                >
+                  {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
+                </button>
+
+                {/* Bottom Controls Bar */}
+                <div className="space-y-1.5">
+                  {/* Progress Slider */}
+                  <input
+                    type="range"
+                    min={0}
+                    max={duration || 100}
+                    value={currentTime}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = val;
+                        setCurrentTime(val);
+                      }
+                    }}
+                    className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                  />
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <button onClick={togglePlay} className="text-white hover:text-sky-400">
+                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      </button>
+                      <span className="text-[11px] text-white/80 font-mono">
+                        {formatSeconds(currentTime)}
+                      </span>
+                    </div>
+
+                    {/* Speed Controls */}
+                    <div className="flex items-center space-x-1 bg-black/60 p-1 rounded-lg">
+                      <span className="text-[10px] text-slate-400 mr-1 hidden sm:inline">Скорость:</span>
+                      {[1.0, 1.25, 1.5, 2.0].map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => handleSpeedChange(s)}
+                          className={`text-[11px] px-1.5 py-0.5 rounded font-bold transition-colors ${
+                            playbackSpeed === s ? 'bg-sky-500 text-white' : 'text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          {s}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
 
         {/* Content Details & Tabs */}

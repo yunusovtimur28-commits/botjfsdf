@@ -30,6 +30,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   currentUserName,
 }) => {
   const [activeTab, setActiveTab] = useState<HomeworkStatus>('todo');
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
 
   // Map homework ID to submission belonging to current student
@@ -57,16 +58,53 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
     { id: 'overdue', label: '🔴 Просрочено', icon: AlertCircle, colorClass: 'text-rose-400' },
   ];
 
-  const filteredHomeworks = homeworks.filter((hw) => getHomeworkStatus(hw) === activeTab);
+  const filteredHomeworks = homeworks.filter(
+    (hw) =>
+      getHomeworkStatus(hw) === activeTab &&
+      (selectedMonth === 'all' || (hw.month || 'Май 2026') === selectedMonth)
+  );
 
   return (
     <div className="space-y-4 pb-20">
-      {/* Header */}
-      <div>
-        <h2 className="text-lg font-bold tracking-tight">📝 Домашние задания</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          3 формата сдачи: Тесты, Устная часть (Speaking) и Письменные работы
-        </p>
+      {/* Header & Month Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold tracking-tight">📝 Домашние задания</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            3 формата сдачи: Тесты, Устная часть (Speaking) и Письменные работы
+          </p>
+        </div>
+
+        {/* Month Selector */}
+        <div className="flex items-center space-x-1 overflow-x-auto pb-1 max-w-full">
+          {[
+            { id: 'all', label: 'Все месяцы' },
+            { id: 'Январь 2026', label: 'Январь' },
+            { id: 'Февраль 2026', label: 'Февраль' },
+            { id: 'Март 2026', label: 'Март' },
+            { id: 'Апрель 2026', label: 'Апрель' },
+            { id: 'Май 2026', label: 'Май' },
+            { id: 'Июнь 2026', label: 'Июнь' },
+            { id: 'Июль 2026', label: 'Июль' },
+            { id: 'Август 2026', label: 'Август' },
+            { id: 'Сентябрь 2026', label: 'Сентябрь' },
+            { id: 'Октябрь 2026', label: 'Октябрь' },
+            { id: 'Ноябрь 2026', label: 'Ноябрь' },
+            { id: 'Декабрь 2026', label: 'Декабрь' },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setSelectedMonth(m.id)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                selectedMonth === m.id
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'bg-black/10 dark:bg-[#1e2c3a] text-slate-400 hover:text-white border border-slate-700/50'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Status Filter Tabs */}
@@ -124,26 +162,42 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1.5 flex-1">
-                    {/* Badges row */}
+                    {/* Badges - Line 1: Block & Month */}
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        {hw.block === 'speaking'
+                          ? '🗣 Раздел: Speaking'
+                          : hw.block === 'grammar'
+                          ? '⚡ Раздел: Грамматика'
+                          : hw.block === 'writing'
+                          ? '✍️ Раздел: Письмо / Эссе'
+                          : '📚 Раздел: Лексика'}
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                        📅 {hw.month || 'Май 2026'}
+                      </span>
+                    </div>
+
+                    {/* Badges - Line 2: Format & Max Score */}
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1 pt-0.5">
                       <span
                         className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                           hw.type === 'test'
-                            ? 'bg-amber-500/20 text-amber-400'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                             : hw.type === 'speaking'
-                            ? 'bg-sky-500/20 text-sky-400'
-                            : 'bg-emerald-500/20 text-emerald-400'
+                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                         }`}
                       >
                         {hw.type === 'test'
-                          ? '⚡ Тест (Автопроверка)'
+                          ? 'Формат: ⚡ Тест с автопроверкой'
                           : hw.type === 'speaking'
-                          ? '🗣 Speaking (Аудио)'
-                          : '✍️ Письмо / Эссе'}
+                          ? 'Формат: 🗣 Запись устного ответа'
+                          : 'Формат: ✍️ Эссе / Ручной ввод'}
                       </span>
 
-                      <span className="text-[10px] text-slate-400 font-medium">
-                        Макс: {hw.maxPoints} б.
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        🏆 До {hw.maxPoints} баллов
                       </span>
                     </div>
 
