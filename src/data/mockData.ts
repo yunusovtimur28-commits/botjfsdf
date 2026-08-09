@@ -6,6 +6,7 @@ import {
   RegisteredStudent,
   TGNotification,
 } from '../types';
+import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
 
 export const initialWebinars: Webinar[] = [
   {
@@ -246,25 +247,14 @@ export const initialHomeworks: Homework[] = [
       samplePdfUrl: '#',
     },
   },
-  {
-    id: 'hw-4',
-    webinarId: 'web-4',
-    title: 'Тест на лексику C1 и фразовые глаголы',
-    block: 'vocabulary',
-    type: 'test',
-    deadline: 'Просрочено',
-    deadlineDate: '2026-08-01T12:00:00',
-    maxPoints: 10,
-    description: 'Закрепление словарного запаса из вебинара №4.',
-  },
 ];
 
 export const initialSubmissions: Submission[] = [
   {
     id: 'sub-1',
     homeworkId: 'hw-2',
-    studentName: 'Александр Ковалев',
-    submittedAt: 'Вчера, 19:40',
+    studentName: 'Дмитрий Волков',
+    submittedAt: getFormattedDateTime(new Date(Date.now() - 3600000 * 24)),
     status: 'graded',
     type: 'speaking',
     speakingAudioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
@@ -277,18 +267,18 @@ export const initialSubmissions: Submission[] = [
     },
     totalScore: 4,
     maxScore: 4,
-    teacherFeedbackText: 'Саша, великолепный разбор! Голос уверенный, ответы развернутые. В 3-м вопросе отлично использовал вводную фразу "From my perspective". Пауз практически нет!',
+    teacherFeedbackText: 'Дима, великолепный разбор! Голос уверенный, ответы развернутые. В 3-м вопросе отлично использовал вводную фразу "From my perspective". Пауз практически нет!',
     teacherVoiceAudioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
-    teacherCheckedAt: 'Вчера, 21:15',
+    teacherCheckedAt: getFormattedDateTime(new Date(Date.now() - 3600000 * 20)),
   },
   {
     id: 'sub-2',
     homeworkId: 'hw-3',
-    studentName: 'Александр Ковалев',
-    submittedAt: 'Сегодня, 10:15',
+    studentName: 'Дмитрий Волков',
+    submittedAt: getFormattedDateTime(new Date(Date.now() - 3600000 * 2)),
     status: 'pending',
     type: 'written',
-    writtenFileName: 'Эссе_Задание_38_Ковалев.pdf',
+    writtenFileName: 'Эссе_Задание_38_Волков.pdf',
     writtenFileUrl: '#',
     essayText: `Imagine that I am doing a project on why teenagers in Zetland choose a career in IT. I have found a table with the results of some opinion polls. I am going to analyze the data and express my opinion on the subject.
 
@@ -308,9 +298,9 @@ In conclusion, I strongly believe that an IT career is very prospective for youn
 ];
 
 export const initialStudentProfile: StudentProfile = {
-  name: 'Александр Ковалев',
-  telegramHandle: '@sasha_koval',
-  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+  name: 'Дмитрий Волков',
+  telegramHandle: '@dima_volk',
+  avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
   streakDays: 7,
   streakHistory: [true, true, true, true, true, true, true],
   totalHwSubmitted: 18,
@@ -397,12 +387,12 @@ export const initialNotifications: TGNotification[] = [];
 
 export const initialRegisteredStudents: RegisteredStudent[] = [
   {
-    id: 'st-1',
-    name: 'Александр Ковалев',
-    login: 'sasha',
-    telegramHandle: '@sasha_koval',
+    id: 'st-3',
+    name: 'Дмитрий Волков',
+    login: 'dima',
+    telegramHandle: '@dima_volk',
     password: '123',
-    addedAt: '01 Авг',
+    addedAt: '03 Авг',
     isFirstLogin: false,
   },
   {
@@ -413,15 +403,6 @@ export const initialRegisteredStudents: RegisteredStudent[] = [
     password: '',
     addedAt: '02 Авг',
     isFirstLogin: true,
-  },
-  {
-    id: 'st-3',
-    name: 'Дмитрий Волков',
-    login: 'dima',
-    telegramHandle: '@dima_volk',
-    password: '123',
-    addedAt: '03 Авг',
-    isFirstLogin: false,
   },
   {
     id: 'st-4',

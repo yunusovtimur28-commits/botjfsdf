@@ -6,7 +6,9 @@ import {
   Submission,
   StudentProfile as StudentProfileType,
   TGNotification,
+  ExamBlockScore,
 } from './types';
+import { getFormattedDateTime } from './lib/dateUtils';
 import {
   initialWebinars,
   initialHomeworks,
@@ -59,15 +61,22 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser>(() => {
     try {
       const saved = localStorage.getItem('ege_app_user_auth');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.name && parsed.name.toLowerCase().includes('ковалев')) {
+          parsed.name = 'Дмитрий Волков';
+          parsed.telegramHandle = '@dima_volk';
+        }
+        return parsed;
+      }
     } catch (e) {
       console.error('Failed to load auth from localStorage', e);
     }
     return {
-      name: 'Александр Ковалев',
+      name: 'Дмитрий Волков',
       role: 'student',
-      telegramHandle: '@sasha_koval',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+      telegramHandle: '@dima_volk',
+      avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
     };
   });
 
@@ -77,7 +86,27 @@ export default function App() {
 
   // Firestore Real-time Application State with Fallback Defaults
   const [webinars, setWebinars] = useState<Webinar[]>(initialWebinars);
-  const [homeworks, setHomeworks] = useState<Homework[]>(initialHomeworks);
+  const [homeworks, setHomeworks] = useState<Homework[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_homeworks');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return initialHomeworks;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ege_app_homeworks', JSON.stringify(homeworks));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [homeworks]);
+
   const [submissions, setSubmissions] = useState<Submission[]>(initialSubmissions);
   const [notifications, setNotifications] = useState<TGNotification[]>(initialNotifications);
 
@@ -120,7 +149,15 @@ export default function App() {
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>(() => {
     try {
       const saved = localStorage.getItem('ege_app_registered_students');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: RegisteredStudent[] = JSON.parse(saved);
+        return parsed.filter(
+          (st) =>
+            st.id !== 'st-1' &&
+            !st.name?.toLowerCase().includes('ковалев') &&
+            !st.login?.toLowerCase().includes('sasha')
+        );
+      }
     } catch (e) {
       console.error(e);
     }
@@ -153,7 +190,21 @@ export default function App() {
 
   const handleDeleteStudent = (studentId: string) => {
     localStorage.setItem('ege_app_students_seeded', 'true');
+    const targetStudent = registeredStudents.find((st) => st.id === studentId);
+    const targetName = targetStudent?.name?.toLowerCase() || '';
+
     setRegisteredStudents((prev) => prev.filter((st) => st.id !== studentId));
+
+    // Clean up all submissions belonging to this student or matching Kovalev
+    setSubmissions((prev) =>
+      prev.filter((sub) => {
+        const sName = sub.studentName?.toLowerCase() || '';
+        if (targetName && sName.includes(targetName)) return false;
+        if (sName.includes('ковалев') || sName.includes('ковалёв')) return false;
+        return true;
+      })
+    );
+
     dbDeleteStudent(studentId);
   };
 
@@ -288,54 +339,37 @@ export default function App() {
     const isNinjaUnlocked = currentStudentSubmissions.some((s) => s.type === 'test' && s.status === 'graded');
     const isSprinterUnlocked = currentStreak >= 7;
 
-    // Dynamic exam progress based on student activity
-    let dynamicExamProgress = [
-      {
-        trialName: 'Старт обучения',
-        date: 'Старт',
-        listening: 0,
-        reading: 0,
-        grammarVocabulary: 0,
-        writing: 0,
-        speaking: 0,
-        total: 0,
-      },
-    ];
+    // Dynamic exam progress for custom student based on actual graded submissions
+    const gradedUserSubs = currentStudentSubmissions.filter((s) => s.status === 'graded');
+    let dynamicExamProgress: ExamBlockScore[] = [];
 
-    if (currentStudentSubmissions.length === 1) {
-      dynamicExamProgress.push({
-        trialName: 'ДЗ №1 (Первый результат)',
-        date: 'Сегодня',
-        listening: 14,
-        reading: 14,
-        grammarVocabulary: 12,
-        writing: 12,
-        speaking: 12,
-        total: 64,
+    if (gradedUserSubs.length > 0) {
+      gradedUserSubs.forEach((sub, idx) => {
+        const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+        const max = sub.maxScore || 14;
+        const totalPct = Math.round(Math.min(100, Math.max(0, (score / max) * 100)));
+        const block20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
+
+        let listening = Math.round(totalPct * 0.2);
+        let reading = Math.round(totalPct * 0.2);
+        let grammarVocabulary = Math.round(totalPct * 0.2);
+        let writing = Math.round(totalPct * 0.2);
+        let speaking = Math.round(totalPct * 0.2);
+
+        if (sub.type === 'speaking') speaking = block20;
+        if (sub.type === 'written') writing = block20;
+
+        dynamicExamProgress.push({
+          trialName: `ДЗ №${idx + 1}`,
+          date: sub.teacherCheckedAt || sub.submittedAt || getFormattedDateTime(),
+          listening,
+          reading,
+          grammarVocabulary,
+          writing,
+          speaking,
+          total: totalPct,
+        });
       });
-    } else if (currentStudentSubmissions.length >= 2) {
-      dynamicExamProgress.push(
-        {
-          trialName: 'ДЗ №1 (Первый результат)',
-          date: 'Вчера',
-          listening: 15,
-          reading: 15,
-          grammarVocabulary: 14,
-          writing: 13,
-          speaking: 13,
-          total: 70,
-        },
-        {
-          trialName: 'Пробник №2 (Высокий балл)',
-          date: 'Сегодня',
-          listening: 18,
-          reading: 18,
-          grammarVocabulary: 17,
-          writing: 16,
-          speaking: 16,
-          total: 85,
-        }
-      );
     }
 
     return {
@@ -426,10 +460,16 @@ export default function App() {
           setHomeworks(initialHomeworks);
         } else {
           localStorage.setItem('ege_app_homeworks_seeded', 'true');
-          setHomeworks(list);
+          const savedDeleted = localStorage.getItem('ege_app_deleted_hw_ids');
+          const deletedIds: string[] = savedDeleted ? JSON.parse(savedDeleted) : deletedHwIds;
+          const filtered = list.filter((h) => !deletedIds.includes(h.id));
+          setHomeworks(filtered);
+          try {
+            localStorage.setItem('ege_app_homeworks', JSON.stringify(filtered));
+          } catch (e) {}
         }
       },
-      () => setHomeworks((prev) => (prev.length > 0 ? prev : initialHomeworks))
+      () => setHomeworks((prev) => prev)
     );
 
     const unsubSubmissions = subscribeSubmissions(
@@ -523,7 +563,7 @@ export default function App() {
       id: `n-${Date.now()}`,
       title: '🎥 Новый видеоурок от Ангелины!',
       text: `Опубликован новый урок: «${newWebinar.title}». Смотрите с таймкодами и конспектом!`,
-      time: 'Только что',
+      time: getFormattedDateTime(),
       isRead: false,
       type: 'webinar',
     };
@@ -546,7 +586,7 @@ export default function App() {
       id: `n-${Date.now()}`,
       title: '📌 Новое домашнее задание!',
       text: `Ангелина опубликовала задание: «${newHw.title}». Дедлайн: ${newHw.deadline}`,
-      time: 'Только что',
+      time: getFormattedDateTime(),
       isRead: false,
       type: 'deadline',
     };
@@ -562,7 +602,7 @@ export default function App() {
       id: `n-${Date.now()}`,
       title: `📝 ДЗ обновлено: «${updatedHw.title}»`,
       text: 'Преподаватель внес изменения в домашнее задание. Ознакомьтесь с обновленными инструкциями!',
-      time: 'Только что',
+      time: getFormattedDateTime(),
       isRead: false,
       type: 'webinar',
     };
@@ -572,14 +612,32 @@ export default function App() {
   // Delete Homework (Admin Feature)
   const handleDeleteHomework = async (hwId: string) => {
     localStorage.setItem('ege_app_homeworks_seeded', 'true');
-    setDeletedHwIds((prev) => [...prev, hwId]);
+    const updatedDeleted = Array.from(new Set([...deletedHwIds, hwId]));
+    setDeletedHwIds(updatedDeleted);
+    try {
+      localStorage.setItem('ege_app_deleted_hw_ids', JSON.stringify(updatedDeleted));
+    } catch (e) {
+      console.error(e);
+    }
     setHomeworks((prev) => prev.filter((h) => h.id !== hwId));
+    setSubmissions((prev) => prev.filter((s) => s.homeworkId !== hwId));
     await dbDeleteHomework(hwId);
+  };
+
+  // Delete Submission
+  const handleDeleteSubmission = (submissionId: string) => {
+    setSubmissions((prev) => prev.filter((s) => s.id !== submissionId));
   };
 
   // Delete Individual Notification
   const handleDeleteNotification = async (notifId: string) => {
-    setDeletedNotifIds((prev) => [...prev, notifId]);
+    const updated = Array.from(new Set([...deletedNotifIds, notifId]));
+    setDeletedNotifIds(updated);
+    try {
+      localStorage.setItem('ege_app_deleted_notif_ids', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
     await dbDeleteNotification(notifId);
   };
@@ -587,7 +645,13 @@ export default function App() {
   // Clear All Notifications
   const handleClearAllNotifications = async () => {
     const idsToClear = visibleNotifications.map((n) => n.id);
-    setDeletedNotifIds((prev) => Array.from(new Set([...prev, ...idsToClear])));
+    const updated = Array.from(new Set([...deletedNotifIds, ...idsToClear]));
+    setDeletedNotifIds(updated);
+    try {
+      localStorage.setItem('ege_app_deleted_notif_ids', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
     setNotifications([]);
     for (const id of idsToClear) {
       await dbDeleteNotification(id);
@@ -607,11 +671,14 @@ export default function App() {
   const handleSubmitHomework = async (submissionData: Partial<Submission>) => {
     if (!submissionData.homeworkId) return;
 
+    const now = new Date();
+    const formattedDateTime = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+
     const newSub: Submission = {
       id: `sub-${Date.now()}`,
       homeworkId: submissionData.homeworkId,
       studentName: currentUser.name,
-      submittedAt: 'Только что',
+      submittedAt: submissionData.submittedAt && submissionData.submittedAt !== 'Только что' ? submissionData.submittedAt : formattedDateTime,
       status: submissionData.status || 'pending',
       type: submissionData.type || 'written',
       testAnswers: submissionData.testAnswers,
@@ -634,7 +701,7 @@ export default function App() {
       id: `n-${Date.now()}`,
       title: '📤 ДЗ отправлено Ангелине!',
       text: 'Ангелина скоро проверит работу и вышлет разбор. Ожидайте уведомления!',
-      time: 'Только что',
+      time: formattedDateTime,
       isRead: false,
       type: 'check',
     };
@@ -655,7 +722,7 @@ export default function App() {
         id: `n-${Date.now()}`,
         title: '🎧 Ангелина проверила твой ' + (hw?.title || 'ДЗ') + '!',
         text: `Оценка: ${updatedData.totalScore}/${updatedData.maxScore || 14} баллов. Послушай разбор!`,
-        time: 'Только что',
+        time: getFormattedDateTime(),
         isRead: false,
         type: 'check',
       };
@@ -846,7 +913,7 @@ export default function App() {
         id: `welcome-${currentUser.name}`,
         title: `👋 Добро пожаловать, ${currentUser.name}!`,
         text: `Вы успешно авторизовались в платформе «Делай и Точка». Смотрите видеоуроки, сдавайте ДЗ и развивайте свой ударный счёт!`,
-        time: 'Только что',
+        time: getFormattedDateTime(),
         isRead: false,
         type: 'webinar',
       });
@@ -856,7 +923,7 @@ export default function App() {
         id: `streak-${currentUser.name}`,
         title: `🔥 Твой ударный счёт: ${streakDaysStr}!`,
         text: `Так держать, ${currentUser.name}! Твоя серия активности составляет ${streakDaysStr}. Выполняй задания ежедневно!`,
-        time: 'Сегодня',
+        time: getFormattedDateTime(),
         isRead: false,
         type: 'streak',
       });
@@ -866,7 +933,7 @@ export default function App() {
         id: `hw-notice-${currentUser.name}`,
         title: '⏳ Доступны практические ДЗ к ЕГЭ 2026',
         text: 'Перейдите во вкладку «ДЗ», чтобы сдать первое домашнее задание преподавателю Ангелине.',
-        time: 'Сегодня',
+        time: getFormattedDateTime(),
         isRead: true,
         type: 'deadline',
       });
@@ -874,12 +941,12 @@ export default function App() {
       // 4. Any real checked HW notifications for THIS student specifically
       const userGradedHWs = currentStudentSubmissions.filter((s) => s.status === 'graded');
       userGradedHWs.forEach((sub) => {
-        const hw = homeworks.find((h) => h.id === sub.homeworkId);
+        const hw = visibleHomeworks.find((h) => h.id === sub.homeworkId);
         list.push({
           id: `graded-${sub.id}`,
           title: `🎧 Ангелина проверила твой ${hw?.title || 'ответ'}!`,
           text: `Оценка: ${sub.totalScore}/${sub.maxScore || 14} баллов. Заходи посмотреть комментарий и аудиоразбор!`,
-          time: sub.submittedAt || 'Недавно',
+          time: sub.teacherCheckedAt || sub.submittedAt || getFormattedDateTime(),
           isRead: false,
           type: 'check',
         });
@@ -911,7 +978,7 @@ export default function App() {
     return result
       .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
       .filter((n) => !deletedNotifIds.includes(n.id));
-  }, [currentUser.name, activeStudentProfile.streakDays, currentStudentSubmissions, homeworks, notifications, readNotifIds, deletedNotifIds]);
+  }, [currentUser.name, activeStudentProfile.streakDays, currentStudentSubmissions, visibleHomeworks, notifications, readNotifIds, deletedNotifIds]);
 
   // Mark notification read
   const handleNotificationRead = async (id: string) => {
@@ -922,7 +989,7 @@ export default function App() {
     await dbMarkNotificationRead(id);
   };
 
-  const pendingHwCount = homeworks.filter((hw) => {
+  const pendingHwCount = visibleHomeworks.filter((hw) => {
     const sub = submissions.find((s) => s.homeworkId === hw.id && s.studentName === currentUser.name);
     return !sub && hw.deadline !== 'Просрочено';
   }).length;
@@ -1012,6 +1079,7 @@ export default function App() {
                   onAddHomework={handleAddHomework}
                   onUpdateHomework={handleUpdateHomework}
                   onDeleteHomework={handleDeleteHomework}
+                  onDeleteSubmission={handleDeleteSubmission}
                   isDarkMode={isDarkMode}
                 />
               )}

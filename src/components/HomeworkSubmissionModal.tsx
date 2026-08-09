@@ -248,6 +248,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     setTestScore(score);
     setTestSubmitted(true);
 
+    const now = new Date();
+    const formattedSubmittedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+
     onSubmit({
       homeworkId: homework.id,
       status: 'graded',
@@ -257,7 +260,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       totalScore: score,
       maxScore: homework.maxPoints,
       teacherFeedbackText: `Автоматическая проверка теста завершена! Результат: ${correctCount} из ${homework.testQuestions.length} вопросов правильно (${score}/${homework.maxPoints} баллов).`,
-      submittedAt: 'Только что',
+      submittedAt: formattedSubmittedAt,
     });
   };
 
@@ -288,6 +291,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   // Final Submit Homework
   const handleSubmitHomework = () => {
+    const now = new Date();
+    const formattedSubmittedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+
     onSubmit({
       homeworkId: homework.id,
       status: 'pending',
@@ -300,7 +306,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       writtenImageUrls: uploadedPhotos.length > 0 ? uploadedPhotos : undefined,
       taskAnswers: Object.keys(taskAnswers).length > 0 ? taskAnswers : undefined,
       aiPreviewFeedback: aiFeedback || undefined,
-      submittedAt: 'Только что',
+      submittedAt: formattedSubmittedAt,
     });
     onClose();
   };

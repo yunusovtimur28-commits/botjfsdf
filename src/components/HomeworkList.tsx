@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Homework, Submission, HomeworkStatus } from '../types';
 import { HomeworkSubmissionModal } from './HomeworkSubmissionModal';
+import { getCurrentMonthLabel } from '../lib/dateUtils';
 import {
   FileCheck2,
   Clock,
@@ -33,10 +34,16 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
 
-  // Map homework ID to submission belonging to current student
+  // Map homework ID to submission belonging to current student or fallback
   const getSubmissionForHomework = (hwId: string): Submission | undefined => {
-    if (!currentUserName) return submissions.find((s) => s.homeworkId === hwId);
-    return submissions.find((s) => s.homeworkId === hwId && s.studentName === currentUserName);
+    if (currentUserName) {
+      const normName = currentUserName.trim().toLowerCase();
+      const userSub = submissions.find(
+        (s) => s.homeworkId === hwId && s.studentName && s.studentName.trim().toLowerCase() === normName
+      );
+      if (userSub) return userSub;
+    }
+    return submissions.find((s) => s.homeworkId === hwId);
   };
 
   // Determine effective status for each homework
@@ -51,17 +58,42 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
     return 'todo';
   };
 
-  const tabs: { id: HomeworkStatus; label: string; icon: any; colorClass: string }[] = [
-    { id: 'todo', label: '🟡 Надо сделать', icon: Clock, colorClass: 'text-amber-400' },
-    { id: 'pending', label: '🔵 На проверке', icon: FileCheck2, colorClass: 'text-sky-400' },
-    { id: 'graded', label: '🟢 Проверено', icon: CheckCircle2, colorClass: 'text-emerald-400' },
-    { id: 'overdue', label: '🔴 Просрочено', icon: AlertCircle, colorClass: 'text-rose-400' },
+  const tabs: {
+    id: HomeworkStatus;
+    label: string;
+    activeClass: string;
+    badgeClass: string;
+  }[] = [
+    {
+      id: 'todo',
+      label: '🟡 на выполнение',
+      activeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-lg shadow-amber-950/40',
+      badgeClass: 'bg-amber-500/30 text-amber-200 border-amber-500/40',
+    },
+    {
+      id: 'pending',
+      label: '🔵 на проверку',
+      activeClass: 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-lg shadow-sky-950/40',
+      badgeClass: 'bg-sky-500/30 text-sky-200 border-sky-500/40',
+    },
+    {
+      id: 'graded',
+      label: '🟢 проверенно учителем',
+      activeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-lg shadow-emerald-950/40',
+      badgeClass: 'bg-emerald-500/30 text-emerald-200 border-emerald-500/40',
+    },
+    {
+      id: 'overdue',
+      label: '🔴 просроченно по времени',
+      activeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-lg shadow-rose-950/40',
+      badgeClass: 'bg-rose-500/30 text-rose-200 border-rose-500/40',
+    },
   ];
 
   const filteredHomeworks = homeworks.filter(
     (hw) =>
       getHomeworkStatus(hw) === activeTab &&
-      (selectedMonth === 'all' || (hw.month || 'Май 2026') === selectedMonth)
+      (selectedMonth === 'all' || (hw.month || getCurrentMonthLabel()) === selectedMonth)
   );
 
   return (
@@ -107,8 +139,8 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
         </div>
       </div>
 
-      {/* Status Filter Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 rounded-xl bg-black/10 dark:bg-[#17212b]">
+      {/* Status Filter Tabs (Strict 2x2 Grid: Row 1 = todo & pending, Row 2 = graded & overdue) */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 p-2 rounded-2xl bg-black/20 dark:bg-[#17212b] border border-slate-700/50">
         {tabs.map((tab) => {
           const count = homeworks.filter((hw) => getHomeworkStatus(hw) === tab.id).length;
           const isActive = activeTab === tab.id;
@@ -116,16 +148,18 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              className={`py-3 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-between border ${
                 isActive
-                  ? isDarkMode
-                    ? 'bg-[#1e2c3a] text-white shadow-md border border-slate-700'
-                    : 'bg-white text-slate-900 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? tab.activeClass
+                  : 'bg-slate-800/40 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 border-slate-700/40'
               }`}
             >
-              <span className="truncate">{tab.label}</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 text-slate-300">
+              <span className="truncate tracking-tight font-extrabold">{tab.label}</span>
+              <span
+                className={`ml-1.5 text-[11px] font-black px-2 py-0.5 rounded-full border shrink-0 ${
+                  isActive ? tab.badgeClass : 'bg-slate-800 text-slate-300 border-slate-700'
+                }`}
+              >
                 {count}
               </span>
             </button>
@@ -174,7 +208,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
                           : '📚 Раздел: Лексика'}
                       </span>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                        📅 {hw.month || 'Май 2026'}
+                        📅 {hw.month || getCurrentMonthLabel()}
                       </span>
                     </div>
 

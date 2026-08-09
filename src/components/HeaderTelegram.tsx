@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { UserRole, TGNotification } from '../types';
 import { AuthUser } from './AuthModal';
 import { NavTab } from './Navigation';
+import { getFormattedDateTime } from '../lib/dateUtils';
 import {
   Bell,
   Sparkles,
@@ -255,7 +256,11 @@ export const HeaderTelegram: React.FC<HeaderTelegramProps> = ({
                       </div>
                       
                       <div className="flex items-center space-x-2 shrink-0 ml-2">
-                        <span className="text-[10px] text-slate-400">{item.time}</span>
+                        <span className="text-[10px] text-slate-400">
+                          {item.time && item.time !== 'Только что' && item.time !== 'Недавно' && item.time !== 'Сегодня'
+                            ? item.time
+                            : getFormattedDateTime()}
+                        </span>
                         {onDeleteNotification && (
                           <button
                             onClick={(e) => {

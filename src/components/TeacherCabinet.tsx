@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent } from '../types';
+import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
 import {
   GraduationCap,
   Mic,
@@ -34,6 +35,9 @@ import {
   ShieldAlert,
   Paperclip,
   Image as ImageIcon,
+  Download,
+  Search,
+  Edit2,
 } from 'lucide-react';
 
 interface TeacherCabinetProps {
@@ -49,10 +53,11 @@ interface TeacherCabinetProps {
   onAddHomework?: (newHw: Homework) => void;
   onUpdateHomework?: (updatedHw: Homework) => void;
   onDeleteHomework?: (hwId: string) => void;
+  onDeleteSubmission?: (submissionId: string) => void;
   isDarkMode: boolean;
 }
 
-type AdminTab = 'upload_video' | 'review_hw' | 'create_hw' | 'analytics' | 'settings';
+type AdminTab = 'upload_video' | 'review_hw' | 'archive_graded' | 'create_hw' | 'analytics' | 'settings';
 
 export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   submissions,
@@ -67,18 +72,115 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   onAddHomework,
   onUpdateHomework,
   onDeleteHomework,
+  onDeleteSubmission,
   isDarkMode,
 }) => {
   const [adminTab, setAdminTab] = useState<AdminTab>('upload_video');
+
+  // State for Archive of Graded HWs ("База проверенных ДЗ")
+  const [archiveSelectedStudent, setArchiveSelectedStudent] = useState<string>('all');
+  const [archiveSelectedMonth, setArchiveSelectedMonth] = useState<string>('all');
+  const [archiveSelectedBlock, setArchiveSelectedBlock] = useState<string>('all');
+  const [archiveSearchQuery, setArchiveSearchQuery] = useState<string>('');
 
   // SOFT DELETION & 5s UNDO TIMER STATE
   const [softDeletedStudentIds, setSoftDeletedStudentIds] = useState<string[]>([]);
   const [softDeletedWebinarIds, setSoftDeletedWebinarIds] = useState<string[]>([]);
   const [softDeletedHwIds, setSoftDeletedHwIds] = useState<string[]>([]);
+  const [softDeletedSubmissionIds, setSoftDeletedSubmissionIds] = useState<string[]>([]);
+
+  // Dynamic list of student names for archive filters (all registered students + any in submissions)
+  const archiveStudentOptions = React.useMemo(() => {
+    const set = new Set<string>();
+    registeredStudents.forEach((s) => {
+      if (!softDeletedStudentIds.includes(s.id)) set.add(s.name);
+    });
+    submissions.forEach((s) => {
+      if (s.studentName) set.add(s.studentName);
+    });
+    return Array.from(set);
+  }, [registeredStudents, softDeletedStudentIds, submissions]);
+
+  const gradedArchiveSubmissions = React.useMemo(() => {
+    return submissions.filter((sub) => {
+      if (sub.status !== 'graded') return false;
+      if (softDeletedSubmissionIds.includes(sub.id)) return false;
+
+      const hw = homeworks.find((h) => h.id === sub.homeworkId);
+      const hwMonth = hw?.month || getCurrentMonthLabel();
+      const hwBlock = hw?.block || 'writing';
+
+      if (archiveSelectedStudent !== 'all' && sub.studentName !== archiveSelectedStudent) {
+        return false;
+      }
+      if (archiveSelectedMonth !== 'all' && hwMonth !== archiveSelectedMonth) {
+        return false;
+      }
+      if (archiveSelectedBlock !== 'all' && hwBlock !== archiveSelectedBlock) {
+        return false;
+      }
+      if (archiveSearchQuery.trim()) {
+        const q = archiveSearchQuery.toLowerCase();
+        const matchName = sub.studentName?.toLowerCase().includes(q);
+        const matchTitle = hw?.title.toLowerCase().includes(q);
+        const matchFeedback = sub.teacherFeedbackText?.toLowerCase().includes(q);
+        if (!matchName && !matchTitle && !matchFeedback) return false;
+      }
+      return true;
+    });
+  }, [
+    submissions,
+    softDeletedSubmissionIds,
+    homeworks,
+    archiveSelectedStudent,
+    archiveSelectedMonth,
+    archiveSelectedBlock,
+    archiveSearchQuery,
+  ]);
+
+  const handleExportGradedArchive = () => {
+    if (gradedArchiveSubmissions.length === 0) {
+      alert('Нет проверенных работ для выгрузки по текущим фильтрам.');
+      return;
+    }
+
+    let report = `========================================================\n`;
+    report += `ОТЧЕТ ПО ПРОВЕРЕННЫМ ДОМАШНИМ ЗАДАНИЯМ (Курс ЕГЭ Английский)\n`;
+    report += `Сформирован: ${new Date().toLocaleString('ru-RU')}\n`;
+    report += `Всего работ в выборке: ${gradedArchiveSubmissions.length}\n`;
+    report += `========================================================\n\n`;
+
+    gradedArchiveSubmissions.forEach((sub, i) => {
+      const hw = homeworks.find((h) => h.id === sub.homeworkId);
+      report += `${i + 1}. Ученик: ${sub.studentName}\n`;
+      report += `   Задание: ${hw?.title || 'Домашнее задание'} (${hw?.month || 'Май 2026'})\n`;
+      report += `   Формат: ${hw?.type || sub.type} | Блок: ${hw?.block || 'writing'}\n`;
+      report += `   Итоговый балл: ${sub.totalScore ?? 0} / ${sub.maxScore ?? 14}\n`;
+      if (sub.criteriaScores) {
+        report += `   Критерии ФИПИ: К1=${sub.criteriaScores.k1_taskSolution}, К2=${sub.criteriaScores.k2_organization}, К3=${sub.criteriaScores.k3_vocabulary}, К4=${sub.criteriaScores.k4_grammar}\n`;
+      }
+      report += `   Дата сдачи: ${sub.submittedAt || 'Н/Д'}\n`;
+      report += `   Проверено учителем: ${sub.teacherCheckedAt || 'Да'}\n`;
+      if (sub.teacherFeedbackText) {
+        report += `   Комментарий Ангелины: ${sub.teacherFeedbackText}\n`;
+      }
+      report += `--------------------------------------------------------\n\n`;
+    });
+
+    const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Проверенные_ДЗ_${archiveSelectedStudent === 'all' ? 'Все_ученики' : archiveSelectedStudent}_${archiveSelectedMonth === 'all' ? 'Все_месяцы' : archiveSelectedMonth}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const [undoToast, setUndoToast] = useState<{
     id: string;
-    type: 'student' | 'webinar' | 'homework';
+    type: 'student' | 'webinar' | 'homework' | 'submission';
     name: string;
     secondsLeft: number;
   } | null>(null);
@@ -93,6 +195,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         onDeleteWebinar(undoToast.id);
       } else if (undoToast.type === 'homework' && onDeleteHomework) {
         onDeleteHomework(undoToast.id);
+      } else if (undoToast.type === 'submission' && onDeleteSubmission) {
+        onDeleteSubmission(undoToast.id);
       }
       setUndoToast(null);
       return;
@@ -103,10 +207,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [undoToast, onDeleteStudent, onDeleteWebinar, onDeleteHomework]);
+  }, [undoToast, onDeleteStudent, onDeleteWebinar, onDeleteHomework, onDeleteSubmission]);
 
   const handleTriggerDeleteStudent = (studentId: string, studentName: string) => {
     setSoftDeletedStudentIds((prev) => [...prev, studentId]);
+    if (onDeleteStudent) {
+      onDeleteStudent(studentId);
+    }
     setUndoToast({
       id: studentId,
       type: 'student',
@@ -127,10 +234,26 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
   const handleTriggerDeleteHomework = (hwId: string, hwTitle: string) => {
     setSoftDeletedHwIds((prev) => [...prev, hwId]);
+    if (onDeleteHomework) {
+      onDeleteHomework(hwId);
+    }
     setUndoToast({
       id: hwId,
       type: 'homework',
       name: hwTitle,
+      secondsLeft: 5,
+    });
+  };
+
+  const handleTriggerDeleteSubmission = (submissionId: string, studentName: string) => {
+    setSoftDeletedSubmissionIds((prev) => [...prev, submissionId]);
+    if (onDeleteSubmission) {
+      onDeleteSubmission(submissionId);
+    }
+    setUndoToast({
+      id: submissionId,
+      type: 'submission',
+      name: `ДЗ ученика ${studentName || ''}`,
       secondsLeft: 5,
     });
   };
@@ -143,6 +266,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       setSoftDeletedWebinarIds((prev) => prev.filter((id) => id !== undoToast.id));
     } else if (undoToast.type === 'homework') {
       setSoftDeletedHwIds((prev) => prev.filter((id) => id !== undoToast.id));
+    } else if (undoToast.type === 'submission') {
+      setSoftDeletedSubmissionIds((prev) => prev.filter((id) => id !== undoToast.id));
     }
     setUndoToast(null);
   };
@@ -161,8 +286,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   }, [homeworks, softDeletedHwIds]);
 
   const activeSubmissions = React.useMemo(() => {
-    return submissions.filter((sub) => activeRegisteredStudents.some((st) => st.name === sub.studentName));
-  }, [submissions, activeRegisteredStudents]);
+    return submissions;
+  }, [submissions]);
 
   // Dynamic calculations strictly from active students & submissions
   const averageScorePercent = React.useMemo(() => {
@@ -188,7 +313,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           const visits = JSON.parse(stored);
           totalStreak += Array.isArray(visits) ? Math.max(1, visits.length) : 7;
         } else {
-          totalStreak += st.name === 'Александр Ковалев' ? 7 : 1;
+          totalStreak += st.name === 'Дмитрий Волков' ? 7 : 1;
         }
       } catch (e) {
         totalStreak += 7;
@@ -221,6 +346,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
   // Submissions state for grading
   const [reviewSubTab, setReviewSubTab] = useState<'pending' | 'graded'>('pending');
+  const [gradeSuccessToast, setGradeSuccessToast] = useState<{
+    studentName: string;
+    scoreStr: string;
+  } | null>(null);
   const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(
     submissions.find((s) => s.status === 'pending') || submissions[0] || null
   );
@@ -652,7 +781,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       thumbnailUrl: finalThumbUrl,
       duration: videoDuration || '45:00',
       durationSeconds: durSec,
-      date: 'Только что',
+      date: getFormattedDateTime(),
       timecodes: timecodes.map((tc) => ({
         timeInSeconds: tc.timeInSeconds,
         label: tc.label.includes('—') ? tc.label : `${tc.timeStr || '00:00'} — ${tc.label}`,
@@ -795,7 +924,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       type: primaryType as any,
       deadline: hwDeadline,
       deadlineDate: new Date(Date.now() + 86400000).toISOString(),
-      month: 'Май 2026',
+      month: getCurrentMonthLabel(),
       maxPoints: formattedTasks.length * 5,
       description: hwDescription.trim() || `Домашнее задание от Ангелины из ${formattedTasks.length} заданий.`,
       tasks: formattedTasks,
@@ -890,6 +1019,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const maxScore = hw?.maxPoints || 14;
     const finalScore = Math.min(totalScore, maxScore);
 
+    const now = new Date();
+    const formattedCheckedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+
     onGradeSubmission(selectedSubmission.id, {
       status: 'graded',
       criteriaScores: criteria,
@@ -897,10 +1029,26 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       maxScore,
       teacherFeedbackText: feedbackText,
       teacherVoiceAudioUrl: teacherVoiceUrl || undefined,
-      teacherCheckedAt: 'Только что',
+      teacherCheckedAt: formattedCheckedAt,
     });
 
-    alert('✅ Проверка сохранена и отправлена ученику в Telegram!');
+    setGradeSuccessToast({
+      studentName: selectedSubmission.studentName,
+      scoreStr: `${finalScore} / ${maxScore} баллов`,
+    });
+
+    const remainingPending = submissions.filter(
+      (s) => s.status === 'pending' && s.id !== selectedSubmission.id
+    );
+    if (remainingPending.length > 0) {
+      handleSelectSubmission(remainingPending[0]);
+    } else {
+      setSelectedSubmission(null);
+    }
+
+    setTimeout(() => {
+      setGradeSuccessToast(null);
+    }, 6000);
   };
 
   const totalCalculatedScore =
@@ -910,7 +1058,34 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     criteria.k4_grammar;
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 pb-24 relative">
+      {/* SUCCESS TOAST BANNER FOR GRADED HOMEWORK */}
+      {gradeSuccessToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-md w-[92%] bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-4 rounded-2xl shadow-2xl border border-emerald-400 flex items-center justify-between space-x-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <CheckCircle className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-black text-sm text-white">🚀 ДЗ отправлено ученику!</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-emerald-100">
+                  {gradeSuccessToast.scoreStr}
+                </span>
+              </div>
+              <p className="text-xs text-emerald-100 mt-0.5">
+                Результат и разбор отправлены ученику <strong className="text-white">{gradeSuccessToast.studentName}</strong>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setGradeSuccessToast(null)}
+            className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {/* Admin Panel Header */}
       <div className={`p-4 rounded-2xl border bg-gradient-to-r from-purple-900/40 via-indigo-900/30 to-sky-900/40 ${
         isDarkMode ? 'border-purple-500/30 text-white' : 'border-purple-200 text-slate-900'
@@ -964,6 +1139,27 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               )}
             </div>
             <span className="truncate">Проверка</span>
+          </button>
+
+          <button
+            onClick={() => setAdminTab('archive_graded')}
+            className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 relative ${
+              adminTab === 'archive_graded'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <div className="relative">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              {submissions.filter((s) => s.status === 'graded').length > 0 && (
+                <span className="absolute -top-1 -right-2 bg-emerald-500 text-white text-[9px] px-1 h-3.5 rounded-full flex items-center justify-center font-bold">
+                  {submissions.filter((s) => s.status === 'graded').length}
+                </span>
+              )}
+            </div>
+            <span className="text-[9px] sm:text-[10px] leading-tight text-center font-extrabold tracking-tight">
+              Проверенные<br />ДЗ
+            </span>
           </button>
 
           <button
@@ -1443,16 +1639,30 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               }`}
             >
               {/* Student Info Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-700">
                 <div>
                   <h3 className="font-bold text-sm">{selectedSubmission.studentName}</h3>
                   <p className="text-xs text-sky-400">
                     Задание: {getHomeworkForSubmission(selectedSubmission.homeworkId)?.title}
                   </p>
                 </div>
-                <span className="text-xs text-slate-400 font-mono">
-                  Сдано: {selectedSubmission.submittedAt}
-                </span>
+                <div className="flex items-center space-x-3 shrink-0">
+                  <span className="text-xs text-slate-400 font-mono">
+                    Сдано: {selectedSubmission.submittedAt && selectedSubmission.submittedAt !== 'Только что' && selectedSubmission.submittedAt !== 'Ранее' ? selectedSubmission.submittedAt : getFormattedDateTime()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleTriggerDeleteSubmission(selectedSubmission.id, selectedSubmission.studentName);
+                      setSelectedSubmission(null);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-bold text-xs border border-rose-500/30 transition-colors flex items-center space-x-1"
+                    title="Удалить работу ученика"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Удалить ДЗ</span>
+                  </button>
+                </div>
               </div>
 
               {/* WORK CONTENT DISPLAY */}
@@ -1732,7 +1942,258 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         </div>
       )}
 
-      {/* ================= TAB 3: CREATE HOMEWORK ================= */}
+      {/* ================= TAB 2: ARCHIVE OF GRADED HOMEWORKS ("БАЗА ПРОВЕРЕННЫХ ДЗ") ================= */}
+      {adminTab === 'archive_graded' && (
+        <div className="space-y-4">
+          {/* Header Banner */}
+          <div className={`p-4 rounded-2xl border bg-gradient-to-r from-emerald-900/40 via-teal-900/30 to-slate-900/40 ${
+            isDarkMode ? 'border-emerald-500/30 text-white' : 'border-emerald-200 text-slate-900'
+          }`}>
+            <div className="flex flex-col gap-2.5">
+              <div>
+                <h3 className="font-extrabold text-base sm:text-lg flex items-center space-x-2 flex-wrap gap-2">
+                  <span className="text-emerald-400">🗄️ База проверенных ДЗ</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+                    Всего: {submissions.filter((s) => s.status === 'graded').length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  Архив сданных работ учеников с выставленными оценками, баллами ФИПИ и разборами
+                </p>
+              </div>
+
+              {/* Export Button moved below title to prevent edge overflow */}
+              <div className="pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleExportGradedArchive}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 border border-emerald-400/40"
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span>Выгрузить отчет (TXT)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter controls row */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 mt-4 pt-3 border-t border-slate-700/50">
+              {/* Filter by Student */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 mb-1 block">👤 Ученик:</label>
+                <select
+                  value={archiveSelectedStudent}
+                  onChange={(e) => setArchiveSelectedStudent(e.target.value)}
+                  className={`w-full p-2 rounded-xl text-xs font-bold border ${
+                    isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                >
+                  <option value="all">👥 Все ученики ({archiveStudentOptions.length})</option>
+                  {archiveStudentOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter by Month */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 mb-1 block">📅 Месяц:</label>
+                <select
+                  value={archiveSelectedMonth}
+                  onChange={(e) => setArchiveSelectedMonth(e.target.value)}
+                  className={`w-full p-2 rounded-xl text-xs font-bold border ${
+                    isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                >
+                  <option value="all">🗓️ Все месяцы</option>
+                  {[
+                    'Январь 2026',
+                    'Февраль 2026',
+                    'Март 2026',
+                    'Апрель 2026',
+                    'Май 2026',
+                    'Июнь 2026',
+                    'Июль 2026',
+                    'Август 2026',
+                    'Сентябрь 2026',
+                    'Октябрь 2026',
+                    'Ноябрь 2026',
+                    'Декабрь 2026',
+                  ].map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter by Block */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 mb-1 block">📚 Раздел:</label>
+                <select
+                  value={archiveSelectedBlock}
+                  onChange={(e) => setArchiveSelectedBlock(e.target.value)}
+                  className={`w-full p-2 rounded-xl text-xs font-bold border ${
+                    isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                >
+                  <option value="all">🎯 Все разделы</option>
+                  <option value="speaking">🎙️ Говорение (Speaking)</option>
+                  <option value="writing">✍️ Письмо (Writing)</option>
+                  <option value="grammar">🧩 Грамматика</option>
+                  <option value="vocabulary">📖 Лексика</option>
+                </select>
+              </div>
+
+              {/* Search input */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 mb-1 block">🔍 Поиск:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={archiveSearchQuery}
+                    onChange={(e) => setArchiveSearchQuery(e.target.value)}
+                    placeholder="Имя или тема..."
+                    className={`w-full p-2 pl-7 rounded-xl text-xs border ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white placeholder-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
+                    }`}
+                  />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2.5" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* List of Graded Submissions */}
+          {gradedArchiveSubmissions.length === 0 ? (
+            <div className={`p-8 text-center rounded-2xl border ${
+              isDarkMode ? 'bg-[#1e2c3a] border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
+            }`}>
+              <CheckCircle2 className="w-10 h-10 text-emerald-500/60 mx-auto mb-2" />
+              <h4 className="font-bold text-sm text-slate-300">Нет проверенных ДЗ по выбранным фильтрам</h4>
+              <p className="text-xs text-slate-400 mt-1">
+                Попробуйте выбрать другого ученика, сбросить поиск или проверить работы во вкладке «Проверка».
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {gradedArchiveSubmissions.map((sub) => {
+                const hw = homeworks.find((h) => h.id === sub.homeworkId);
+                return (
+                  <div
+                    key={sub.id}
+                    className={`p-4 rounded-2xl border transition-all ${
+                      isDarkMode ? 'bg-[#1e2c3a] border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200 shadow-sm'
+                    }`}
+                  >
+                    {/* Header line: Student + HW Title + Score Badge */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-700/40">
+                      <div className="flex items-start space-x-3">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm">
+                          {sub.studentName ? sub.studentName.charAt(0) : 'У'}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <h4 className="font-extrabold text-sm text-white">{sub.studentName}</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                              {hw?.month || getCurrentMonthLabel()}
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                              {hw?.block === 'speaking' ? '🎙️ Говорение' : hw?.block === 'writing' ? '✍️ Письмо' : hw?.block === 'grammar' ? '🧩 Грамматика' : '📖 Лексика'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-300 font-medium mt-0.5">
+                            «{hw?.title || 'Домашнее задание'}»
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Final Score Badge & Re-check action stacked vertically */}
+                      <div className="flex flex-col items-start sm:items-end gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-700/30">
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] text-slate-400 block font-medium">Оценка:</span>
+                          <span className="text-sm font-black text-emerald-400">
+                            {sub.totalScore ?? 0} / {sub.maxScore ?? 14} баллов
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdminTab('review_hw');
+                            setReviewSubTab('graded');
+                            handleSelectSubmission(sub);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] border border-slate-700 transition-colors flex items-center space-x-1 shrink-0"
+                          title="Редактировать оценку"
+                        >
+                          <Edit2 className="w-3 h-3 text-purple-400" />
+                          <span>Перепроверить</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Criteria breakdown if criteriaScores exist */}
+                    {sub.criteriaScores && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-3 p-2.5 rounded-xl bg-black/20 border border-slate-800 text-center text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">К1 Решение задачи</span>
+                          <span className="font-bold text-amber-300">{sub.criteriaScores.k1_taskSolution} / 3</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">К2 Организация</span>
+                          <span className="font-bold text-amber-300">{sub.criteriaScores.k2_organization} / 3</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">К3 Лексика</span>
+                          <span className="font-bold text-amber-300">{sub.criteriaScores.k3_vocabulary} / 3</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">К4 Грамматика</span>
+                          <span className="font-bold text-amber-300">{sub.criteriaScores.k4_grammar} / 3</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Teacher Feedback Text & Audio */}
+                    {sub.teacherFeedbackText && (
+                      <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-slate-200 mt-2 space-y-1">
+                        <span className="font-bold text-purple-300 block">💬 Разбор Ангелины:</span>
+                        <p className="whitespace-pre-wrap leading-relaxed">{sub.teacherFeedbackText}</p>
+                      </div>
+                    )}
+
+                    {sub.teacherVoiceAudioUrl && (
+                      <div className="p-2.5 rounded-xl bg-black/30 border border-slate-800 mt-2 flex items-center space-x-2">
+                        <Mic className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span className="text-xs font-bold text-slate-300 shrink-0">Голосовой разбор:</span>
+                        <audio src={sub.teacherVoiceAudioUrl} controls className="w-full h-7 rounded-lg accent-purple-500" />
+                      </div>
+                    )}
+
+                    {/* Footer Timestamps & Delete HW button */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-800 gap-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span>📤 Сдано учеником: <strong className="text-slate-300">{sub.submittedAt && sub.submittedAt !== 'Ранее' ? sub.submittedAt : getFormattedDateTime()}</strong></span>
+                        <span>✅ Проверено: <strong className="text-emerald-300">{sub.teacherCheckedAt && sub.teacherCheckedAt !== 'Да' && sub.teacherCheckedAt !== 'Только что' ? sub.teacherCheckedAt : getFormattedDateTime()}</strong></span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerDeleteSubmission(sub.id, sub.studentName)}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 font-bold text-[11px] border border-rose-500/30 transition-colors flex items-center space-x-1 shrink-0 self-start sm:self-auto"
+                        title="Удалить эту работу из базы"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Удалить ДЗ</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       {adminTab === 'create_hw' && (
         <div className={`p-4 rounded-2xl border space-y-4 ${
           isDarkMode ? 'bg-[#1e2c3a] border-slate-800' : 'bg-white border-slate-200'
@@ -2209,7 +2670,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h4 className="font-bold text-xs text-purple-300 flex items-center space-x-2">
                 <BookOpen className="w-4 h-4" />
-                <span>Опубликованные задания ({activeHomeworks.filter(h => selectedPublishedMonth === 'all' || (h.month || 'Май 2026') === selectedPublishedMonth).length}):</span>
+                <span>Опубликованные задания ({activeHomeworks.filter(h => selectedPublishedMonth === 'all' || (h.month || getCurrentMonthLabel()) === selectedPublishedMonth).length}):</span>
               </h4>
 
               {/* Month Selector Buttons */}
@@ -2247,7 +2708,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {activeHomeworks
-                .filter((hw) => selectedPublishedMonth === 'all' || (hw.month || 'Май 2026') === selectedPublishedMonth)
+                .filter((hw) => selectedPublishedMonth === 'all' || (hw.month || getCurrentMonthLabel()) === selectedPublishedMonth)
                 .map((hw) => (
                 <div
                   key={hw.id}
@@ -2260,7 +2721,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
                         {hw.block === 'speaking' ? '🗣 Говорение' : hw.block === 'writing' ? '✍️ Письмо' : '📝 Тест'}
                       </span>
-                      <span className="text-[10px] text-slate-400">{hw.month || 'Май 2026'} | {hw.deadline}</span>
+                      <span className="text-[10px] text-slate-400">{hw.month || getCurrentMonthLabel()} | {hw.deadline}</span>
                     </div>
                     <h5 className="font-bold text-xs text-white leading-tight">{hw.title}</h5>
                     <p className="text-[11px] text-slate-400 line-clamp-2">{hw.description}</p>

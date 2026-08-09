@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StudentProfile as StudentProfileType, RegisteredStudent, Submission } from '../types';
+import { StudentProfile as StudentProfileType, RegisteredStudent, Submission, Homework } from '../types';
 import {
   Flame,
   Crown,
@@ -65,6 +65,58 @@ const ALL_MONTHS = [
   'Декабрь',
 ];
 
+// Helper to extract Russian month name and formatted date label (e.g. "3 Авг") from timestamps
+function parseMonthAndLabel(dateStr?: string): { month: string; dateLabel: string } {
+  if (!dateStr) {
+    const now = new Date();
+    const currentMonth = ALL_MONTHS[now.getMonth()];
+    const day = now.getDate();
+    const shortMonth = currentMonth.slice(0, 3);
+    return { month: currentMonth, dateLabel: `${day} ${shortMonth}` };
+  }
+
+  const monthMap: Record<string, string> = {
+    'янв': 'Январь', 'фев': 'Февраль', 'мар': 'Март', 'апр': 'Апрель',
+    'май': 'Май', 'мая': 'Май', 'июн': 'Июнь', 'июл': 'Июль',
+    'авг': 'Август', 'сен': 'Сентябрь', 'окт': 'Октябрь', 'ноя': 'Ноябрь', 'дек': 'Декабрь'
+  };
+
+  const lower = dateStr.toLowerCase();
+
+  if (lower.includes('сегодня') || lower.includes('вчера') || lower.includes('только что') || lower.includes('старт')) {
+    const now = new Date();
+    if (lower.includes('вчера')) {
+      now.setDate(now.getDate() - 1);
+    }
+    const currentMonth = ALL_MONTHS[now.getMonth()];
+    const day = now.getDate();
+    const shortMonth = currentMonth.slice(0, 3);
+    return { month: currentMonth, dateLabel: `${day} ${shortMonth}` };
+  }
+
+  for (const [key, fullMonth] of Object.entries(monthMap)) {
+    if (lower.includes(key)) {
+      const matchDay = dateStr.match(/(\d{1,2})\s+[А-Яа-я]+/);
+      const dayStr = matchDay ? matchDay[1] : '';
+      const shortMonth = fullMonth.slice(0, 3);
+      const dateLabel = dayStr ? `${dayStr} ${shortMonth}` : dateStr;
+      return { month: fullMonth, dateLabel };
+    }
+  }
+
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    const fullMonth = ALL_MONTHS[d.getMonth()];
+    const day = d.getDate();
+    const shortMonth = fullMonth.slice(0, 3);
+    return { month: fullMonth, dateLabel: `${day} ${shortMonth}` };
+  }
+
+  const now = new Date();
+  const currentMonth = ALL_MONTHS[now.getMonth()];
+  return { month: currentMonth, dateLabel: dateStr };
+}
+
 export const StudentProfile: React.FC<StudentProfileProps> = ({
   profile,
   isDarkMode,
@@ -103,185 +155,169 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     return history;
   }, [profile.streakDays]);
 
-  // Exam progress calculation
-  const isNewStudent = profile.totalHwSubmitted === 0;
-  const CONSTANT_JOIN_MONTH = 'Август'; // Constant platform onboarding month
+  // 1. Extract student's graded submissions
+  const studentSubmissions = React.useMemo(() => {
+    return submissions.filter(
+      (s) => s.studentName === profile.name && s.status === 'graded'
+    );
+  }, [submissions, profile.name]);
 
-  // Month-filtered or All-time data generation
-  const monthData = React.useMemo(() => {
-    if (isAdmin) {
-      // Calculate average scores across student submissions / examProgress
-      const studentProgresses = registeredStudents
-        .map((st) => st.examProgress)
-        .filter(Boolean);
+  // 2. Build unified chronological timeline items
+  const allTimelineItems = React.useMemo(() => {
+    const items: Array<{
+      dateLabel: string;
+      month: string;
+      total: number;
+      listening: number;
+      reading: number;
+      grammarVocabulary: number;
+      writing: number;
+      speaking: number;
+      trialName?: string;
+    }> = [];
 
-      const hasStudentData = studentProgresses.some((p) => p && p.length > 0);
-
-      if (selectedMonth === 'all') {
-        return ALL_MONTHS.map((m) => {
-          if (!hasStudentData) {
-            return {
-              trialName: `Ср. балл (${m})`,
-              date: m.slice(0, 3),
-              total: 0,
-              listening: 0,
-              reading: 0,
-              grammarVocabulary: 0,
-              writing: 0,
-              speaking: 0,
-            };
-          }
-          const totals = studentProgresses.map((p) => p?.[0]?.total || 0);
-          const avg = Math.round(totals.reduce((a, b) => a + b, 0) / (totals.length || 1));
-          return {
-            trialName: `Ср. балл (${m})`,
-            date: m.slice(0, 3),
-            total: avg,
-            listening: 0,
-            reading: 0,
-            grammarVocabulary: 0,
-            writing: 0,
-            speaking: 0,
-          };
+    // Add stored exam trials from profile.examProgress if present
+    if (profile.examProgress && profile.examProgress.length > 0) {
+      profile.examProgress.forEach((p) => {
+        const parsed = parseMonthAndLabel(p.date);
+        items.push({
+          dateLabel: parsed.dateLabel,
+          month: parsed.month,
+          total: Math.min(100, Math.max(0, p.total)),
+          listening: Math.min(20, Math.max(0, p.listening)),
+          reading: Math.min(20, Math.max(0, p.reading)),
+          grammarVocabulary: Math.min(20, Math.max(0, p.grammarVocabulary)),
+          writing: Math.min(20, Math.max(0, p.writing)),
+          speaking: Math.min(20, Math.max(0, p.speaking)),
+          trialName: p.trialName,
         });
-      }
-
-      return [
-        { trialName: 'Начало месяца', date: `01 ${selectedMonth.slice(0, 3)}`, total: 0, listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 },
-        { trialName: 'Конец месяца', date: `30 ${selectedMonth.slice(0, 3)}`, total: 0, listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 },
-      ];
-    }
-
-    if (selectedMonth === 'all') {
-      // 12 Months full learning period view
-      if (isNewStudent) {
-        return ALL_MONTHS.map((m) => ({
-          trialName: `Месяц (${m})`,
-          date: m.slice(0, 3),
-          total: 0,
-          listening: 0,
-          reading: 0,
-          grammarVocabulary: 0,
-          writing: 0,
-          speaking: 0,
-        }));
-      }
-
-      // If student has progress, spread across the 12 months
-      const joinIdx = ALL_MONTHS.indexOf(CONSTANT_JOIN_MONTH);
-      const latestTrial = profile.examProgress?.[profile.examProgress.length - 1];
-      const maxScore = latestTrial?.total || 0;
-
-      return ALL_MONTHS.map((m, idx) => {
-        if (idx < joinIdx) {
-          return {
-            trialName: `(${m})`,
-            date: m.slice(0, 3),
-            total: 0,
-            listening: 0,
-            reading: 0,
-            grammarVocabulary: 0,
-            writing: 0,
-            speaking: 0,
-          };
-        }
-        if (idx === joinIdx) {
-          const first = profile.examProgress?.[0];
-          return {
-            trialName: `Пробник 1 (${m})`,
-            date: m.slice(0, 3),
-            total: first?.total || 0,
-            listening: first?.listening || 0,
-            reading: first?.reading || 0,
-            grammarVocabulary: first?.grammarVocabulary || 0,
-            writing: first?.writing || 0,
-            speaking: first?.speaking || 0,
-          };
-        }
-        // Months after join date
-        const stepsAfter = ALL_MONTHS.length - 1 - joinIdx;
-        const progressFactor = (idx - joinIdx) / stepsAfter;
-        const currentTotal = Math.round(maxScore * progressFactor);
-        return {
-          trialName: `Прогресс (${m})`,
-          date: m.slice(0, 3),
-          total: currentTotal,
-          listening: Math.round((latestTrial?.listening || 0) * progressFactor),
-          reading: Math.round((latestTrial?.reading || 0) * progressFactor),
-          grammarVocabulary: Math.round((latestTrial?.grammarVocabulary || 0) * progressFactor),
-          writing: Math.round((latestTrial?.writing || 0) * progressFactor),
-          speaking: Math.round((latestTrial?.speaking || 0) * progressFactor),
-        };
       });
     }
 
-    // Specific month view
-    if (isNewStudent) {
-      return [
-        { trialName: 'Начало месяца', date: `01 ${selectedMonth.slice(0, 3)}`, total: 0, listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 },
-        { trialName: 'Конец месяца', date: `30 ${selectedMonth.slice(0, 3)}`, total: 0, listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 },
-      ];
+    // Add graded student submissions
+    studentSubmissions.forEach((sub) => {
+      const parsed = parseMonthAndLabel(sub.teacherCheckedAt || sub.submittedAt);
+      const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+      const max = sub.maxScore || 14;
+      const totalPct = Math.round(Math.min(100, Math.max(0, (score / max) * 100)));
+      const block20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
+
+      let listening = Math.round(totalPct * 0.2);
+      let reading = Math.round(totalPct * 0.2);
+      let grammarVocabulary = Math.round(totalPct * 0.2);
+      let writing = Math.round(totalPct * 0.2);
+      let speaking = Math.round(totalPct * 0.2);
+
+      if (sub.type === 'speaking') speaking = block20;
+      if (sub.type === 'written') writing = block20;
+
+      items.push({
+        dateLabel: parsed.dateLabel,
+        month: parsed.month,
+        total: totalPct,
+        listening,
+        reading,
+        grammarVocabulary,
+        writing,
+        speaking,
+        trialName: `ДЗ от ${parsed.dateLabel}`,
+      });
+    });
+
+    return items;
+  }, [profile.examProgress, studentSubmissions]);
+
+  // 3. Filter timeline items based on selected period
+  const periodFilteredItems = React.useMemo(() => {
+    if (selectedMonth === 'all') {
+      return allTimelineItems;
     }
+    return allTimelineItems.filter((it) => it.month === selectedMonth);
+  }, [allTimelineItems, selectedMonth]);
 
-    if (profile.examProgress && profile.examProgress.length > 0) {
-      return profile.examProgress.map((p, idx) => ({
-        ...p,
-        date: p.date.includes(' ') ? p.date : `${idx * 10 + 1} ${selectedMonth.slice(0, 3)}`,
-      }));
+  // N = number of actual completed/graded works in selected period
+  const N = periodFilteredItems.length;
+
+  // Average Total Score = Sum(TotalScore_k) / N (strictly dividing by N)
+  const averageTotalScore = React.useMemo(() => {
+    if (N === 0) return 0;
+    const sum = periodFilteredItems.reduce((acc, item) => acc + item.total, 0);
+    return Math.round(sum / N);
+  }, [periodFilteredItems, N]);
+
+  // Dynamic Block Averages for "Разбивка по блокам" cards (X/20 format)
+  const blockAverages = React.useMemo(() => {
+    if (N === 0) {
+      return { listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 };
     }
+    const sumL = periodFilteredItems.reduce((acc, it) => acc + it.listening, 0);
+    const sumR = periodFilteredItems.reduce((acc, it) => acc + it.reading, 0);
+    const sumG = periodFilteredItems.reduce((acc, it) => acc + it.grammarVocabulary, 0);
+    const sumW = periodFilteredItems.reduce((acc, it) => acc + it.writing, 0);
+    const sumS = periodFilteredItems.reduce((acc, it) => acc + it.speaking, 0);
 
-    return [
-      { trialName: 'Начало месяца', date: `01 ${selectedMonth.slice(0, 3)}`, total: 0, listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 },
-      { trialName: 'Конец месяца', date: `30 ${selectedMonth.slice(0, 3)}`, total: 0, listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 },
-    ];
-  }, [selectedMonth, isNewStudent, profile.examProgress, isAdmin, registeredStudents]);
+    return {
+      listening: Math.round(sumL / N),
+      reading: Math.round(sumR / N),
+      grammarVocabulary: Math.round(sumG / N),
+      writing: Math.round(sumW / N),
+      speaking: Math.round(sumS / N),
+    };
+  }, [periodFilteredItems, N]);
 
-  const firstPoint = monthData[0];
-  const lastPoint = monthData[monthData.length - 1];
-  const monthGrowth = lastPoint.total - firstPoint.total;
-
-  // SVG Curved Line Math helper
+  // SVG Chart Geometry
   const svgWidth = 500;
-  const svgHeight = 150;
+  const svgHeight = 160;
   const paddingX = 45;
   const paddingY = 25;
 
-  const points = React.useMemo(() => {
-    if (monthData.length === 1) {
-      return [{ x: svgWidth / 2, y: svgHeight - paddingY - (monthData[0].total / 100) * (svgHeight - 2 * paddingY), data: monthData[0] }];
+  const chartPoints = React.useMemo(() => {
+    if (N === 0) return [];
+    if (N === 1) {
+      const d = periodFilteredItems[0];
+      const y = svgHeight - paddingY - (d.total / 100) * (svgHeight - 2 * paddingY);
+      return [{ x: svgWidth / 2, y, data: d }];
     }
-    return monthData.map((d, i) => {
-      const x = paddingX + (i / (monthData.length - 1)) * (svgWidth - 2 * paddingX);
+    return periodFilteredItems.map((d, i) => {
+      const x = paddingX + (i / (N - 1)) * (svgWidth - 2 * paddingX);
       const y = svgHeight - paddingY - (Math.min(100, Math.max(0, d.total)) / 100) * (svgHeight - 2 * paddingY);
       return { x, y, data: d };
     });
-  }, [monthData]);
+  }, [periodFilteredItems, N]);
 
-  // Construct smooth Bezier SVG Path string
+  // Cubic Bezier curve path string for smooth chart
   const curvePath = React.useMemo(() => {
-    if (points.length === 0) return '';
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    if (chartPoints.length === 0) return '';
+    if (chartPoints.length === 1) return `M ${chartPoints[0].x} ${chartPoints[0].y}`;
 
-    let path = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const curr = points[i];
-      const next = points[i + 1];
-      const cp1x = curr.x + (next.x - curr.x) / 2;
-      const cp1y = curr.y;
-      const cp2x = curr.x + (next.x - curr.x) / 2;
-      const cp2y = next.y;
-      path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
+    let path = `M ${chartPoints[0].x} ${chartPoints[0].y}`;
+    for (let i = 0; i < chartPoints.length - 1; i++) {
+      const p0 = chartPoints[i === 0 ? 0 : i - 1];
+      const p1 = chartPoints[i];
+      const p2 = chartPoints[i + 1];
+      const p3 = chartPoints[i + 2 < chartPoints.length ? i + 2 : i + 1];
+
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+      path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
     }
     return path;
-  }, [points]);
+  }, [chartPoints]);
 
+  // Semi-transparent area fill under curve down to Y-axis
   const areaPath = React.useMemo(() => {
-    if (!curvePath) return '';
-    const lastX = points[points.length - 1].x;
-    const firstX = points[0].x;
-    const bottomY = svgHeight - 10;
-    return `${curvePath} L ${lastX} ${bottomY} L ${firstX} ${bottomY} Z`;
-  }, [curvePath, points]);
+    if (!curvePath || chartPoints.length === 0) return '';
+    const lastX = chartPoints[chartPoints.length - 1].x;
+    const firstX = chartPoints[0].x;
+    const yZero = svgHeight - paddingY;
+    if (chartPoints.length === 1) {
+      return `M ${firstX - 25} ${chartPoints[0].y} L ${firstX + 25} ${chartPoints[0].y} L ${firstX + 25} ${yZero} L ${firstX - 25} ${yZero} Z`;
+    }
+    return `${curvePath} L ${lastX} ${yZero} L ${firstX} ${yZero} Z`;
+  }, [curvePath, chartPoints]);
 
   const handleStartEdit = () => {
     setEditName(profile.name);
@@ -490,29 +526,15 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
           {isAdmin ? (
             <span className="text-xs font-bold text-sky-400 bg-sky-500/20 px-2.5 py-0.5 rounded-full border border-sky-500/30 w-fit">
-              📊 Средний балл по пробникам учеников: {lastPoint.total > 0 ? `${lastPoint.total} б.` : '—'}
+              📊 Средний балл по пробникам учеников: {averageTotalScore > 0 ? `${averageTotalScore} б.` : '—'}
             </span>
-          ) : selectedMonth === 'all' ? (
-            monthGrowth > 0 ? (
-              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full border border-emerald-500/30 w-fit">
-                +{monthGrowth} б. за весь период! 🚀
-              </span>
-            ) : (
-              <span className="text-xs font-bold text-sky-400 bg-sky-500/20 px-2.5 py-0.5 rounded-full border border-sky-500/30 w-fit">
-                🌱 Результаты пробника
-              </span>
-            )
-          ) : monthGrowth > 0 ? (
+          ) : N > 0 ? (
             <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full border border-emerald-500/30 w-fit">
-              +{monthGrowth} б. за {selectedMonth}! 🚀
-            </span>
-          ) : isNewStudent ? (
-            <span className="text-xs font-bold text-sky-400 bg-sky-500/20 px-2.5 py-0.5 rounded-full border border-sky-500/30 w-fit">
-              🌱 Ожидание первого пробника
+              📊 Средний балл: {averageTotalScore} б. (сдано работ: {N})
             </span>
           ) : (
             <span className="text-xs font-bold text-slate-400 bg-slate-500/20 px-2.5 py-0.5 rounded-full border border-slate-500/30 w-fit">
-              {lastPoint.total} б. ({selectedMonth})
+              🌱 Нет сданных работ за {selectedMonth === 'all' ? 'период' : selectedMonth}
             </span>
           )}
         </div>
@@ -618,84 +640,102 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   );
                 })}
 
-                {/* Area Fill Under Curve */}
-                {areaPath && <path d={areaPath} fill="url(#scoreCurveGradient)" />}
+                {/* Empty State or Data Curve */}
+                {N === 0 ? (
+                  <g>
+                    <text
+                      x={svgWidth / 2}
+                      y={svgHeight / 2}
+                      fill="#94a3b8"
+                      fontSize="11"
+                      fontWeight="500"
+                      textAnchor="middle"
+                    >
+                      В выбранном периоде ({selectedMonth === 'all' ? 'весь период' : selectedMonth}) нет сданных работ
+                    </text>
+                  </g>
+                ) : (
+                  <>
+                    {/* Area Fill Under Curve */}
+                    {areaPath && <path d={areaPath} fill="url(#scoreCurveGradient)" />}
 
-                {/* Smooth Curved Line */}
-                {curvePath && (
-                  <path
-                    d={curvePath}
-                    fill="none"
-                    stroke="url(#strokeGradient)"
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    filter="url(#glowEffect)"
-                  />
+                    {/* Smooth Curved Line */}
+                    {curvePath && (
+                      <path
+                        d={curvePath}
+                        fill="none"
+                        stroke="url(#strokeGradient)"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        filter="url(#glowEffect)"
+                      />
+                    )}
+
+                    {/* Data Nodes on Curve */}
+                    {chartPoints.map((pt, idx) => {
+                      const isHovered = hoveredPointIndex === idx;
+                      return (
+                        <g key={idx} className="cursor-pointer group" onMouseEnter={() => setHoveredPointIndex(idx)} onMouseLeave={() => setHoveredPointIndex(null)}>
+                          {/* Pulse outer ring */}
+                          <circle
+                            cx={pt.x}
+                            cy={pt.y}
+                            r={isHovered ? "9" : "6"}
+                            fill="#38bdf8"
+                            fillOpacity="0.3"
+                            className="transition-all duration-200"
+                          />
+                          {/* Core point */}
+                          <circle
+                            cx={pt.x}
+                            cy={pt.y}
+                            r={isHovered ? "6" : "4"}
+                            fill="#ffffff"
+                            stroke="#38bdf8"
+                            strokeWidth="2.5"
+                            className="transition-all duration-200"
+                          />
+
+                          {/* Score Label Tooltip */}
+                          <g transform={`translate(${pt.x}, ${pt.y - 12})`}>
+                            <rect
+                              x="-22"
+                              y="-16"
+                              width="44"
+                              height="18"
+                              rx="6"
+                              fill="#0f172a"
+                              stroke="#38bdf8"
+                              strokeWidth="1"
+                            />
+                            <text
+                              x="0"
+                              y="-3"
+                              fill="#fef08a"
+                              fontSize="10"
+                              fontWeight="extrabold"
+                              textAnchor="middle"
+                            >
+                              {pt.data.total} б.
+                            </text>
+                          </g>
+
+                          {/* Dynamic Date Axis Label */}
+                          <text
+                            x={pt.x}
+                            y={svgHeight - 6}
+                            fill="#94a3b8"
+                            fontSize="9"
+                            fontWeight="600"
+                            textAnchor="middle"
+                          >
+                            {pt.data.dateLabel}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </>
                 )}
-
-                {/* Data Nodes on Curve */}
-                {points.map((pt, idx) => {
-                  const isHovered = hoveredPointIndex === idx;
-                  return (
-                    <g key={idx} className="cursor-pointer group" onMouseEnter={() => setHoveredPointIndex(idx)} onMouseLeave={() => setHoveredPointIndex(null)}>
-                      {/* Pulse outer ring */}
-                      <circle
-                        cx={pt.x}
-                        cy={pt.y}
-                        r={isHovered ? "9" : "6"}
-                        fill="#38bdf8"
-                        fillOpacity="0.3"
-                        className="transition-all duration-200"
-                      />
-                      {/* Core point */}
-                      <circle
-                        cx={pt.x}
-                        cy={pt.y}
-                        r={isHovered ? "6" : "4"}
-                        fill="#ffffff"
-                        stroke="#38bdf8"
-                        strokeWidth="2.5"
-                        className="transition-all duration-200"
-                      />
-
-                      {/* Score Label Tooltip */}
-                      <g transform={`translate(${pt.x}, ${pt.y - 12})`}>
-                        <rect
-                          x="-22"
-                          y="-16"
-                          width="44"
-                          height="18"
-                          rx="6"
-                          fill="#0f172a"
-                          stroke="#38bdf8"
-                          strokeWidth="1"
-                        />
-                        <text
-                          x="0"
-                          y="-3"
-                          fill="#fef08a"
-                          fontSize="10"
-                          fontWeight="extrabold"
-                          textAnchor="middle"
-                        >
-                          {pt.data.total} б.
-                        </text>
-                      </g>
-
-                      {/* Date Axis Label */}
-                      <text
-                        x={pt.x}
-                        y={svgHeight - 6}
-                        fill="#94a3b8"
-                        fontSize="9"
-                        fontWeight="600"
-                        textAnchor="middle"
-                      >
-                        {pt.data.date}
-                      </text>
-                    </g>
-                  );
-                })}
               </svg>
             </div>
           </div>
@@ -706,9 +746,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           <div className="pt-2">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-bold text-slate-300">
-                Разбивка по блокам ({selectedMonth}):
+                Разбивка по блокам ({selectedMonth === 'all' ? 'весь период' : selectedMonth}):
               </h4>
-              {isNewStudent && (
+              {N === 0 && (
                 <span className="text-[10px] text-amber-400 font-medium">
                   (Пройдите первый урок/ДЗ для накопления баллов)
                 </span>
@@ -717,32 +757,32 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             <div className="grid grid-cols-5 gap-1.5 text-center text-[10px]">
               <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
                 <span className="text-slate-400 block">Listening</span>
-                <strong className={isNewStudent ? "text-slate-400 text-xs" : "text-sky-400 text-xs"}>
-                  {isNewStudent ? '0/20' : `${lastPoint?.listening ?? 0}/20`}
+                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-sky-400 text-xs"}>
+                  {blockAverages.listening}/20
                 </strong>
               </div>
               <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
                 <span className="text-slate-400 block">Reading</span>
-                <strong className={isNewStudent ? "text-slate-400 text-xs" : "text-sky-400 text-xs"}>
-                  {isNewStudent ? '0/20' : `${lastPoint?.reading ?? 0}/20`}
+                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-sky-400 text-xs"}>
+                  {blockAverages.reading}/20
                 </strong>
               </div>
               <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
                 <span className="text-slate-400 block">Use of Eng</span>
-                <strong className={isNewStudent ? "text-slate-400 text-xs" : "text-amber-400 text-xs"}>
-                  {isNewStudent ? '0/20' : `${lastPoint?.grammarVocabulary ?? 0}/20`}
+                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-amber-400 text-xs"}>
+                  {blockAverages.grammarVocabulary}/20
                 </strong>
               </div>
               <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
                 <span className="text-slate-400 block">Writing</span>
-                <strong className={isNewStudent ? "text-slate-400 text-xs" : "text-emerald-400 text-xs"}>
-                  {isNewStudent ? '0/20' : `${lastPoint?.writing ?? 0}/20`}
+                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-emerald-400 text-xs"}>
+                  {blockAverages.writing}/20
                 </strong>
               </div>
               <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
                 <span className="text-slate-400 block">Speaking</span>
-                <strong className={isNewStudent ? "text-slate-400 text-xs" : "text-emerald-400 text-xs"}>
-                  {isNewStudent ? '0/20' : `${lastPoint?.speaking ?? 0}/20`}
+                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-emerald-400 text-xs"}>
+                  {blockAverages.speaking}/20
                 </strong>
               </div>
             </div>
