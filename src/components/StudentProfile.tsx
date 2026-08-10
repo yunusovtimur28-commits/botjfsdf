@@ -39,6 +39,7 @@ interface StudentProfileProps {
   isAdmin?: boolean;
   registeredStudents?: RegisteredStudent[];
   submissions?: Submission[];
+  homeworks?: Homework[];
 }
 
 const PRESET_AVATARS = [
@@ -124,6 +125,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   isAdmin = false,
   registeredStudents = [],
   submissions = [],
+  homeworks = [],
 }) => {
   const [selectedBlock, setSelectedBlock] = useState<'total' | 'speaking' | 'writing' | 'grammar'>('total');
   const [selectedMonth, setSelectedMonth] = useState<string>('Август');
@@ -155,12 +157,44 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     return history;
   }, [profile.streakDays]);
 
-  // 1. Extract student's graded submissions
-  const studentSubmissions = React.useMemo(() => {
-    return submissions.filter(
-      (s) => s.studentName === profile.name && s.status === 'graded'
-    );
+  // 1. Extract student's all submissions and graded submissions
+  const studentAllSubmissions = React.useMemo(() => {
+    return submissions.filter((s) => s.studentName === profile.name);
   }, [submissions, profile.name]);
+
+  const studentSubmissions = React.useMemo(() => {
+    return studentAllSubmissions.filter((s) => s.status === 'graded');
+  }, [studentAllSubmissions]);
+
+  // Count completed/submitted homeworks per block strictly
+  const blockCounts = React.useMemo(() => {
+    const counts = {
+      listening: 0,
+      reading: 0,
+      grammarVocabulary: 0,
+      writing: 0,
+      speaking: 0,
+    };
+
+    studentAllSubmissions.forEach((sub) => {
+      const hw = homeworks.find((h) => h.id === sub.homeworkId);
+      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+
+      if (block === 'speaking') {
+        counts.speaking += 1;
+      } else if (block === 'writing') {
+        counts.writing += 1;
+      } else if (block === 'grammar' || block === 'vocabulary') {
+        counts.grammarVocabulary += 1;
+      } else if (block === 'reading') {
+        counts.reading += 1;
+      } else if (block === 'listening') {
+        counts.listening += 1;
+      }
+    });
+
+    return counts;
+  }, [studentAllSubmissions, homeworks]);
 
   // 2. Build unified chronological timeline items
   const allTimelineItems = React.useMemo(() => {
@@ -196,20 +230,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     // Add graded student submissions
     studentSubmissions.forEach((sub) => {
+      const hw = homeworks.find((h) => h.id === sub.homeworkId);
       const parsed = parseMonthAndLabel(sub.teacherCheckedAt || sub.submittedAt);
       const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
-      const max = sub.maxScore || 14;
+      const max = sub.maxScore || hw?.maxPoints || 14;
       const totalPct = Math.round(Math.min(100, Math.max(0, (score / max) * 100)));
       const block20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
 
-      let listening = Math.round(totalPct * 0.2);
-      let reading = Math.round(totalPct * 0.2);
-      let grammarVocabulary = Math.round(totalPct * 0.2);
-      let writing = Math.round(totalPct * 0.2);
-      let speaking = Math.round(totalPct * 0.2);
+      let listening = 0;
+      let reading = 0;
+      let grammarVocabulary = 0;
+      let writing = 0;
+      let speaking = 0;
 
-      if (sub.type === 'speaking') speaking = block20;
-      if (sub.type === 'written') writing = block20;
+      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+      if (block === 'speaking') speaking = block20;
+      else if (block === 'writing') writing = block20;
+      else if (block === 'grammar' || block === 'vocabulary') grammarVocabulary = block20;
+      else if (block === 'reading') reading = block20;
+      else if (block === 'listening') listening = block20;
 
       items.push({
         dateLabel: parsed.dateLabel,
@@ -220,12 +259,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         grammarVocabulary,
         writing,
         speaking,
-        trialName: `ДЗ от ${parsed.dateLabel}`,
+        trialName: hw?.title || `ДЗ от ${parsed.dateLabel}`,
       });
     });
 
     return items;
-  }, [profile.examProgress, studentSubmissions]);
+  }, [profile.examProgress, studentSubmissions, homeworks]);
 
   // 3. Filter timeline items based on selected period
   const periodFilteredItems = React.useMemo(() => {
@@ -247,23 +286,42 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   // Dynamic Block Averages for "Разбивка по блокам" cards (X/20 format)
   const blockAverages = React.useMemo(() => {
-    if (N === 0) {
-      return { listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 };
-    }
-    const sumL = periodFilteredItems.reduce((acc, it) => acc + it.listening, 0);
-    const sumR = periodFilteredItems.reduce((acc, it) => acc + it.reading, 0);
-    const sumG = periodFilteredItems.reduce((acc, it) => acc + it.grammarVocabulary, 0);
-    const sumW = periodFilteredItems.reduce((acc, it) => acc + it.writing, 0);
-    const sumS = periodFilteredItems.reduce((acc, it) => acc + it.speaking, 0);
+    const sums = { listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 };
+    const counts = { listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 };
+
+    studentSubmissions.forEach((sub) => {
+      const hw = homeworks.find((h) => h.id === sub.homeworkId);
+      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+      const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+      const max = sub.maxScore || hw?.maxPoints || 14;
+      const scoreOutof20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
+
+      if (block === 'speaking') {
+        sums.speaking += scoreOutof20;
+        counts.speaking += 1;
+      } else if (block === 'writing') {
+        sums.writing += scoreOutof20;
+        counts.writing += 1;
+      } else if (block === 'grammar' || block === 'vocabulary') {
+        sums.grammarVocabulary += scoreOutof20;
+        counts.grammarVocabulary += 1;
+      } else if (block === 'reading') {
+        sums.reading += scoreOutof20;
+        counts.reading += 1;
+      } else if (block === 'listening') {
+        sums.listening += scoreOutof20;
+        counts.listening += 1;
+      }
+    });
 
     return {
-      listening: Math.round(sumL / N),
-      reading: Math.round(sumR / N),
-      grammarVocabulary: Math.round(sumG / N),
-      writing: Math.round(sumW / N),
-      speaking: Math.round(sumS / N),
+      listening: counts.listening > 0 ? Math.round(sums.listening / counts.listening) : 0,
+      reading: counts.reading > 0 ? Math.round(sums.reading / counts.reading) : 0,
+      grammarVocabulary: counts.grammarVocabulary > 0 ? Math.round(sums.grammarVocabulary / counts.grammarVocabulary) : 0,
+      writing: counts.writing > 0 ? Math.round(sums.writing / counts.writing) : 0,
+      speaking: counts.speaking > 0 ? Math.round(sums.speaking / counts.speaking) : 0,
     };
-  }, [periodFilteredItems, N]);
+  }, [studentSubmissions, homeworks]);
 
   // SVG Chart Geometry
   const svgWidth = 500;
@@ -755,35 +813,50 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               )}
             </div>
             <div className="grid grid-cols-5 gap-1.5 text-center text-[10px]">
-              <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
-                <span className="text-slate-400 block">Listening</span>
-                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-sky-400 text-xs"}>
-                  {blockAverages.listening}/20
+              <div className="p-2 rounded-xl bg-black/20 border border-slate-800 space-y-0.5">
+                <span className="text-slate-400 block font-semibold">Listening</span>
+                <strong className={blockCounts.listening === 0 ? "text-slate-500 text-xs" : "text-sky-400 text-xs font-black"}>
+                  {blockCounts.listening > 0 ? `${blockAverages.listening}/20` : '—'}
                 </strong>
+                <span className={`text-[9px] block font-medium ${blockCounts.listening > 0 ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                  {blockCounts.listening > 0 ? `${blockCounts.listening} пройдено` : '0 пройдено'}
+                </span>
               </div>
-              <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
-                <span className="text-slate-400 block">Reading</span>
-                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-sky-400 text-xs"}>
-                  {blockAverages.reading}/20
+              <div className="p-2 rounded-xl bg-black/20 border border-slate-800 space-y-0.5">
+                <span className="text-slate-400 block font-semibold">Reading</span>
+                <strong className={blockCounts.reading === 0 ? "text-slate-500 text-xs" : "text-sky-400 text-xs font-black"}>
+                  {blockCounts.reading > 0 ? `${blockAverages.reading}/20` : '—'}
                 </strong>
+                <span className={`text-[9px] block font-medium ${blockCounts.reading > 0 ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                  {blockCounts.reading > 0 ? `${blockCounts.reading} пройдено` : '0 пройдено'}
+                </span>
               </div>
-              <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
-                <span className="text-slate-400 block">Use of Eng</span>
-                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-amber-400 text-xs"}>
-                  {blockAverages.grammarVocabulary}/20
+              <div className="p-2 rounded-xl bg-black/20 border border-slate-800 space-y-0.5">
+                <span className="text-slate-400 block font-semibold">Use of Eng</span>
+                <strong className={blockCounts.grammarVocabulary === 0 ? "text-slate-500 text-xs" : "text-amber-400 text-xs font-black"}>
+                  {blockCounts.grammarVocabulary > 0 ? `${blockAverages.grammarVocabulary}/20` : '—'}
                 </strong>
+                <span className={`text-[9px] block font-medium ${blockCounts.grammarVocabulary > 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
+                  {blockCounts.grammarVocabulary > 0 ? `${blockCounts.grammarVocabulary} пройдено` : '0 пройдено'}
+                </span>
               </div>
-              <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
-                <span className="text-slate-400 block">Writing</span>
-                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-emerald-400 text-xs"}>
-                  {blockAverages.writing}/20
+              <div className="p-2 rounded-xl bg-black/20 border border-slate-800 space-y-0.5">
+                <span className="text-slate-400 block font-semibold">Writing</span>
+                <strong className={blockCounts.writing === 0 ? "text-slate-500 text-xs" : "text-emerald-400 text-xs font-black"}>
+                  {blockCounts.writing > 0 ? `${blockAverages.writing}/20` : '—'}
                 </strong>
+                <span className={`text-[9px] block font-medium ${blockCounts.writing > 0 ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                  {blockCounts.writing > 0 ? `${blockCounts.writing} пройдено` : '0 пройдено'}
+                </span>
               </div>
-              <div className="p-2 rounded-xl bg-black/20 border border-slate-800">
-                <span className="text-slate-400 block">Speaking</span>
-                <strong className={N === 0 ? "text-slate-400 text-xs" : "text-emerald-400 text-xs"}>
-                  {blockAverages.speaking}/20
+              <div className="p-2 rounded-xl bg-black/20 border border-slate-800 space-y-0.5">
+                <span className="text-slate-400 block font-semibold">Speaking</span>
+                <strong className={blockCounts.speaking === 0 ? "text-slate-500 text-xs" : "text-emerald-400 text-xs font-black"}>
+                  {blockCounts.speaking > 0 ? `${blockAverages.speaking}/20` : '—'}
                 </strong>
+                <span className={`text-[9px] block font-medium ${blockCounts.speaking > 0 ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>
+                  {blockCounts.speaking > 0 ? `${blockCounts.speaking} пройдено` : '0 пройдено'}
+                </span>
               </div>
             </div>
           </div>

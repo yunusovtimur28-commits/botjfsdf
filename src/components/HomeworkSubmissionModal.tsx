@@ -55,6 +55,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(
     existingSubmission?.speakingAudioUrl || null
   );
+  const [audioError, setAudioError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
@@ -159,15 +160,21 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     setUploadedPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // Clear timers on unmount
+  // Clear timers and media tracks on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current.stop();
+      }
+      setIsRecording(false);
     };
   }, []);
 
   // Voice recording logic
   const startRecording = async () => {
+    setAudioError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -195,41 +202,25 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
     } catch (err) {
-      console.warn('Microphone access fallback to demo recording simulation', err);
-      // Fallback demo recording simulation if microphone is blocked in iframe
-      setIsRecording(true);
-      setRecordingSeconds(0);
-      timerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => {
-          if (prev >= 10) {
-            stopRecordingDemo();
-            return 10;
-          }
-          return prev + 1;
-        });
-      }, 1000);
+      console.error('Microphone access error', err);
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      setAudioError('Доступ к микрофону запрещен или не поддерживается. Пожалуйста, запишите аудио на телефон и загрузите файл.');
     }
   };
 
-  const stopRecordingDemo = () => {
+  const stopRecording = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     setIsRecording(false);
-    setRecordedAudioUrl('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
-      if (timerRef.current) clearInterval(timerRef.current);
-      setIsRecording(false);
-    } else {
-      stopRecordingDemo();
     }
   };
 
   const resetRecording = () => {
     setRecordedAudioUrl(null);
     setRecordingSeconds(0);
+    setAudioError(null);
   };
 
   // Test Submission Handler
@@ -626,6 +617,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         />
                       </label>
                     </div>
+                    {audioError && (
+                      <p className="text-rose-400 text-[10px] mt-1 font-medium">{audioError}</p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">

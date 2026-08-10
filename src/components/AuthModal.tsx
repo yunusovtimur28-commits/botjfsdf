@@ -54,6 +54,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [pinCode, setPinCode] = useState('');
   const [pinError, setPinError] = useState(false);
   const [pinSuccess, setPinSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleTgInputChange = (val: string) => {
     setStudentError(null);
@@ -67,27 +68,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleTeacherLogin = (e: React.FormEvent) => {
+  const handleTeacherLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const pwd = pinCode.trim();
-    
-    // Verification Password for Angelina Admin
-    if (pwd === 'qwerty12345') {
-      setPinError(false);
-      setPinSuccess(true);
-      setTimeout(() => {
-        onLogin({
-          name: 'Ангелина (Преподаватель)',
-          role: 'teacher',
-          telegramHandle: '@angelina_ege',
-          avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
-        });
-        setPinSuccess(false);
-        setPinCode('');
-        onClose();
-      }, 600);
-    } else {
+    if (!pwd) return;
+
+    setIsLoading(true);
+    setPinError(false);
+
+    try {
+      const res = await fetch('/api/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pwd }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPinSuccess(true);
+        setTimeout(() => {
+          onLogin({
+            name: 'Ангелина (Преподаватель)',
+            role: 'teacher',
+            telegramHandle: '@angelina_ege',
+            avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
+          });
+          setPinSuccess(false);
+          setPinCode('');
+          setIsLoading(false);
+          onClose();
+        }, 600);
+      } else {
+        setPinError(true);
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error(err);
       setPinError(true);
+      setIsLoading(false);
     }
   };
 
@@ -355,10 +372,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 <button
                   type="submit"
-                  disabled={pinSuccess}
+                  disabled={pinSuccess || isLoading}
                   className={`w-full mt-2 py-3 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 ${
                     pinSuccess
                       ? 'bg-emerald-500 text-white'
+                      : isLoading
+                      ? 'bg-purple-800 text-white cursor-not-allowed opacity-80'
                       : 'bg-purple-600 hover:bg-purple-700 text-white'
                   }`}
                 >
@@ -366,6 +385,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <>
                       <CheckCircle2 className="w-4 h-4 animate-bounce" />
                       <span>PIN принят! Входим...</span>
+                    </>
+                  ) : isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Проверка PIN...</span>
                     </>
                   ) : (
                     <>

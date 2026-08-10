@@ -12,6 +12,8 @@ import {
   query,
   orderBy,
   updateDoc,
+  where,
+  getDocs,
 } from 'firebase/firestore';
 import config from '../../firebase-applet-config.json';
 import { Webinar, Homework, Submission, TGNotification, RegisteredStudent } from '../types';
@@ -201,6 +203,26 @@ export async function dbUpdateSubmission(submissionId: string, updatedData: Part
     await setDoc(docRef, cleaned, { merge: true });
   } catch (e) {
     console.error('Error updating submission in Firestore:', e);
+  }
+}
+
+export async function dbDeleteSubmission(submissionId: string) {
+  try {
+    const docRef = doc(db, 'submissions', submissionId);
+    await deleteDoc(docRef);
+  } catch (e) {
+    console.error('Error deleting submission from Firestore:', e);
+  }
+}
+
+export async function dbDeleteSubmissionsForHomework(hwId: string) {
+  try {
+    const q = query(collection(db, 'submissions'), where('homeworkId', '==', hwId));
+    const snapshot = await getDocs(q);
+    const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
+    await Promise.all(deletePromises);
+  } catch (e) {
+    console.error('Error deleting homework submissions from Firestore:', e);
   }
 }
 

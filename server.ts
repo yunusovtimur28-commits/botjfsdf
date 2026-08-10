@@ -32,6 +32,16 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// PIN Verification Endpoint for Admin
+app.post("/api/verify-pin", (req, res) => {
+  const { pin } = req.body;
+  const adminPin = process.env.ADMIN_PIN || "qwerty12345";
+  if (pin && pin === adminPin) {
+    return res.json({ success: true });
+  }
+  return res.json({ success: false, error: "Неверный ПИН-код" });
+});
+
 // AI Essay Pre-check endpoint for students
 app.post("/api/ai-essay-review", async (req, res) => {
   try {
@@ -120,6 +130,74 @@ app.post("/api/ai-teacher-assistant", async (req, res) => {
   } catch (err: any) {
     console.error("Gemini Assistant Error:", err);
     res.status(500).json({ error: "Ошибка формирования ответа ИИ", details: err.message });
+  }
+});
+
+// YouTube duration info parser
+app.post("/api/yt-info", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || !url.includes('youtu')) return res.json({ success: false });
+    const response = await fetch(url);
+    const html = await response.text();
+    const match = html.match(/"lengthSeconds":"(\d+)"/);
+    if (match && match[1]) {
+      const totalSeconds = parseInt(match[1], 10);
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+      let durationStr = h > 0 
+        ? `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`
+        : `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+      return res.json({ success: true, duration: durationStr, seconds: totalSeconds });
+    }
+    res.json({ success: false });
+  } catch (err) {
+    res.json({ success: false });
+  }
+});
+
+// AI Timecodes generator endpoint
+app.post("/api/ai-timecodes", async (req, res) => {
+  try {
+    const { title, description, duration } = req.body;
+    const videoTitle = title || "Обучающее видео";
+    const videoDesc = description || "Разбор темы урока";
+    const videoDuration = duration || "45:00";
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.json([
+        { timeStr: "00:00", label: `🎬 Введение и план урока: ${videoTitle}` },
+        { timeStr: "05:00", label: "📖 Разбор теории и критериев ФИПИ" },
+        { timeStr: "15:00", label: "💡 Ключевые правила, структуры и шаблоны" },
+        { timeStr: "25:00", label: "✍️ Практическое задание и разбор примера" },
+        { timeStr: "38:00", label: "🚀 Лайфхаки для максимального балла на экзамене" },
+        { timeStr: "43:00", label: "❓ Итоги урока и домашнее задание" },
+      ]);
+    }
+
+    const prompt = `Ты методист образовательной платформы. У нас есть урок длительностью ${videoDuration}. Название видео: "${videoTitle}". Тезисный план урока: "${videoDesc}". Твоя задача: разбить этот план на 5-8 логичных таймкодов, равномерно распределив их по времени видео от 00:00 до конца. Верни СТРОГО массив JSON без markdown-разметки: [{"timeStr": "MM:SS", "label": "Название темы"}]. Первый таймкод строго 00:00.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      },
+    });
+
+    const rawText = response.text || "";
+    try {
+      const parsed = JSON.parse(rawText);
+      return res.json(parsed);
+    } catch (parseErr) {
+      console.error("JSON parse error from Gemini response:", rawText);
+      return res.status(500).json({ error: "Ошибка парсинга" });
+    }
+  } catch (err: any) {
+    console.error("AI Timecodes Error:", err);
+    res.status(500).json({ error: "Ошибка генерации таймкодов", details: err.message });
   }
 });
 

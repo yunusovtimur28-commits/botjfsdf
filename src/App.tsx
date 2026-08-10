@@ -40,6 +40,8 @@ import {
   dbDeleteHomework,
   dbAddSubmission,
   dbUpdateSubmission,
+  dbDeleteSubmission,
+  dbDeleteSubmissionsForHomework,
   dbAddNotification,
   dbMarkNotificationRead,
   dbDeleteNotification,
@@ -84,33 +86,32 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('webinars');
   const [isDarkMode, setIsDarkMode] = useState(true);
 
-  // Firestore Real-time Application State with Fallback Defaults
-  const [webinars, setWebinars] = useState<Webinar[]>(initialWebinars);
-  const [homeworks, setHomeworks] = useState<Homework[]>(() => {
+  // Firestore Real-time Application State
+  const [webinars, setWebinars] = useState<Webinar[]>([]);
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [notifications, setNotifications] = useState<TGNotification[]>([]);
+  const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+
+  // Deleted Items Persistence
+  const [deletedSubIds, setDeletedSubIds] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('ege_app_homeworks');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
+      const saved = localStorage.getItem('ege_app_deleted_sub_ids');
+      if (saved) return JSON.parse(saved);
     } catch (e) {
       console.error(e);
     }
-    return initialHomeworks;
+    return [];
   });
 
   useEffect(() => {
     try {
-      localStorage.setItem('ege_app_homeworks', JSON.stringify(homeworks));
+      localStorage.setItem('ege_app_deleted_sub_ids', JSON.stringify(deletedSubIds));
     } catch (e) {
       console.error(e);
     }
-  }, [homeworks]);
+  }, [deletedSubIds]);
 
-  const [submissions, setSubmissions] = useState<Submission[]>(initialSubmissions);
-  const [notifications, setNotifications] = useState<TGNotification[]>(initialNotifications);
-
-  // Deleted Homeworks & Notifications Persistence
   const [deletedHwIds, setDeletedHwIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('ege_app_deleted_hw_ids');
@@ -146,34 +147,8 @@ export default function App() {
       console.error(e);
     }
   }, [deletedNotifIds]);
-  const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_registered_students');
-      if (saved) {
-        const parsed: RegisteredStudent[] = JSON.parse(saved);
-        return parsed.filter(
-          (st) =>
-            st.id !== 'st-1' &&
-            !st.name?.toLowerCase().includes('ковалев') &&
-            !st.login?.toLowerCase().includes('sasha')
-        );
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return initialRegisteredStudents;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('ege_app_registered_students', JSON.stringify(registeredStudents));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [registeredStudents]);
 
   const handleAddStudent = (login: string, name?: string) => {
-    localStorage.setItem('ege_app_students_seeded', 'true');
     const cleanLogin = login.trim().toLowerCase().replace('@', '');
     const newStudent: RegisteredStudent = {
       id: `st-${Date.now()}`,
@@ -189,7 +164,6 @@ export default function App() {
   };
 
   const handleDeleteStudent = (studentId: string) => {
-    localStorage.setItem('ege_app_students_seeded', 'true');
     const targetStudent = registeredStudents.find((st) => st.id === studentId);
     const targetName = targetStudent?.name?.toLowerCase() || '';
 
@@ -319,48 +293,38 @@ export default function App() {
     const defaultBaseline = currentUser.name === initialStudentProfile.name ? (initialStudentProfile.streakDays || 7) : 1;
     const currentStreak = getUserStreakDays(currentUser.name, defaultBaseline);
 
-    if (currentUser.name === initialStudentProfile.name) {
-      const isSprinterUnlocked = currentStreak >= 7;
-      return {
-        ...initialStudentProfile,
-        streakDays: currentStreak,
-        targetExamScore: customTargetScore,
-        avatarUrl: currentUser.avatarUrl || initialStudentProfile.avatarUrl,
-        telegramHandle: currentUser.telegramHandle || initialStudentProfile.telegramHandle,
-        totalHwSubmitted: currentStudentSubmissions.length || initialStudentProfile.totalHwSubmitted,
-        badges: initialStudentProfile.badges.map((b) =>
-          b.id === 'b1'
-            ? { ...b, unlocked: isSprinterUnlocked, unlockedAt: isSprinterUnlocked ? 'Сегодня' : b.unlockedAt }
-            : b
-        ),
-      };
-    }
-
     const isNinjaUnlocked = currentStudentSubmissions.some((s) => s.type === 'test' && s.status === 'graded');
+    const isSpeakingUnlocked = currentStudentSubmissions.some((s) => s.type === 'speaking' && s.status === 'graded');
+    const isEssayUnlocked = currentStudentSubmissions.some((s) => s.type === 'written' && s.status === 'graded');
     const isSprinterUnlocked = currentStreak >= 7;
 
-    // Dynamic exam progress for custom student based on actual graded submissions
+    // Dynamic exam progress for student based on actual graded submissions
     const gradedUserSubs = currentStudentSubmissions.filter((s) => s.status === 'graded');
     let dynamicExamProgress: ExamBlockScore[] = [];
 
     if (gradedUserSubs.length > 0) {
       gradedUserSubs.forEach((sub, idx) => {
+        const hw = homeworks.find((h) => h.id === sub.homeworkId);
         const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
-        const max = sub.maxScore || 14;
+        const max = sub.maxScore || hw?.maxPoints || 14;
         const totalPct = Math.round(Math.min(100, Math.max(0, (score / max) * 100)));
         const block20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
 
-        let listening = Math.round(totalPct * 0.2);
-        let reading = Math.round(totalPct * 0.2);
-        let grammarVocabulary = Math.round(totalPct * 0.2);
-        let writing = Math.round(totalPct * 0.2);
-        let speaking = Math.round(totalPct * 0.2);
+        let listening = 0;
+        let reading = 0;
+        let grammarVocabulary = 0;
+        let writing = 0;
+        let speaking = 0;
 
-        if (sub.type === 'speaking') speaking = block20;
-        if (sub.type === 'written') writing = block20;
+        const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+        if (block === 'speaking') speaking = block20;
+        else if (block === 'writing') writing = block20;
+        else if (block === 'grammar' || block === 'vocabulary') grammarVocabulary = block20;
+        else if (block === 'reading') reading = block20;
+        else if (block === 'listening') listening = block20;
 
         dynamicExamProgress.push({
-          trialName: `ДЗ №${idx + 1}`,
+          trialName: hw?.title || `ДЗ №${idx + 1}`,
           date: sub.teacherCheckedAt || sub.submittedAt || getFormattedDateTime(),
           listening,
           reading,
@@ -379,7 +343,15 @@ export default function App() {
       streakDays: currentStreak,
       streakHistory: [false, false, false, false, false, false, true],
       totalHwSubmitted: currentStudentSubmissions.length,
-      averageScorePercent: currentStudentSubmissions.length > 0 ? 100 : 0,
+      averageScorePercent: gradedUserSubs.length > 0
+        ? Math.round(
+            gradedUserSubs.reduce((acc, sub) => {
+              const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+              const max = sub.maxScore || 14;
+              return acc + Math.min(100, (score / max) * 100);
+            }, 0) / gradedUserSubs.length
+          )
+        : 0,
       targetExamScore: customTargetScore,
       badges: [
         {
@@ -401,14 +373,15 @@ export default function App() {
         {
           id: 'b2',
           title: '👑 Король Speaking',
-          description: 'Получи максимум за устные ДЗ',
+          description: 'Сдай устное ДЗ',
           iconName: 'Crown',
-          unlocked: false,
+          unlocked: isSpeakingUnlocked,
+          unlockedAt: isSpeakingUnlocked ? 'Сегодня' : undefined,
         },
         {
           id: 'b3',
           title: '⚡ Грамматический ниндзя',
-          description: 'Реши тест на грамматику на 100% результат',
+          description: 'Реши тест на грамматику',
           iconName: 'Zap',
           unlocked: isNinjaUnlocked,
           unlockedAt: isNinjaUnlocked ? 'Сегодня' : undefined,
@@ -416,14 +389,15 @@ export default function App() {
         {
           id: 'b4',
           title: '✍️ Мастер Эссе',
-          description: 'Сдай эссе задание 38 на высший балл',
+          description: 'Сдай эссе задание 38',
           iconName: 'Feather',
-          unlocked: false,
+          unlocked: isEssayUnlocked,
+          unlockedAt: isEssayUnlocked ? 'Сегодня' : undefined,
         },
       ],
       examProgress: dynamicExamProgress,
     };
-  }, [currentUser, currentStudentSubmissions]);
+  }, [currentUser, currentStudentSubmissions, customTargetScore, homeworks]);
 
   // Save Auth User to LocalStorage
   useEffect(() => {
@@ -434,87 +408,41 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Connect Real-Time Listeners & Seed Firestore if empty
+  // Connect Real-Time Listeners
   useEffect(() => {
     const unsubWebinars = subscribeWebinars(
       (list) => {
-        const isSeeded = localStorage.getItem('ege_app_webinars_seeded');
-        if (list.length === 0 && !isSeeded) {
-          localStorage.setItem('ege_app_webinars_seeded', 'true');
-          initialWebinars.forEach((w) => dbAddWebinar(w));
-          setWebinars(initialWebinars);
-        } else {
-          localStorage.setItem('ege_app_webinars_seeded', 'true');
-          setWebinars(list);
-        }
+        setWebinars(list);
       },
-      () => setWebinars((prev) => (prev.length > 0 ? prev : initialWebinars))
+      () => setWebinars([])
     );
 
     const unsubHomeworks = subscribeHomeworks(
       (list) => {
-        const isSeeded = localStorage.getItem('ege_app_homeworks_seeded');
-        if (list.length === 0 && !isSeeded) {
-          localStorage.setItem('ege_app_homeworks_seeded', 'true');
-          initialHomeworks.forEach((h) => dbAddHomework(h));
-          setHomeworks(initialHomeworks);
-        } else {
-          localStorage.setItem('ege_app_homeworks_seeded', 'true');
-          const savedDeleted = localStorage.getItem('ege_app_deleted_hw_ids');
-          const deletedIds: string[] = savedDeleted ? JSON.parse(savedDeleted) : deletedHwIds;
-          const filtered = list.filter((h) => !deletedIds.includes(h.id));
-          setHomeworks(filtered);
-          try {
-            localStorage.setItem('ege_app_homeworks', JSON.stringify(filtered));
-          } catch (e) {}
-        }
+        setHomeworks(list);
       },
-      () => setHomeworks((prev) => prev)
+      () => setHomeworks([])
     );
 
     const unsubSubmissions = subscribeSubmissions(
       (list) => {
-        const isSeeded = localStorage.getItem('ege_app_submissions_seeded');
-        if (list.length === 0 && !isSeeded) {
-          localStorage.setItem('ege_app_submissions_seeded', 'true');
-          initialSubmissions.forEach((s) => dbAddSubmission(s));
-          setSubmissions(initialSubmissions);
-        } else {
-          localStorage.setItem('ege_app_submissions_seeded', 'true');
-          setSubmissions(list);
-        }
+        setSubmissions(list);
       },
-      () => setSubmissions((prev) => (prev.length > 0 ? prev : initialSubmissions))
+      () => setSubmissions([])
     );
 
     const unsubNotifications = subscribeNotifications(
       (list) => {
-        const isSeeded = localStorage.getItem('ege_app_notifs_seeded');
-        if (list.length === 0 && !isSeeded) {
-          localStorage.setItem('ege_app_notifs_seeded', 'true');
-          initialNotifications.forEach((n) => dbAddNotification(n));
-          setNotifications(initialNotifications);
-        } else {
-          localStorage.setItem('ege_app_notifs_seeded', 'true');
-          setNotifications(list);
-        }
+        setNotifications(list);
       },
-      () => setNotifications((prev) => (prev.length > 0 ? prev : initialNotifications))
+      () => setNotifications([])
     );
 
     const unsubStudents = subscribeStudents(
       (list) => {
-        const isSeeded = localStorage.getItem('ege_app_students_seeded');
-        if (list.length === 0 && !isSeeded) {
-          localStorage.setItem('ege_app_students_seeded', 'true');
-          initialRegisteredStudents.forEach((st) => dbAddStudent(st));
-          setRegisteredStudents(initialRegisteredStudents);
-        } else {
-          localStorage.setItem('ege_app_students_seeded', 'true');
-          setRegisteredStudents(list);
-        }
+        setRegisteredStudents(list);
       },
-      () => setRegisteredStudents((prev) => prev)
+      () => setRegisteredStudents([])
     );
 
     return () => {
@@ -554,7 +482,6 @@ export default function App() {
 
   // Add Video Lesson / Webinar (Admin Feature)
   const handleAddWebinar = async (newWebinar: Webinar) => {
-    localStorage.setItem('ege_app_webinars_seeded', 'true');
     setWebinars((prev) => [newWebinar, ...prev.filter((w) => w.id !== newWebinar.id)]);
     await dbAddWebinar(newWebinar);
 
@@ -572,7 +499,6 @@ export default function App() {
 
   // Delete Video Lesson (Admin Feature)
   const handleDeleteWebinar = async (webinarId: string) => {
-    localStorage.setItem('ege_app_webinars_seeded', 'true');
     setWebinars((prev) => prev.filter((w) => w.id !== webinarId));
     await dbDeleteWebinar(webinarId);
   };
@@ -611,22 +537,48 @@ export default function App() {
 
   // Delete Homework (Admin Feature)
   const handleDeleteHomework = async (hwId: string) => {
-    localStorage.setItem('ege_app_homeworks_seeded', 'true');
-    const updatedDeleted = Array.from(new Set([...deletedHwIds, hwId]));
-    setDeletedHwIds(updatedDeleted);
+    // 1. Mark Homework as deleted
+    const updatedDeletedHw = Array.from(new Set([...deletedHwIds, hwId]));
+    setDeletedHwIds(updatedDeletedHw);
     try {
-      localStorage.setItem('ege_app_deleted_hw_ids', JSON.stringify(updatedDeleted));
+      localStorage.setItem('ege_app_deleted_hw_ids', JSON.stringify(updatedDeletedHw));
     } catch (e) {
       console.error(e);
     }
     setHomeworks((prev) => prev.filter((h) => h.id !== hwId));
+
+    // 2. Mark related Submissions as deleted
+    const subIdsToDelete = submissions.filter((s) => s.homeworkId === hwId).map((s) => s.id);
+    const updatedDeletedSub = Array.from(new Set([...deletedSubIds, ...subIdsToDelete]));
+    setDeletedSubIds(updatedDeletedSub);
+    try {
+      localStorage.setItem('ege_app_deleted_sub_ids', JSON.stringify(updatedDeletedSub));
+    } catch (e) {
+      console.error(e);
+    }
     setSubmissions((prev) => prev.filter((s) => s.homeworkId !== hwId));
+
+    // 3. Delete from Firestore
     await dbDeleteHomework(hwId);
+    await dbDeleteSubmissionsForHomework(hwId);
   };
 
-  // Delete Submission
-  const handleDeleteSubmission = (submissionId: string) => {
+  // Delete Submission (Admin Feature)
+  const handleDeleteSubmission = async (submissionId: string) => {
+    // 1. Mark Submission as deleted
+    const updatedDeletedSub = Array.from(new Set([...deletedSubIds, submissionId]));
+    setDeletedSubIds(updatedDeletedSub);
+    try {
+      localStorage.setItem('ege_app_deleted_sub_ids', JSON.stringify(updatedDeletedSub));
+    } catch (e) {
+      console.error(e);
+    }
+
+    // 2. Filter local state
     setSubmissions((prev) => prev.filter((s) => s.id !== submissionId));
+
+    // 3. Delete from Firestore
+    await dbDeleteSubmission(submissionId);
   };
 
   // Delete Individual Notification
@@ -831,6 +783,12 @@ export default function App() {
     return homeworks.filter((hw) => !deletedHwIds.includes(hw.id));
   }, [homeworks, deletedHwIds]);
 
+  const visibleSubmissions = React.useMemo(() => {
+    return submissions.filter(
+      (s) => !deletedSubIds.includes(s.id) && !deletedHwIds.includes(s.homeworkId)
+    );
+  }, [submissions, deletedSubIds, deletedHwIds]);
+
   // Compute notifications based on current user role & active profile
   const visibleNotifications = React.useMemo(() => {
     if (!isLoggedIn) return [];
@@ -851,7 +809,7 @@ export default function App() {
       });
 
       // 2. Submissions submitted by real students
-      const realStudentSubmissions = submissions.filter((s) =>
+      const realStudentSubmissions = visibleSubmissions.filter((s) =>
         registeredStudents.some((st) => st.name === s.studentName)
       );
       realStudentSubmissions.forEach((sub) => {
@@ -990,7 +948,7 @@ export default function App() {
   };
 
   const pendingHwCount = visibleHomeworks.filter((hw) => {
-    const sub = submissions.find((s) => s.homeworkId === hw.id && s.studentName === currentUser.name);
+    const sub = visibleSubmissions.find((s) => s.homeworkId === hw.id && s.studentName === currentUser.name);
     return !sub && hw.deadline !== 'Просрочено';
   }).length;
 
@@ -1040,7 +998,7 @@ export default function App() {
               {activeTab === 'homeworks' && (
                 <HomeworkList
                   homeworks={visibleHomeworks}
-                  submissions={submissions}
+                  submissions={visibleSubmissions}
                   onSubmitHomework={handleSubmitHomework}
                   isDarkMode={isDarkMode}
                   currentUserName={currentUser.name}
@@ -1061,13 +1019,14 @@ export default function App() {
                   onUpdateProfile={handleUpdateProfile}
                   isAdmin={currentUser.role === 'teacher'}
                   registeredStudents={registeredStudents}
-                  submissions={submissions}
+                  submissions={visibleSubmissions}
+                  homeworks={visibleHomeworks}
                 />
               )}
 
               {activeTab === 'teacher' && (
                 <TeacherCabinet
-                  submissions={submissions}
+                  submissions={visibleSubmissions}
                   homeworks={visibleHomeworks}
                   webinars={webinars}
                   registeredStudents={registeredStudents}

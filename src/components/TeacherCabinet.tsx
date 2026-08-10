@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent } from '../types';
 import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
 import {
@@ -89,6 +89,25 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [softDeletedHwIds, setSoftDeletedHwIds] = useState<string[]>([]);
   const [softDeletedSubmissionIds, setSoftDeletedSubmissionIds] = useState<string[]>([]);
 
+  // Active items excluding soft-deleted
+  const activeRegisteredStudents = React.useMemo(() => {
+    return registeredStudents.filter((st) => !softDeletedStudentIds.includes(st.id));
+  }, [registeredStudents, softDeletedStudentIds]);
+
+  const activeWebinars = React.useMemo(() => {
+    return webinars.filter((web) => !softDeletedWebinarIds.includes(web.id));
+  }, [webinars, softDeletedWebinarIds]);
+
+  const activeHomeworks = React.useMemo(() => {
+    return homeworks.filter((hw) => !softDeletedHwIds.includes(hw.id));
+  }, [homeworks, softDeletedHwIds]);
+
+  const activeSubmissions = React.useMemo(() => {
+    return submissions.filter(
+      (sub) => !softDeletedSubmissionIds.includes(sub.id) && !softDeletedHwIds.includes(sub.homeworkId)
+    );
+  }, [submissions, softDeletedSubmissionIds, softDeletedHwIds]);
+
   // Dynamic list of student names for archive filters (all registered students + any in submissions)
   const archiveStudentOptions = React.useMemo(() => {
     const set = new Set<string>();
@@ -102,9 +121,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   }, [registeredStudents, softDeletedStudentIds, submissions]);
 
   const gradedArchiveSubmissions = React.useMemo(() => {
-    return submissions.filter((sub) => {
+    return activeSubmissions.filter((sub) => {
       if (sub.status !== 'graded') return false;
-      if (softDeletedSubmissionIds.includes(sub.id)) return false;
 
       const hw = homeworks.find((h) => h.id === sub.homeworkId);
       const hwMonth = hw?.month || getCurrentMonthLabel();
@@ -129,8 +147,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       return true;
     });
   }, [
-    submissions,
-    softDeletedSubmissionIds,
+    activeSubmissions,
     homeworks,
     archiveSelectedStudent,
     archiveSelectedMonth,
@@ -178,116 +195,51 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const [undoToast, setUndoToast] = useState<{
-    id: string;
-    type: 'student' | 'webinar' | 'homework' | 'submission';
-    name: string;
-    secondsLeft: number;
-  } | null>(null);
-
-  // Undo countdown & permanent execution effect
-  React.useEffect(() => {
-    if (!undoToast) return;
-    if (undoToast.secondsLeft <= 0) {
-      if (undoToast.type === 'student' && onDeleteStudent) {
-        onDeleteStudent(undoToast.id);
-      } else if (undoToast.type === 'webinar' && onDeleteWebinar) {
-        onDeleteWebinar(undoToast.id);
-      } else if (undoToast.type === 'homework' && onDeleteHomework) {
-        onDeleteHomework(undoToast.id);
-      } else if (undoToast.type === 'submission' && onDeleteSubmission) {
-        onDeleteSubmission(undoToast.id);
-      }
-      setUndoToast(null);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      setUndoToast((prev) => (prev ? { ...prev, secondsLeft: prev.secondsLeft - 1 } : null));
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [undoToast, onDeleteStudent, onDeleteWebinar, onDeleteHomework, onDeleteSubmission]);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ title: string; onConfirm: () => void } | null>(null);
 
   const handleTriggerDeleteStudent = (studentId: string, studentName: string) => {
-    setSoftDeletedStudentIds((prev) => [...prev, studentId]);
-    if (onDeleteStudent) {
-      onDeleteStudent(studentId);
-    }
-    setUndoToast({
-      id: studentId,
-      type: 'student',
-      name: studentName,
-      secondsLeft: 5,
+    setDeleteConfirm({
+      title: `Вы уверены, что хотите безвозвратно удалить ученика: "${studentName}"?`,
+      onConfirm: () => {
+        setSoftDeletedStudentIds((prev) => [...prev, studentId]);
+        if (onDeleteStudent) onDeleteStudent(studentId);
+        setDeleteConfirm(null);
+      },
     });
   };
 
   const handleTriggerDeleteWebinar = (webinarId: string, webinarTitle: string) => {
-    setSoftDeletedWebinarIds((prev) => [...prev, webinarId]);
-    setUndoToast({
-      id: webinarId,
-      type: 'webinar',
-      name: webinarTitle,
-      secondsLeft: 5,
+    setDeleteConfirm({
+      title: `Вы уверены, что хотите безвозвратно удалить вебинар: "${webinarTitle}"?`,
+      onConfirm: () => {
+        setSoftDeletedWebinarIds((prev) => [...prev, webinarId]);
+        if (onDeleteWebinar) onDeleteWebinar(webinarId);
+        setDeleteConfirm(null);
+      },
     });
   };
 
   const handleTriggerDeleteHomework = (hwId: string, hwTitle: string) => {
-    setSoftDeletedHwIds((prev) => [...prev, hwId]);
-    if (onDeleteHomework) {
-      onDeleteHomework(hwId);
-    }
-    setUndoToast({
-      id: hwId,
-      type: 'homework',
-      name: hwTitle,
-      secondsLeft: 5,
+    setDeleteConfirm({
+      title: `Вы уверены, что хотите безвозвратно удалить ДЗ: "${hwTitle}"?`,
+      onConfirm: () => {
+        setSoftDeletedHwIds((prev) => [...prev, hwId]);
+        if (onDeleteHomework) onDeleteHomework(hwId);
+        setDeleteConfirm(null);
+      },
     });
   };
 
   const handleTriggerDeleteSubmission = (submissionId: string, studentName: string) => {
-    setSoftDeletedSubmissionIds((prev) => [...prev, submissionId]);
-    if (onDeleteSubmission) {
-      onDeleteSubmission(submissionId);
-    }
-    setUndoToast({
-      id: submissionId,
-      type: 'submission',
-      name: `ДЗ ученика ${studentName || ''}`,
-      secondsLeft: 5,
+    setDeleteConfirm({
+      title: `Вы уверены, что хотите безвозвратно удалить работу ученика ${studentName || ''}?`,
+      onConfirm: () => {
+        setSoftDeletedSubmissionIds((prev) => [...prev, submissionId]);
+        if (onDeleteSubmission) onDeleteSubmission(submissionId);
+        setDeleteConfirm(null);
+      },
     });
   };
-
-  const handleCancelUndo = () => {
-    if (!undoToast) return;
-    if (undoToast.type === 'student') {
-      setSoftDeletedStudentIds((prev) => prev.filter((id) => id !== undoToast.id));
-    } else if (undoToast.type === 'webinar') {
-      setSoftDeletedWebinarIds((prev) => prev.filter((id) => id !== undoToast.id));
-    } else if (undoToast.type === 'homework') {
-      setSoftDeletedHwIds((prev) => prev.filter((id) => id !== undoToast.id));
-    } else if (undoToast.type === 'submission') {
-      setSoftDeletedSubmissionIds((prev) => prev.filter((id) => id !== undoToast.id));
-    }
-    setUndoToast(null);
-  };
-
-  // Active items excluding soft-deleted
-  const activeRegisteredStudents = React.useMemo(() => {
-    return registeredStudents.filter((st) => !softDeletedStudentIds.includes(st.id));
-  }, [registeredStudents, softDeletedStudentIds]);
-
-  const activeWebinars = React.useMemo(() => {
-    return webinars.filter((web) => !softDeletedWebinarIds.includes(web.id));
-  }, [webinars, softDeletedWebinarIds]);
-
-  const activeHomeworks = React.useMemo(() => {
-    return homeworks.filter((hw) => !softDeletedHwIds.includes(hw.id));
-  }, [homeworks, softDeletedHwIds]);
-
-  const activeSubmissions = React.useMemo(() => {
-    return submissions;
-  }, [submissions]);
 
   // Dynamic calculations strictly from active students & submissions
   const averageScorePercent = React.useMemo(() => {
@@ -375,8 +327,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const teacherMediaRecorderRef = useRef<MediaRecorder | null>(null);
   const teacherAudioChunksRef = useRef<Blob[]>([]);
   const voiceTimerRef = useRef<any>(null);
+  const [teacherVoiceError, setTeacherVoiceError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+      if (teacherMediaRecorderRef.current && teacherMediaRecorderRef.current.state !== 'inactive') {
+        teacherMediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
+        teacherMediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
 
   const startTeacherVoiceRecording = async () => {
+    setTeacherVoiceError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -403,12 +367,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         setRecordingVoiceSeconds((prev) => prev + 1);
       }, 1000);
     } catch (err) {
-      console.warn('Microphone permission fallback', err);
-      setIsRecordingVoice(true);
-      setRecordingVoiceSeconds(0);
-      voiceTimerRef.current = setInterval(() => {
-        setRecordingVoiceSeconds((prev) => prev + 1);
-      }, 1000);
+      console.error('Microphone permission error', err);
+      setIsRecordingVoice(false);
+      if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+      setTeacherVoiceError('Доступ к микрофону запрещен или не поддерживается.');
     }
   };
 
@@ -418,8 +380,6 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
     if (teacherMediaRecorderRef.current && teacherMediaRecorderRef.current.state !== 'inactive') {
       teacherMediaRecorderRef.current.stop();
-    } else {
-      setTeacherVoiceUrl('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3');
     }
   };
 
@@ -445,6 +405,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [videoDuration, setVideoDuration] = useState('45:00');
   const [videoDescription, setVideoDescription] = useState('');
+  const [isGeneratingTimecodes, setIsGeneratingTimecodes] = useState(false);
 
   // Timecodes state
   const [timecodes, setTimecodes] = useState<{ timeInSeconds: number; timeStr: string; label: string }[]>([
@@ -698,7 +659,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setMaterials((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const handleVideoUrlInputChange = (url: string) => {
+  const handleVideoUrlInputChange = async (url: string) => {
     setVideoUrl(url);
     if (!url.trim()) return;
 
@@ -727,6 +688,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           }
         })
         .catch(() => {});
+
+      try {
+        const res = await fetch('/api/yt-info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: cleanUrl }),
+        });
+        const data = await res.json();
+        if (data && data.success && data.duration) {
+          setVideoDuration(data.duration);
+        }
+      } catch (err) {
+        console.error('yt-info error:', err);
+      }
     } else if (cleanUrl.includes('rutube.ru')) {
       fetch(`https://rutube.ru/api/oembed/?url=${encodeURIComponent(cleanUrl)}&format=json`)
         .then((res) => res.json())
@@ -802,36 +777,46 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     }, 5000);
   };
 
-  const handleGenerateAiTimecodes = () => {
-    const title = videoTitle.trim() || 'Видеоурок ЕГЭ по английскому языку';
-    const totalSeconds = parseTimeToSeconds(videoDuration) || 2700;
+  const handleGenerateAiTimecodes = async () => {
+    if (!videoTitle.trim()) {
+      alert('Укажите название видео перед генерацией таймкодов.');
+      return;
+    }
 
-    const formatSec = (s: number) => {
-      const hrs = Math.floor(s / 3600);
-      const mins = Math.floor((s % 3600) / 60);
-      const secs = Math.floor(s % 60);
-      if (hrs > 0) {
-        return `${hrs}:${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    setIsGeneratingTimecodes(true);
+    try {
+      const response = await fetch('/api/ai-timecodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: videoTitle.trim(),
+          description: videoDescription.trim(),
+          duration: videoDuration || '45:00',
+        }),
+      });
+
+      const data = await response.json();
+      const rawList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.timecodes)
+        ? data.timecodes
+        : [];
+
+      if (rawList.length > 0) {
+        const processedData = rawList.map((item: any) => ({
+          timeStr: item.timeStr || '00:00',
+          label: item.label || 'Раздел урока',
+          timeInSeconds: parseTimeToSeconds(item.timeStr || '00:00'),
+        }));
+        setTimecodes(processedData);
       }
-      return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
-    };
-
-    const p0 = 0;
-    const p1 = Math.floor(totalSeconds * 0.08);
-    const p2 = Math.floor(totalSeconds * 0.25);
-    const p3 = Math.floor(totalSeconds * 0.50);
-    const p4 = Math.floor(totalSeconds * 0.75);
-    const p5 = Math.floor(totalSeconds * 0.92);
-
-    const autoTimecodes = [
-      { timeInSeconds: p0, timeStr: formatSec(p0), label: `🎬 Введение и план урока: ${title}` },
-      { timeInSeconds: p1, timeStr: formatSec(p1), label: '📖 Разбор критериев ФИПИ и типовых ошибок' },
-      { timeInSeconds: p2, timeStr: formatSec(p2), label: '💡 Ключевые правила, структуры и шаблоны' },
-      { timeInSeconds: p3, timeStr: formatSec(p3), label: '✍️ Практическое задание и разбор примера' },
-      { timeInSeconds: p4, timeStr: formatSec(p4), label: '🚀 Лайфхаки для максимального балла на экзамене' },
-      { timeInSeconds: p5, timeStr: formatSec(p5), label: '❓ Итоги урока и домашнее задание' },
-    ];
-    setTimecodes(autoTimecodes);
+    } catch (err) {
+      console.error('Ошибка генерации ИИ-таймкодов:', err);
+    } finally {
+      setIsGeneratingTimecodes(false);
+    }
   };
 
   const handleStartEditHomework = (hw: Homework) => {
@@ -1132,9 +1117,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           >
             <div className="relative">
               <FileText className="w-3.5 h-3.5" />
-              {submissions.filter((s) => s.status === 'pending').length > 0 && (
+              {activeSubmissions.filter((s) => s.status === 'pending').length > 0 && (
                 <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[9px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold">
-                  {submissions.filter((s) => s.status === 'pending').length}
+                  {activeSubmissions.filter((s) => s.status === 'pending').length}
                 </span>
               )}
             </div>
@@ -1151,9 +1136,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           >
             <div className="relative">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              {submissions.filter((s) => s.status === 'graded').length > 0 && (
+              {activeSubmissions.filter((s) => s.status === 'graded').length > 0 && (
                 <span className="absolute -top-1 -right-2 bg-emerald-500 text-white text-[9px] px-1 h-3.5 rounded-full flex items-center justify-center font-bold">
-                  {submissions.filter((s) => s.status === 'graded').length}
+                  {activeSubmissions.filter((s) => s.status === 'graded').length}
                 </span>
               )}
             </div>
@@ -1371,10 +1356,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   <button
                     type="button"
                     onClick={handleGenerateAiTimecodes}
-                    className="text-[10px] font-bold px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg shadow-md flex items-center space-x-1 transition-all"
+                    disabled={isGeneratingTimecodes}
+                    className="text-[10px] font-bold px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-lg shadow-md flex items-center space-x-1 transition-all"
                   >
-                    <Sparkles className="w-3 h-3 text-amber-300" />
-                    <span>✨ ИИ Авто-таймкоды</span>
+                    <Sparkles className={`w-3 h-3 text-amber-300 ${isGeneratingTimecodes ? 'animate-spin' : ''}`} />
+                    <span>{isGeneratingTimecodes ? 'Думает...' : '✨ ИИ Авто-таймкоды'}</span>
                   </button>
                 </div>
 
@@ -1954,7 +1940,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 <h3 className="font-extrabold text-base sm:text-lg flex items-center space-x-2 flex-wrap gap-2">
                   <span className="text-emerald-400">🗄️ База проверенных ДЗ</span>
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
-                    Всего: {submissions.filter((s) => s.status === 'graded').length}
+                    Всего: {activeSubmissions.filter((s) => s.status === 'graded').length}
                   </span>
                 </h3>
                 <p className="text-xs text-slate-300 mt-1">
@@ -2867,7 +2853,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               </p>
             ) : (
               activeRegisteredStudents.map((st) => {
-                const stSubmissions = submissions.filter(
+                const stSubmissions = activeSubmissions.filter(
                   (s) => (s.studentName === st.name || s.studentName === st.login) && s.status === 'graded'
                 );
                 const totalStudentPoints = stSubmissions.reduce((acc, s) => acc + (s.score || 0), 0);
@@ -2893,7 +2879,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         <span>Добавлен: {st.addedAt}</span>
                         <span>•</span>
                         <span className="font-bold text-emerald-400">
-                          Балл ДЗ: {stAveragePercent !== null ? `${stAveragePercent}% (${stSubmissions.length} пров.)` : '85%'}
+                          Балл ДЗ: {stAveragePercent !== null ? `${stAveragePercent}% (${stSubmissions.length} пров.)` : '—'}
                         </span>
                       </div>
                     </div>
@@ -2993,26 +2979,48 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         </div>
       )}
 
-      {/* PERSISTENT 5-SECOND UNDO TOAST BANNER */}
-      {undoToast && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-md bg-slate-900/95 text-white border border-amber-500/50 p-3.5 rounded-2xl shadow-2xl flex items-center justify-between animate-in slide-in-from-bottom duration-300 backdrop-blur-md">
-          <div className="flex items-center space-x-2.5 overflow-hidden">
-            <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 font-extrabold text-xs">
-              {undoToast.secondsLeft}s
+      {/* CUSTOM DELETE CONFIRMATION MODAL */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            className={`w-full max-w-sm rounded-2xl p-6 shadow-2xl border transition-all ${
+              isDarkMode
+                ? 'bg-slate-900 border-slate-800 text-white'
+                : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-rose-500/20 text-rose-500 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-base">Подтверждение удаления</h3>
             </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold truncate">
-                {undoToast.type === 'student' ? 'Ученик удален' : 'Ролик удален'}: {undoToast.name}
-              </p>
-              <p className="text-[10px] text-slate-400">Нажмите «Отменить», чтобы вернуть</p>
+            
+            <p className="text-sm opacity-80 mb-6 leading-relaxed">
+              {deleteConfirm.title}
+            </p>
+
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                className={`px-4 py-2.5 rounded-xl font-medium text-xs transition-colors ${
+                  isDarkMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={deleteConfirm.onConfirm}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-700 text-white shadow-lg transition-all active:scale-95"
+              >
+                Удалить
+              </button>
             </div>
           </div>
-          <button
-            onClick={handleCancelUndo}
-            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0 ml-2"
-          >
-            Отменить ({undoToast.secondsLeft}с)
-          </button>
         </div>
       )}
     </div>

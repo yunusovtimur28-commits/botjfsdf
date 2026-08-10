@@ -12,6 +12,7 @@ import {
   Volume2,
   VolumeX,
   AlertCircle,
+  UploadCloud,
 } from 'lucide-react';
 
 interface SpeakingSimulatorProps {
@@ -63,9 +64,12 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
   const [countdown, setCountdown] = useState(currentTask.prepTime);
   const timerRef = useRef<any>(null);
 
-  // Audio recording simulation
+  // Audio recording
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const [isPlayingRecorded, setIsPlayingRecorded] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   // Sound effects beep
@@ -83,9 +87,21 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
     }
   };
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
+
   // Stage transitions
   const startPrep = () => {
     playBeep();
+    setAudioError(null);
     setStage('prep');
     setCountdown(currentTask.prepTime);
   };
@@ -123,21 +139,54 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
     };
   }, [stage]);
 
-  const startRecordingStage = () => {
+  const startRecordingStage = async () => {
     setStage('recording');
     setCountdown(currentTask.answerTime);
+    setAudioError(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudioUrl(audioUrl);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+    } catch (err) {
+      console.error('Microphone access error in SpeakingSimulator', err);
+      setAudioError('Доступ к микрофону запрещен или не поддерживается. Пожалуйста, запишите аудио на телефон и загрузите файл.');
+    }
   };
 
   const finishRecording = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
     setStage('finished');
-    setRecordedAudioUrl('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
   };
 
   const resetSimulator = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current.stop();
+    }
     setStage('intro');
     setRecordedAudioUrl(null);
+    setAudioError(null);
   };
 
   const formatSeconds = (sec: number) => {
@@ -231,13 +280,36 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
               Нажмите кнопку ниже. У вас будет <span className="text-amber-400 font-bold">{currentTask.prepTime} секунд</span> на подготовку, после чего запись ответа включится автоматически.
             </p>
 
-            <button
-              onClick={startPrep}
-              className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
-            >
-              <Timer className="w-4 h-4" />
-              <span>Запустить симулятор экзамена (Начать подготовку)</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                onClick={startPrep}
+                className="px-5 py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
+              >
+                <Timer className="w-4 h-4" />
+                <span>Запустить симулятор экзамена (Начать подготовку)</span>
+              </button>
+
+              <label className="cursor-pointer px-4 py-3 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-xs rounded-xl border border-sky-500/30 inline-flex items-center space-x-2 transition-all">
+                <UploadCloud className="w-4 h-4" />
+                <span>Загрузить файл</span>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setRecordedAudioUrl(URL.createObjectURL(file));
+                      setStage('finished');
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            {audioError && (
+              <p className="text-rose-400 text-[10px] mt-1 font-medium">{audioError}</p>
+            )}
           </div>
         )}
 
@@ -291,13 +363,36 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
               ))}
             </div>
 
-            <button
-              onClick={finishRecording}
-              className="px-4 py-2 bg-slate-800 text-white font-bold text-xs rounded-xl hover:bg-slate-900 transition-colors inline-flex items-center space-x-2"
-            >
-              <Square className="w-3.5 h-3.5 fill-white" />
-              <span>Завершить ответ раньше</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              <button
+                onClick={finishRecording}
+                className="px-4 py-2 bg-slate-800 text-white font-bold text-xs rounded-xl hover:bg-slate-900 transition-colors inline-flex items-center space-x-2"
+              >
+                <Square className="w-3.5 h-3.5 fill-white" />
+                <span>Завершить ответ раньше</span>
+              </button>
+
+              <label className="cursor-pointer px-4 py-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-xs rounded-xl border border-sky-500/30 inline-flex items-center space-x-2 transition-all">
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Загрузить аудиофайл</span>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setRecordedAudioUrl(URL.createObjectURL(file));
+                      finishRecording();
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            {audioError && (
+              <p className="text-rose-400 text-[10px] mt-2 font-medium">{audioError}</p>
+            )}
           </div>
         )}
 
