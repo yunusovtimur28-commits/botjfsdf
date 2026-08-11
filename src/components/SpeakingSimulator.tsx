@@ -25,7 +25,13 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
   onFinishSimulatedSpeaking,
 }) => {
   const [selectedTaskIndex, setSelectedTaskIndex] = useState(0);
-  const [stage, setStage] = useState<'intro' | 'prep' | 'recording' | 'finished'>('intro');
+  const [stage, setStage] = useState<'intro' | 'prep' | 'transition' | 'recording' | 'finished'>('intro');
+
+  // Pre-flight check state
+  const [micStatus, setMicStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  // Audio progress for custom player
+  const [audioProgress, setAudioProgress] = useState(0);
 
   const tasks = [
     {
@@ -87,6 +93,19 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
     }
   };
 
+  // Microphone pre-flight check
+  const checkMicrophone = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setMicStatus('success');
+      setAudioError(null);
+    } catch (err) {
+      setMicStatus('error');
+      setAudioError('Микрофон недоступен. Потребуется ручная загрузка аудиофайла.');
+    }
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -98,7 +117,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
     };
   }, []);
 
-  // Stage transitions
+  // Stage transitions & timers
   const startPrep = () => {
     playBeep();
     setAudioError(null);
@@ -114,9 +133,23 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
           if (prev <= 1) {
             clearInterval(timerRef.current);
             playBeep();
+            setStage('transition');
+            setCountdown(3);
+            return 3;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (stage === 'transition') {
+      timerRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            playBeep();
             startRecordingStage();
             return 0;
           }
+          playBeep();
           return prev - 1;
         });
       }, 1000);
@@ -187,6 +220,8 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
     setStage('intro');
     setRecordedAudioUrl(null);
     setAudioError(null);
+    setIsPlayingRecorded(false);
+    setAudioProgress(0);
   };
 
   const formatSeconds = (sec: number) => {
@@ -201,7 +236,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
       <div>
         <h2 className="text-lg font-bold tracking-tight">⏳ Тренажёр устной части (ФИПИ)</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Точная симуляция экзамена: 40 секунд подготовки ➔ Автоматическая запись ответа
+          Точная симуляция экзамена: 40 секунд подготовки ➔ Плавный отсчет ➔ Автоматическая запись ответа
         </p>
       </div>
 
@@ -254,28 +289,57 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
           <h3 className="font-bold text-sm leading-snug">{currentTask.title}</h3>
         </div>
 
-        {/* Task Image */}
-        <div className="rounded-xl overflow-hidden aspect-video max-h-48 bg-slate-900 relative">
-          <img
-            src={currentTask.imageUrl}
-            alt="Exam Task"
-            className="w-full h-full object-cover"
-          />
-        </div>
+        {/* Task Image & Questions - visible ONLY when stage !== 'intro' */}
+        {stage !== 'intro' && (
+          <>
+            <div className="rounded-xl overflow-hidden aspect-video max-h-48 bg-slate-900 relative">
+              <img
+                src={currentTask.imageUrl}
+                alt="Exam Task"
+                className="w-full h-full object-cover"
+              />
+            </div>
 
-        {/* Questions list */}
-        <div className="p-3 rounded-xl bg-black/20 space-y-1.5 text-xs text-slate-200">
-          <span className="font-bold text-slate-300 block mb-1">Вопросы задания:</span>
-          {currentTask.questions.map((q, i) => (
-            <p key={i} className="leading-relaxed">
-              {q}
-            </p>
-          ))}
-        </div>
+            <div className="p-3 rounded-xl bg-black/20 space-y-1.5 text-xs text-slate-200">
+              <span className="font-bold text-slate-300 block mb-1">Вопросы:</span>
+              {currentTask.questions.map((q, i) => (
+                <p key={i} className="leading-relaxed">
+                  {q}
+                </p>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* SIMULATOR STAGE CONTROLS */}
         {stage === 'intro' && (
           <div className="pt-2 text-center space-y-3">
+            {/* Pre-flight Check Button & Status */}
+            <div className="flex items-center justify-center space-x-2 pb-1">
+              {micStatus === 'idle' && (
+                <button
+                  type="button"
+                  onClick={checkMicrophone}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors flex items-center space-x-1.5"
+                >
+                  <Mic className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Проверить микрофон</span>
+                </button>
+              )}
+              {micStatus === 'success' && (
+                <div className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center space-x-1.5 border border-emerald-500/30">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Микрофон работает отлично!</span>
+                </div>
+              )}
+              {micStatus === 'error' && (
+                <div className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 flex items-center space-x-1.5 border border-rose-500/30">
+                  <AlertCircle className="w-4 h-4 text-rose-400" />
+                  <span>Микрофон недоступен</span>
+                </div>
+              )}
+            </div>
+
             <p className="text-xs text-slate-400">
               Нажмите кнопку ниже. У вас будет <span className="text-amber-400 font-bold">{currentTask.prepTime} секунд</span> на подготовку, после чего запись ответа включится автоматически.
             </p>
@@ -328,11 +392,32 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
             </p>
 
             <button
-              onClick={startRecordingStage}
+              onClick={() => {
+                if (timerRef.current) clearInterval(timerRef.current);
+                playBeep();
+                setStage('transition');
+                setCountdown(3);
+              }}
               className="text-xs font-bold text-sky-400 hover:underline"
             >
               Пропустить таймер подготовки ➔
             </button>
+          </div>
+        )}
+
+        {stage === 'transition' && (
+          <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-center space-y-3 animate-in fade-in">
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">
+              ⚡ ПРИГОТОВЬТЕСЬ К ЗАПИСИ
+            </span>
+
+            <div className="text-5xl font-mono font-extrabold text-amber-400 animate-pulse my-2">
+              {countdown}
+            </div>
+
+            <p className="text-xs text-slate-300 font-medium">
+              Приготовьтесь... Запись начнётся через секунду!
+            </p>
           </div>
         )}
 
@@ -406,9 +491,9 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
               Запись успешно сформирована!
             </h4>
 
-            {/* Audio Preview */}
+            {/* Custom Audio Preview */}
             {Boolean(recordedAudioUrl) && (
-              <div className="flex items-center justify-center space-x-3 bg-black/30 p-3 rounded-xl max-w-sm mx-auto">
+              <div className="flex items-center space-x-3 bg-black/30 p-3 rounded-xl max-w-sm mx-auto">
                 <button
                   onClick={() => {
                     if (audioPlayerRef.current) {
@@ -420,16 +505,37 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
                       setIsPlayingRecorded(!isPlayingRecorded);
                     }
                   }}
-                  className="w-9 h-9 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0"
+                  className="w-9 h-9 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 hover:bg-sky-400 transition-colors"
                 >
                   {isPlayingRecorded ? <Square className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 ml-0.5" />}
                 </button>
+
+                <div className="flex-1 space-y-1 text-left">
+                  <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-sky-500 transition-all duration-100"
+                      style={{ width: `${audioProgress}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-300 block">
+                    {isPlayingRecorded ? 'Воспроизведение...' : 'Прослушать ответ'}
+                  </span>
+                </div>
+
                 <audio
                   ref={audioPlayerRef}
                   src={recordedAudioUrl || undefined}
-                  onEnded={() => setIsPlayingRecorded(false)}
+                  onTimeUpdate={(e) => {
+                    const dur = e.currentTarget.duration;
+                    if (dur) {
+                      setAudioProgress((e.currentTarget.currentTime / dur) * 100);
+                    }
+                  }}
+                  onEnded={() => {
+                    setIsPlayingRecorded(false);
+                    setAudioProgress(0);
+                  }}
                 />
-                <span className="text-xs font-mono text-slate-300">Прослушать ответ (1:15)</span>
               </div>
             )}
 

@@ -1651,6 +1651,48 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 </div>
               </div>
 
+              {/* TASK CONDITION / PROMPT DISPLAY */}
+              {(() => {
+                const hw = getHomeworkForSubmission(selectedSubmission.homeworkId);
+                return hw ? (
+                  <div className="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/50 space-y-2 mb-4">
+                    <h4 className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                      <BookOpen className="w-4 h-4 text-sky-400" />
+                      <span>Условие задания:</span>
+                    </h4>
+                    
+                    {/* Общее описание */}
+                    {hw.description && (
+                      <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-line">
+                        {hw.description}
+                      </p>
+                    )}
+
+                    {/* Специфичные данные для Speaking */}
+                    {hw.type === 'speaking' && hw.speakingPrompt && (
+                      <div className="space-y-2 pt-1 border-t border-slate-700/50">
+                        <p className="text-xs text-slate-300 italic">{hw.speakingPrompt.textPrompt}</p>
+                        {hw.speakingPrompt.imageUrl && (
+                          <img 
+                            src={hw.speakingPrompt.imageUrl} 
+                            alt="Prompt" 
+                            className="rounded-lg max-h-40 object-contain border border-slate-700 bg-black/40"
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Специфичные данные для Written (Эссе/Письмо) */}
+                    {hw.type === 'written' && hw.writtenPrompt && (
+                      <div className="space-y-1 pt-1 border-t border-slate-700/50">
+                        <p className="text-xs text-amber-200/90 font-medium">{hw.writtenPrompt.taskTitle}</p>
+                        <p className="text-xs text-slate-300">{hw.writtenPrompt.instructions}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : null;
+              })()}
+
               {/* WORK CONTENT DISPLAY */}
               {/* Speaking Audio Review */}
               {selectedSubmission.type === 'speaking' && (

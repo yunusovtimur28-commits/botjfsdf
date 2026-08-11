@@ -8,7 +8,7 @@ import {
   TGNotification,
   ExamBlockScore,
 } from './types';
-import { getFormattedDateTime } from './lib/dateUtils';
+import { getFormattedDateTime, getCurrentMonthLabel } from './lib/dateUtils';
 import {
   initialWebinars,
   initialHomeworks,
@@ -683,16 +683,32 @@ export default function App() {
   };
 
   // Finish Speaking Simulator -> Auto create submission
-  const handleFinishSimulatedSpeaking = (audioUrl: string) => {
-    const hw = homeworks.find((h) => h.type === 'speaking') || homeworks[0];
-    if (hw) {
-      handleSubmitHomework({
-        homeworkId: hw.id,
-        status: 'pending',
+  const handleFinishSimulatedSpeaking = async (audioUrl: string) => {
+    let targetHw = homeworks.find((h) => h.type === 'speaking');
+
+    if (!targetHw) {
+      targetHw = {
+        id: `hw-sim-${Date.now()}`,
+        title: 'Тренажер Speaking (Системная запись)',
+        block: 'speaking',
         type: 'speaking',
-        speakingAudioUrl: audioUrl,
-      });
+        deadline: 'Без дедлайна',
+        deadlineDate: new Date(Date.now() + 86400000 * 30).toISOString(),
+        month: getCurrentMonthLabel(),
+        maxPoints: 20,
+        description: 'Ответ отправлен учеником из свободного тренажера.',
+      };
+      setHomeworks((prev) => [targetHw!, ...prev]);
+      await dbAddHomework(targetHw);
     }
+
+    handleSubmitHomework({
+      homeworkId: targetHw.id,
+      status: 'pending',
+      type: 'speaking',
+      speakingAudioUrl: audioUrl,
+    });
+
     setActiveTab('homeworks');
   };
 
