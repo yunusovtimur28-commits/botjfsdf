@@ -73,6 +73,22 @@
         "createdAt": { "type": "string" }
       },
       "required": ["title", "text"]
+    },
+    "students": {
+      "title": "Student",
+      "description": "Registered students accounts and streak data",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "login": { "type": "string" },
+        "telegramHandle": { "type": "string" },
+        "password": { "type": "string" },
+        "addedAt": { "type": "string" },
+        "isFirstLogin": { "type": "boolean" },
+        "streakDays": { "type": "number" },
+        "lastVisitDate": { "type": "string" }
+      },
+      "required": ["login"]
     }
   }
 }

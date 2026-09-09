@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Homework, Submission, HomeworkStatus } from '../types';
+import { Homework, Submission, HomeworkStatus, BlockCategory } from '../types';
 import { HomeworkSubmissionModal } from './HomeworkSubmissionModal';
 import { getCurrentMonthLabel } from '../lib/dateUtils';
 import {
@@ -13,6 +13,8 @@ import {
   Zap,
   ChevronRight,
   Sparkles,
+  Search,
+  X,
 } from 'lucide-react';
 
 interface HomeworkListProps {
@@ -32,7 +34,18 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<HomeworkStatus>('todo');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedBlock, setSelectedBlock] = useState<BlockCategory | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
+
+  const categories: { id: BlockCategory | 'all'; label: string }[] = [
+    { id: 'all', label: 'Все блоки' },
+    { id: 'listening', label: '🎧 Аудирование' },
+    { id: 'reading', label: '📖 Чтение' },
+    { id: 'grammar_vocabulary', label: '📚 Грамматика и лексика' },
+    { id: 'writing', label: '✍️ Письмо' },
+    { id: 'speaking', label: '🗣 Говорение' },
+  ];
 
   // Map homework ID to submission belonging to current student or fallback
   const getSubmissionForHomework = (hwId: string): Submission | undefined => {
@@ -90,11 +103,18 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
     },
   ];
 
-  const filteredHomeworks = homeworks.filter(
-    (hw) =>
-      getHomeworkStatus(hw) === activeTab &&
-      (selectedMonth === 'all' || (hw.month || getCurrentMonthLabel()) === selectedMonth)
-  );
+  const filteredHomeworks = homeworks.filter((hw) => {
+    const matchesStatus = getHomeworkStatus(hw) === activeTab;
+    const matchesMonth = selectedMonth === 'all' || (hw.month || getCurrentMonthLabel()) === selectedMonth;
+    const matchesBlock = selectedBlock === 'all' || hw.block === selectedBlock;
+    const query = searchQuery.toLowerCase().trim();
+    const matchesSearch =
+      query === '' ||
+      hw.title.toLowerCase().includes(query) ||
+      (hw.description && hw.description.toLowerCase().includes(query));
+
+    return matchesStatus && matchesMonth && matchesBlock && matchesSearch;
+  });
 
   return (
     <div className="space-y-4 pb-20">
@@ -139,6 +159,52 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
         </div>
       </div>
 
+      {/* Search Bar & Category Filter */}
+      <div className="space-y-2.5">
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Поиск по названию или описанию ДЗ..."
+            className={`w-full pl-9 pr-9 py-2.5 rounded-xl text-xs border transition-all ${
+              isDarkMode
+                ? 'bg-[#1e2c3a] border-slate-700 text-white placeholder-slate-400 focus:border-purple-500'
+                : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-purple-500'
+            }`}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Categories Horizontal Scroll */}
+        <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1">
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedBlock(cat.id)}
+              className={`whitespace-nowrap text-xs font-semibold px-3 py-1.5 rounded-xl transition-all border ${
+                selectedBlock === cat.id
+                  ? 'bg-purple-600 text-white border-purple-600 shadow-md shadow-purple-600/20'
+                  : isDarkMode
+                  ? 'bg-[#17212b] border-slate-800 text-slate-300 hover:border-slate-700'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Status Filter Tabs (Strict 2x2 Grid: Row 1 = todo & pending, Row 2 = graded & overdue) */}
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 p-2 rounded-2xl bg-black/20 dark:bg-[#17212b] border border-slate-700/50">
         {tabs.map((tab) => {
@@ -177,6 +243,14 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
           <CheckCircle2 className="w-10 h-10 text-emerald-500/50 mx-auto mb-2" />
           <p className="text-sm font-semibold">В этой категории нет ДЗ</p>
           <p className="text-xs text-slate-500 mt-1">Отличная работа! Все задания выполнены.</p>
+          {(searchQuery || selectedBlock !== 'all' || selectedMonth !== 'all' || activeTab !== 'todo') && (
+            <button 
+              onClick={() => { setSearchQuery(''); setSelectedBlock('all'); setSelectedMonth('all'); setActiveTab('todo'); }}
+              className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all"
+            >
+              Сбросить фильтры
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
@@ -201,11 +275,13 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
                       <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
                         {hw.block === 'speaking'
                           ? '🗣 Раздел: Speaking'
-                          : hw.block === 'grammar'
-                          ? '⚡ Раздел: Грамматика'
                           : hw.block === 'writing'
-                          ? '✍️ Раздел: Письмо / Эссе'
-                          : '📚 Раздел: Лексика'}
+                          ? '✍️ Раздел: Writing'
+                          : hw.block === 'grammar_vocabulary'
+                          ? '📚 Раздел: Грамматика и лексика'
+                          : hw.block === 'listening'
+                          ? '🎧 Раздел: Listening'
+                          : '📖 Раздел: Reading'}
                       </span>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                         📅 {hw.month || getCurrentMonthLabel()}

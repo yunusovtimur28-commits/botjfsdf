@@ -29,10 +29,11 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
 
   const categories: { id: BlockCategory | 'all'; label: string }[] = [
     { id: 'all', label: 'Все блоки' },
-    { id: 'speaking', label: '🗣 Speaking' },
-    { id: 'grammar', label: '📝 Грамматика' },
+    { id: 'listening', label: '🎧 Аудирование' },
+    { id: 'reading', label: '📖 Чтение' },
+    { id: 'grammar_vocabulary', label: '📚 Грамматика и лексика' },
     { id: 'writing', label: '✍️ Письмо и Эссе' },
-    { id: 'vocabulary', label: '📚 Лексика' },
+    { id: 'speaking', label: '🗣 Speaking' },
   ];
 
   const filteredWebinars = webinars.filter((web) => {
@@ -111,6 +112,14 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
           <BookOpen className="w-10 h-10 text-slate-400 mx-auto mb-2 opacity-50" />
           <p className="text-sm font-semibold">Уроки не найдены</p>
           <p className="text-xs text-slate-500 mt-1">Попробуйте изменить поисковый запрос или фильтр</p>
+          {(searchQuery || selectedBlock !== 'all') && (
+            <button 
+              onClick={() => { setSearchQuery(''); setSelectedBlock('all'); }}
+              className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all"
+            >
+              Сбросить фильтры
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3.5">
@@ -150,12 +159,14 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
                   <div className="absolute top-3 left-3">
                     <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-sky-400 border border-sky-400/30">
                       {webinar.block === 'speaking'
-                        ? 'Speaking'
-                        : webinar.block === 'grammar'
-                        ? 'Грамматика'
+                        ? '🗣 Speaking'
                         : webinar.block === 'writing'
-                        ? 'Письмо'
-                        : 'Лексика'}
+                        ? '✍️ Письмо'
+                        : webinar.block === 'grammar_vocabulary'
+                        ? '📚 Грам. и лексика'
+                        : webinar.block === 'listening'
+                        ? '🎧 Аудирование'
+                        : '📖 Чтение'}
                     </span>
                   </div>
 

@@ -235,63 +235,60 @@ export default function App() {
     return 90;
   });
 
-  // Helper to track and accumulate daily visits per student across calendar days
-  const getUserStreakDays = (userName: string, defaultBaselineStreak: number = 1): number => {
-    const storageKey = `ege_app_user_visits_${userName}`;
-    const now = new Date();
-
-    const getLocalDateStr = (d: Date) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    const todayStr = getLocalDateStr(now);
-
-    let visits: string[] = [];
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        visits = JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Populate baseline if visits is not initialized yet
-    if (!Array.isArray(visits) || visits.length === 0) {
-      visits = [];
-      for (let i = defaultBaselineStreak - 1; i >= 0; i--) {
-        const pastDate = new Date(now);
-        pastDate.setDate(pastDate.getDate() - i);
-        visits.push(getLocalDateStr(pastDate));
-      }
-    }
-
-    // Always register today's login visit
-    if (!visits.includes(todayStr)) {
-      visits.push(todayStr);
-    }
-
-    // Persist unique visit dates
-    visits = Array.from(new Set(visits));
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(visits));
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Accumulate total active training days across calendar logins without upper limits or resets
-    return Math.max(1, visits.length);
-  };
-
   // Dynamic student profile based on logged in user & their actual submissions
   const currentStudentSubmissions = submissions.filter((s) => s.studentName === currentUser.name);
 
+  // Server-side streak tracking in Firebase
+  useEffect(() => {
+    if (!isLoggedIn || currentUser.role !== 'student') return;
+
+    const student = registeredStudents.find(
+      (s) =>
+        s.telegramHandle === currentUser.telegramHandle ||
+        (s.telegramHandle &&
+          currentUser.telegramHandle &&
+          s.telegramHandle.replace('@', '').toLowerCase() === currentUser.telegramHandle.replace('@', '').toLowerCase())
+    );
+
+    if (!student) return;
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${day}`;
+
+    if (student.lastVisitDate !== todayStr) {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yYear = yesterday.getFullYear();
+      const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+      const yDay = String(yesterday.getDate()).padStart(2, '0');
+      const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
+
+      let newStreak = 1;
+      if (student.lastVisitDate === yesterdayStr) {
+        newStreak = (student.streakDays || 0) + 1;
+      } else {
+        newStreak = 1;
+      }
+
+      dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
+      setRegisteredStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
+      );
+    }
+  }, [currentUser, isLoggedIn, registeredStudents]);
+
   const activeStudentProfile: StudentProfileType = React.useMemo(() => {
-    const defaultBaseline = currentUser.name === initialStudentProfile.name ? (initialStudentProfile.streakDays || 7) : 1;
-    const currentStreak = getUserStreakDays(currentUser.name, defaultBaseline);
+    const currentStudent = registeredStudents.find(
+      (s) =>
+        s.telegramHandle === currentUser.telegramHandle ||
+        (s.telegramHandle &&
+          currentUser.telegramHandle &&
+          s.telegramHandle.replace('@', '').toLowerCase() === currentUser.telegramHandle.replace('@', '').toLowerCase())
+    );
+    const currentStreak = currentStudent?.streakDays || 1;
 
     const isNinjaUnlocked = currentStudentSubmissions.some((s) => s.type === 'test' && s.status === 'graded');
     const isSpeakingUnlocked = currentStudentSubmissions.some((s) => s.type === 'speaking' && s.status === 'graded');
@@ -397,7 +394,7 @@ export default function App() {
       ],
       examProgress: dynamicExamProgress,
     };
-  }, [currentUser, currentStudentSubmissions, customTargetScore, homeworks]);
+  }, [currentUser, currentStudentSubmissions, customTargetScore, homeworks, registeredStudents]);
 
   // Save Auth User to LocalStorage
   useEffect(() => {

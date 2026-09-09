@@ -1,6 +1,6 @@
 export type UserRole = 'student' | 'teacher';
 
-export type BlockCategory = 'speaking' | 'grammar' | 'writing' | 'vocabulary';
+export type BlockCategory = 'listening' | 'reading' | 'grammar_vocabulary' | 'writing' | 'speaking';
 
 export interface Timecode {
   timeInSeconds: number;
@@ -173,6 +173,8 @@ export interface RegisteredStudent {
   password?: string;
   addedAt: string;
   isFirstLogin: boolean;
+  streakDays?: number;
+  lastVisitDate?: string;
 }
 
 export interface TGNotification {

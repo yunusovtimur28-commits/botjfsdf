@@ -178,13 +178,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     studentAllSubmissions.forEach((sub) => {
       const hw = homeworks.find((h) => h.id === sub.homeworkId);
-      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar_vocabulary');
 
       if (block === 'speaking') {
         counts.speaking += 1;
       } else if (block === 'writing') {
         counts.writing += 1;
-      } else if (block === 'grammar' || block === 'vocabulary') {
+      } else if (block === 'grammar_vocabulary') {
         counts.grammarVocabulary += 1;
       } else if (block === 'reading') {
         counts.reading += 1;
@@ -243,10 +243,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       let writing = 0;
       let speaking = 0;
 
-      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar_vocabulary');
       if (block === 'speaking') speaking = block20;
       else if (block === 'writing') writing = block20;
-      else if (block === 'grammar' || block === 'vocabulary') grammarVocabulary = block20;
+      else if (block === 'grammar_vocabulary') grammarVocabulary = block20;
       else if (block === 'reading') reading = block20;
       else if (block === 'listening') listening = block20;
 
@@ -291,7 +291,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     studentSubmissions.forEach((sub) => {
       const hw = homeworks.find((h) => h.id === sub.homeworkId);
-      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar');
+      const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar_vocabulary');
       const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
       const max = sub.maxScore || hw?.maxPoints || 14;
       const scoreOutof20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
@@ -302,7 +302,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       } else if (block === 'writing') {
         sums.writing += scoreOutof20;
         counts.writing += 1;
-      } else if (block === 'grammar' || block === 'vocabulary') {
+      } else if (block === 'grammar_vocabulary') {
         sums.grammarVocabulary += scoreOutof20;
         counts.grammarVocabulary += 1;
       } else if (block === 'reading') {

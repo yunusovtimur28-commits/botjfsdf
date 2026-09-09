@@ -18,7 +18,7 @@ import {
 import config from '../../firebase-applet-config.json';
 import { Webinar, Homework, Submission, TGNotification, RegisteredStudent } from '../types';
 
-setLogLevel('error');
+setLogLevel('silent');
 
 const firebaseConfig = {
   apiKey: config.apiKey,
@@ -32,7 +32,8 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true,
+  ignoreUndefinedProperties: true,
 }, config.firestoreDatabaseId || '(default)');
 
 // Collection references

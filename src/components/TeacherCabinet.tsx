@@ -515,34 +515,16 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
   const getTaskNumberOptions = (block: BlockCategory): string[] => {
     switch (block) {
+      case 'listening':
+        return Array.from({ length: 9 }, (_, i) => `Задание №${i + 1}`);
+      case 'reading':
+        return Array.from({ length: 9 }, (_, i) => `Задание №${i + 10}`);
+      case 'grammar_vocabulary':
+        return Array.from({ length: 18 }, (_, i) => `Задание №${i + 19}`);
+      case 'writing':
+        return ['Задание №37 (Письмо)', 'Задание №38 (Эссе)'];
       case 'speaking':
         return ['Задание №1', 'Задание №2', 'Задание №3', 'Задание №4'];
-      case 'grammar':
-        return [
-          'Задание №19',
-          'Задание №20',
-          'Задание №21',
-          'Задание №22',
-          'Задание №23',
-          'Задание №24',
-        ];
-      case 'writing':
-        return ['Задание №37 (Электронное письмо)', 'Задание №38 (Эссе / проект)'];
-      case 'vocabulary':
-        return [
-          'Задание №25 (Словообразование)',
-          'Задание №26 (Словообразование)',
-          'Задание №27 (Словообразование)',
-          'Задание №28 (Словообразование)',
-          'Задание №29 (Словообразование)',
-          'Задание №30 (Выбор слов)',
-          'Задание №31 (Выбор слов)',
-          'Задание №32 (Выбор слов)',
-          'Задание №33 (Выбор слов)',
-          'Задание №34 (Выбор слов)',
-          'Задание №35 (Выбор слов)',
-          'Задание №36 (Выбор слов)',
-        ];
       default:
         return ['Задание №1'];
     }
@@ -1283,10 +1265,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
                     }`}
                   >
-                    <option value="speaking">🗣 Speaking (Устная часть)</option>
-                    <option value="grammar">📝 Грамматика</option>
-                    <option value="writing">✍️ Письмо и Эссе</option>
-                    <option value="vocabulary">📚 Лексика</option>
+                    <option value="listening">🎧 Аудирование (Listening)</option>
+                    <option value="reading">📖 Чтение (Reading)</option>
+                    <option value="grammar_vocabulary">📚 Грамматика и лексика</option>
+                    <option value="writing">✍️ Письмо (Writing)</option>
+                    <option value="speaking">🗣 Говорение (Speaking)</option>
                   </select>
                 </div>
 
@@ -1491,7 +1474,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       className="w-14 h-10 object-cover rounded-lg shrink-0"
                     />
                     <div className="overflow-hidden">
-                      <h4 className="font-bold text-xs truncate leading-snug">{web.title}</h4>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 shrink-0">
+                          {web.block === 'speaking'
+                            ? '🗣 Говорение'
+                            : web.block === 'writing'
+                            ? '✍️ Письмо'
+                            : web.block === 'grammar_vocabulary'
+                            ? '📚 Грам. и лексика'
+                            : web.block === 'listening'
+                            ? '🎧 Аудирование'
+                            : '📖 Чтение'}
+                        </span>
+                        <h4 className="font-bold text-xs truncate leading-snug">{web.title}</h4>
+                      </div>
                       <p className="text-[10px] text-slate-400 mt-0.5">
                         {web.duration} • {web.timecodes.length} таймкодов • {web.materials.length} PDF
                       </p>
@@ -2067,10 +2063,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   }`}
                 >
                   <option value="all">🎯 Все разделы</option>
-                  <option value="speaking">🎙️ Говорение (Speaking)</option>
+                  <option value="listening">🎧 Аудирование (Listening)</option>
+                  <option value="reading">📖 Чтение (Reading)</option>
+                  <option value="grammar_vocabulary">📚 Грамматика и лексика</option>
                   <option value="writing">✍️ Письмо (Writing)</option>
-                  <option value="grammar">🧩 Грамматика</option>
-                  <option value="vocabulary">📖 Лексика</option>
+                  <option value="speaking">🗣 Говорение (Speaking)</option>
                 </select>
               </div>
 
@@ -2128,7 +2125,15 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                               {hw?.month || getCurrentMonthLabel()}
                             </span>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                              {hw?.block === 'speaking' ? '🎙️ Говорение' : hw?.block === 'writing' ? '✍️ Письмо' : hw?.block === 'grammar' ? '🧩 Грамматика' : '📖 Лексика'}
+                              {hw?.block === 'speaking'
+                                ? '🗣 Говорение'
+                                : hw?.block === 'writing'
+                                ? '✍️ Письмо'
+                                : hw?.block === 'grammar_vocabulary'
+                                ? '📚 Грам. и лексика'
+                                : hw?.block === 'listening'
+                                ? '🎧 Аудирование'
+                                : '📖 Чтение'}
                             </span>
                           </div>
                           <p className="text-xs text-slate-300 font-medium mt-0.5">
@@ -2374,10 +2379,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
                           }`}
                         >
+                          <option value="listening">🎧 Аудирование (Listening)</option>
+                          <option value="reading">📖 Чтение (Reading)</option>
+                          <option value="grammar_vocabulary">📚 Грамматика и лексика</option>
+                          <option value="writing">✍️ Письмо (Writing)</option>
                           <option value="speaking">🗣 Говорение (Speaking)</option>
-                          <option value="grammar">📝 Грамматика</option>
-                          <option value="writing">✍️ Письмо и Эссе</option>
-                          <option value="vocabulary">📚 Лексика</option>
                         </select>
                       </div>
 
@@ -2747,7 +2753,15 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                        {hw.block === 'speaking' ? '🗣 Говорение' : hw.block === 'writing' ? '✍️ Письмо' : '📝 Тест'}
+                        {hw.block === 'speaking'
+                          ? '🗣 Говорение'
+                          : hw.block === 'writing'
+                          ? '✍️ Письмо'
+                          : hw.block === 'grammar_vocabulary'
+                          ? '📚 Грам. и лексика'
+                          : hw.block === 'listening'
+                          ? '🎧 Аудирование'
+                          : '📖 Чтение'}
                       </span>
                       <span className="text-[10px] text-slate-400">{hw.month || getCurrentMonthLabel()} | {hw.deadline}</span>
                     </div>

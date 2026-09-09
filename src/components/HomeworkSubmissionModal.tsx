@@ -49,6 +49,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     existingSubmission?.testScore ?? null
   );
 
+  const draftKey = `hw_draft_${homework.id}`;
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+
   // Audio Recording state for Speaking
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -69,11 +72,20 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const teacherAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Essay / Written state
-  const [essayText, setEssayText] = useState(existingSubmission?.essayText || '');
+  const [essayText, setEssayText] = useState(
+    () => existingSubmission?.essayText || localStorage.getItem(draftKey) || ''
+  );
   const [uploadedFileName, setUploadedFileName] = useState(
     existingSubmission?.writtenFileName || ''
   );
   const [isUploading, setIsUploading] = useState(false);
+
+  // Autosave essay draft
+  useEffect(() => {
+    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+      localStorage.setItem(draftKey, essayText);
+    }
+  }, [essayText, draftKey, existingSubmission]);
 
   // AI Pre-check state
   const [aiLoading, setAiLoading] = useState(false);
@@ -299,7 +311,23 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       aiPreviewFeedback: aiFeedback || undefined,
       submittedAt: formattedSubmittedAt,
     });
+    localStorage.removeItem(draftKey);
     onClose();
+  };
+
+  const handleAttemptClose = () => {
+    const hasUnsavedMedia =
+      recordedAudioUrl !== null ||
+      uploadedPhotos.length > 0 ||
+      Object.values(taskAnswers).some(
+        (ans: any) => ans?.voiceAudioUrl || (ans?.textAnswer && ans.textAnswer.trim() !== '')
+      );
+
+    if (hasUnsavedMedia && existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+      setShowExitConfirm(true);
+    } else {
+      onClose();
+    }
   };
 
   const formatSeconds = (sec: number) => {
@@ -311,7 +339,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
       <div
-        className={`w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] ${
+        className={`w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] relative ${
           isDarkMode ? 'bg-[#1e2c3a] text-white border border-slate-700' : 'bg-white text-slate-900'
         }`}
       >
@@ -336,7 +364,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             <span className="text-xs text-slate-400 font-medium">Макс: {homework.maxPoints} б.</span>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleAttemptClose}
             className="p-1.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -684,16 +712,20 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                   Введите или вставьте текст эссе / письма:
                 </label>
                 <textarea
-                  rows={6}
                   value={essayText}
                   onChange={(e) => setEssayText(e.target.value)}
                   placeholder="Imagine that I am doing a project on why teenagers in Zetland choose a career in IT..."
-                  className={`w-full p-3 rounded-xl text-xs border leading-relaxed ${
+                  className={`w-full p-3 rounded-xl text-xs border leading-relaxed min-h-[200px] resize-y ${
                     isDarkMode
                       ? 'bg-[#17212b] border-slate-700 text-white placeholder-slate-500'
                       : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
                   }`}
                 />
+                <div className="flex justify-end pt-1">
+                  <span className={`text-[10px] font-mono font-bold ${essayText.trim().split(/\s+/).filter(w => w.length > 0).length < (homework.writtenPrompt?.minWords || 200) ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    Слов: {essayText.trim().split(/\s+/).filter(w => w.length > 0).length} / {homework.writtenPrompt?.minWords || 200} (мин)
+                  </span>
+                </div>
               </div>
 
               {/* AI Pre-check Button */}
@@ -1081,6 +1113,21 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             );
           })()}
         </div>
+
+        {/* Exit Confirmation Dialog */}
+        {showExitConfirm && (
+          <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 rounded-2xl">
+            <div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl border text-center ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+              <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-slate-200 mb-2">Закрыть задание?</h3>
+              <p className="text-xs text-slate-400 mb-6">Записанные аудио и фото будут удалены. Текст эссе сохранится в черновик.</p>
+              <div className="flex items-center space-x-3">
+                <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-2.5 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 hover:bg-slate-700">Остаться</button>
+                <button onClick={onClose} className="flex-1 py-2.5 rounded-xl font-bold text-xs bg-rose-600 text-white hover:bg-rose-700">Выйти</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

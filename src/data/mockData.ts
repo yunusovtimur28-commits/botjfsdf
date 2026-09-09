@@ -54,7 +54,7 @@ export const initialWebinars: Webinar[] = [
   {
     id: 'web-2',
     title: 'Past Simple vs Present Perfect: Секреты разграничения времена в ЕГЭ',
-    block: 'grammar',
+    block: 'grammar_vocabulary',
     description: 'Полный разбор маркеров времени, исключений и типичных ловушек ФИПИ в блоке Грамматика и Лексика (Задания 19-24).',
     videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
     thumbnailUrl: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=800&q=80',
@@ -115,7 +115,7 @@ export const initialWebinars: Webinar[] = [
   {
     id: 'web-4',
     title: 'Лексика C1: Связки, Синонимы и Топ-50 фраз для устной части',
-    block: 'vocabulary',
+    block: 'grammar_vocabulary',
     description: 'Увеличиваем словарный запас продвинутыми связками и фразовыми глаголами для высокого балла.',
     videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
     thumbnailUrl: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=800&q=80',
@@ -145,7 +145,7 @@ export const initialHomeworks: Homework[] = [
     id: 'hw-1',
     webinarId: 'web-2',
     title: 'Экспресс-тест: Грамматика и времена (Past Simple vs Present Perfect)',
-    block: 'grammar',
+    block: 'grammar_vocabulary',
     type: 'test',
     deadline: 'Сегодня, 23:59',
     deadlineDate: '2026-08-05T23:59:00',
