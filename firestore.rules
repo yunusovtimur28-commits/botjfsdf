@@ -1,8 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Временное базовое правило: чтение доступно всем (для демо)
     match /{document=**} {
-      allow read, write: if true;
+      allow read: if true;
+    }
+    
+    // Запись вебинаров и домашек запрещена для учеников (только админы)
+    // Так как пока нет Auth, ставим заглушку, которую позже заменим на request.auth.token.role == 'teacher'
+    match /webinars/{webinarId} {
+      allow write: if true; // TODO: Заменить на авторизацию учителя
+    }
+    match /homeworks/{hwId} {
+      allow write: if true; // TODO: Заменить на авторизацию учителя
+    }
+    
+    // Ученики могут создавать сабмишены, но не удалять чужие
+    match /submissions/{subId} {
+      allow create: if true;
+      allow update, delete: if true; // TODO: Ограничить по studentName
+    }
+
+    // Регистрация учеников и уведомления
+    match /students/{studentId} {
+      allow write: if true;
+    }
+    match /notifications/{notifId} {
+      allow write: if true;
     }
   }
 }
+

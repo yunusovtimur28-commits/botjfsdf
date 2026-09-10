@@ -33,6 +33,23 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
   // Audio progress for custom player
   const [audioProgress, setAudioProgress] = useState(0);
 
+  // Live audio waveform state (Web Audio API)
+  const [volumeLevels, setVolumeLevels] = useState<number[]>(new Array(11).fill(10));
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  const stopAudioAnalyser = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    setVolumeLevels(new Array(11).fill(10));
+  };
+
   const tasks = [
     {
       id: 'task-3',
@@ -110,6 +127,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      stopAudioAnalyser();
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
         mediaRecorderRef.current.stop();
@@ -183,6 +201,34 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
+      // Web Audio API & Analyser initialization
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioContextRef.current = audioCtx;
+        const analyser = audioCtx.createAnalyser();
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+        analyser.fftSize = 32;
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const updateLiveVolume = () => {
+          analyser.getByteFrequencyData(dataArray);
+          // Scale 11 bars from frequency data to responsive heights (10-100)
+          const newLevels = Array.from({ length: 11 }, (_, i) => {
+            const dataIdx = Math.min(Math.floor((i * bufferLength) / 11), bufferLength - 1);
+            const val = dataArray[dataIdx] || 0;
+            return Math.max(10, Math.min(100, Math.round(10 + (val / 255) * 90)));
+          });
+          setVolumeLevels(newLevels);
+          animationFrameRef.current = requestAnimationFrame(updateLiveVolume);
+        };
+        animationFrameRef.current = requestAnimationFrame(updateLiveVolume);
+      } catch (err) {
+        console.warn('AudioContext not supported or restricted', err);
+      }
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
@@ -190,6 +236,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
       };
 
       mediaRecorder.onstop = () => {
+        stopAudioAnalyser();
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
         const audioUrl = URL.createObjectURL(audioBlob);
         setRecordedAudioUrl(audioUrl);
@@ -205,6 +252,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
 
   const finishRecording = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    stopAudioAnalyser();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -213,6 +261,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
 
   const resetSimulator = () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    stopAudioAnalyser();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stream?.getTracks().forEach((track) => track.stop());
       mediaRecorderRef.current.stop();
@@ -291,7 +340,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
 
         {/* Task Image & Questions - visible ONLY when stage !== 'intro' */}
         {stage !== 'intro' && (
-          <>
+          <div className="max-h-[40vh] overflow-y-auto no-scrollbar pb-2 space-y-3">
             <div className="rounded-xl overflow-hidden aspect-video max-h-48 bg-slate-900 relative">
               <img
                 src={currentTask.imageUrl}
@@ -308,11 +357,12 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
                 </p>
               ))}
             </div>
-          </>
+          </div>
         )}
 
-        {/* SIMULATOR STAGE CONTROLS */}
-        {stage === 'intro' && (
+        {/* SIMULATOR STAGE CONTROLS (Нижняя часть - панель управления) */}
+        <div className="sticky bottom-0 bg-inherit border-t border-slate-700/50 pt-4 mt-2">
+          {stage === 'intro' && (
           <div className="pt-2 text-center space-y-3">
             {/* Pre-flight Check Button & Status */}
             <div className="flex items-center justify-center space-x-2 pb-1">
@@ -434,15 +484,14 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
               {formatSeconds(countdown)}
             </div>
 
-            {/* Audio Waveform */}
-            <div className="flex items-center justify-center space-x-1.5 py-2">
-              {[40, 80, 100, 60, 90, 70, 95, 50, 85, 30].map((h, idx) => (
+            {/* Audio Waveform with dynamic volume levels */}
+            <div className="flex items-center justify-center space-x-1.5 py-2 h-14">
+              {volumeLevels.map((h, idx) => (
                 <span
                   key={idx}
-                  className="w-1.5 bg-rose-500 rounded-full animate-bounce"
+                  className="w-1.5 bg-rose-500 rounded-full transition-all duration-75"
                   style={{
-                    height: `${h / 2}px`,
-                    animationDelay: `${idx * 0.1}s`,
+                    height: `${Math.max(6, Math.round(h * 0.45))}px`,
                   }}
                 />
               ))}
@@ -562,6 +611,7 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

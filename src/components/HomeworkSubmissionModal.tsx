@@ -50,6 +50,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   );
 
   const draftKey = `hw_draft_${homework.id}`;
+  const tasksDraftKey = `hw_tasks_draft_${homework.id}`;
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   // Audio Recording state for Speaking
@@ -96,7 +97,33 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   // Multi-Task & Photo state
   const [taskAnswers, setTaskAnswers] = useState<
     Record<string, { textAnswer?: string; voiceAudioUrl?: string; selectedOptionIndex?: number }>
-  >(existingSubmission?.taskAnswers || {});
+  >(() => {
+    try {
+      const saved = localStorage.getItem(tasksDraftKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error parsing tasks draft', e);
+    }
+    return existingSubmission?.taskAnswers || {};
+  });
+
+  // Autosave multi-task answers draft (excluding temporary Blob URLs)
+  useEffect(() => {
+    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+      const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number }> = {};
+      Object.entries(taskAnswers).forEach(([taskId, ans]: [string, any]) => {
+        if (ans) {
+          cleanAnswers[taskId] = {
+            textAnswer: ans.textAnswer,
+            selectedOptionIndex: ans.selectedOptionIndex,
+          };
+        }
+      });
+      localStorage.setItem(tasksDraftKey, JSON.stringify(cleanAnswers));
+    }
+  }, [taskAnswers, tasksDraftKey, existingSubmission]);
 
   const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null);
   const [studentTaskMediaRecorder, setStudentTaskMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -312,6 +339,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       submittedAt: formattedSubmittedAt,
     });
     localStorage.removeItem(draftKey);
+    localStorage.removeItem(tasksDraftKey);
     onClose();
   };
 

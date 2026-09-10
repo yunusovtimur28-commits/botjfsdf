@@ -298,6 +298,19 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
   // Submissions state for grading
   const [reviewSubTab, setReviewSubTab] = useState<'pending' | 'graded'>('pending');
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'hw' | 'simulator'>('all');
+
+  const filteredReviewSubmissions = React.useMemo(() => {
+    return activeSubmissions.filter((sub) => {
+      if (reviewFilter === 'hw') {
+        return !sub.homeworkId.startsWith('hw-sim-');
+      }
+      if (reviewFilter === 'simulator') {
+        return sub.homeworkId.startsWith('hw-sim-');
+      }
+      return true;
+    });
+  }, [activeSubmissions, reviewFilter]);
   const [gradeSuccessToast, setGradeSuccessToast] = useState<{
     studentName: string;
     scoreStr: string;
@@ -1515,46 +1528,101 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         <div className="space-y-4">
           {/* Submissions List Queue with Sub-Tabs */}
           <div className="space-y-3">
-            <div className="flex items-center space-x-2 border-b border-slate-700/50 pb-2 flex-wrap gap-y-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setReviewSubTab('pending');
-                  const firstPending = activeSubmissions.find((s) => s.status === 'pending');
-                  if (firstPending) handleSelectSubmission(firstPending);
-                  else setSelectedSubmission(null);
-                }}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
-                  reviewSubTab === 'pending'
-                    ? 'bg-amber-500 text-slate-900 shadow-md'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>Очередь на проверку ({activeSubmissions.filter((s) => s.status === 'pending').length})</span>
-              </button>
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-2 flex-wrap gap-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewSubTab('pending');
+                    const firstPending = filteredReviewSubmissions.find((s) => s.status === 'pending');
+                    if (firstPending) handleSelectSubmission(firstPending);
+                    else setSelectedSubmission(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
+                    reviewSubTab === 'pending'
+                      ? 'bg-amber-500 text-slate-900 shadow-md'
+                      : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Очередь на проверку ({filteredReviewSubmissions.filter((s) => s.status === 'pending').length})</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setReviewSubTab('graded');
-                  const firstGraded = activeSubmissions.find((s) => s.status === 'graded');
-                  if (firstGraded) handleSelectSubmission(firstGraded);
-                  else setSelectedSubmission(null);
-                }}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
-                  reviewSubTab === 'graded'
-                    ? 'bg-emerald-500 text-white shadow-md'
-                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Сданные / Проверенные ДЗ ({activeSubmissions.filter((s) => s.status === 'graded').length})</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewSubTab('graded');
+                    const firstGraded = filteredReviewSubmissions.find((s) => s.status === 'graded');
+                    if (firstGraded) handleSelectSubmission(firstGraded);
+                    else setSelectedSubmission(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-all ${
+                    reviewSubTab === 'graded'
+                      ? 'bg-emerald-500 text-white shadow-md'
+                      : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Сданные / Проверенные ДЗ ({filteredReviewSubmissions.filter((s) => s.status === 'graded').length})</span>
+                </button>
+              </div>
+
+              {/* Review Filter Pills: All / HW / Simulator */}
+              <div className="flex items-center space-x-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/50">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewFilter('all');
+                    const firstMatch = activeSubmissions.find((s) => s.status === reviewSubTab);
+                    if (firstMatch) handleSelectSubmission(firstMatch);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    reviewFilter === 'all'
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Все ({activeSubmissions.filter((s) => s.status === reviewSubTab).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewFilter('hw');
+                    const firstMatch = activeSubmissions.find(
+                      (s) => s.status === reviewSubTab && !s.homeworkId.startsWith('hw-sim-')
+                    );
+                    if (firstMatch) handleSelectSubmission(firstMatch);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    reviewFilter === 'hw'
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Только ДЗ ({activeSubmissions.filter((s) => s.status === reviewSubTab && !s.homeworkId.startsWith('hw-sim-')).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewFilter('simulator');
+                    const firstMatch = activeSubmissions.find(
+                      (s) => s.status === reviewSubTab && s.homeworkId.startsWith('hw-sim-')
+                    );
+                    if (firstMatch) handleSelectSubmission(firstMatch);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    reviewFilter === 'simulator'
+                      ? 'bg-purple-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  🎙 Свободная практика ({activeSubmissions.filter((s) => s.status === reviewSubTab && s.homeworkId.startsWith('hw-sim-')).length})
+                </button>
+              </div>
             </div>
 
             {/* Submissions List */}
-            {activeSubmissions.filter((s) => s.status === reviewSubTab).length === 0 ? (
+            {filteredReviewSubmissions.filter((s) => s.status === reviewSubTab).length === 0 ? (
               <div
                 className={`p-6 text-center rounded-2xl border ${
                   isDarkMode ? 'bg-[#1e2c3a] border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
@@ -1563,13 +1631,15 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-60" />
                 <p className="font-bold text-xs">
                   {reviewSubTab === 'pending'
-                    ? 'Все домашние задания проверены! Очередь пуста.'
+                    ? reviewFilter === 'simulator'
+                      ? 'В очереди нет записей свободной практики тренажёра!'
+                      : 'Все задания проверены! Очередь пуста.'
                     : 'Пока нет проверенных работ.'}
                 </p>
               </div>
             ) : (
               <div className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
-                {activeSubmissions
+                {filteredReviewSubmissions
                   .filter((s) => s.status === reviewSubTab)
                   .map((sub) => {
                     const hw = getHomeworkForSubmission(sub.homeworkId);
@@ -1603,7 +1673,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           </span>
                         </div>
                         <h4 className="font-bold text-xs truncate leading-snug">
-                          {hw?.title || 'Домашнее задание'}
+                          {sub.homeworkId.startsWith('hw-sim-')
+                            ? '🎙 Тренажёр устной части'
+                            : hw?.title || 'Домашнее задание'}
                         </h4>
                         <p className="text-[10px] opacity-80 mt-1">{sub.submittedAt}</p>
                       </button>
