@@ -446,7 +446,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [hwTitle, setHwTitle] = useState('');
   const [hwBlock, setHwBlock] = useState<BlockCategory>('speaking');
   const [hwType, setHwType] = useState<'test' | 'speaking' | 'written'>('speaking');
-  const [hwDeadline, setHwDeadline] = useState('Завтра, 18:00');
+  const [hwDeadlineIso, setHwDeadlineIso] = useState('');
   const [hwDescription, setHwDescription] = useState('');
   const [hwSuccessToast, setHwSuccessToast] = useState<string | null>(null);
 
@@ -817,7 +817,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const handleStartEditHomework = (hw: Homework) => {
     setEditingHomeworkId(hw.id);
     setHwTitle(hw.title);
-    setHwDeadline(hw.deadline || 'Завтра, 18:00');
+    setHwDeadlineIso(hw.deadlineDate ? hw.deadlineDate.slice(0, 16) : '');
     setHwDescription(hw.description || '');
     setHwBlock(hw.block);
     if (hw.tasks && hw.tasks.length > 0) {
@@ -859,6 +859,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setEditingHomeworkId(null);
     setHwTitle('');
     setHwDescription('');
+    setHwDeadlineIso('');
     setHwTasks([
       {
         id: 'task-1',
@@ -897,13 +898,21 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
+    let readableDeadline = 'Без дедлайна';
+    let finalDeadlineDate = new Date(Date.now() + 86400000).toISOString();
+    if (hwDeadlineIso) {
+      const d = new Date(hwDeadlineIso);
+      readableDeadline = `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+      finalDeadlineDate = d.toISOString();
+    }
+
     const hwData: Homework = {
       id: targetHwId,
       title: hwTitle.trim(),
       block: primaryBlock,
       type: primaryType as any,
-      deadline: hwDeadline,
-      deadlineDate: new Date(Date.now() + 86400000).toISOString(),
+      deadline: readableDeadline,
+      deadlineDate: finalDeadlineDate,
       month: getCurrentMonthLabel(),
       maxPoints: formattedTasks.length * 5,
       description: hwDescription.trim() || `Домашнее задание от Ангелины из ${formattedTasks.length} заданий.`,
@@ -921,6 +930,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setEditingHomeworkId(null);
     setHwTitle('');
     setHwDescription('');
+    setHwDeadlineIso('');
     setHwTasks([
       {
         id: 'task-1',
@@ -1663,7 +1673,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         }`}
                       >
                         <div className="flex items-center justify-between text-[10px] mb-1">
-                          <span className="font-bold truncate">{sub.studentName}</span>
+                          <div className="flex items-center">
+                            <span className="font-bold truncate">{sub.studentName}</span>
+                            {sub.isLate && <span className="text-[9px] px-1.5 py-0.5 ml-2 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">Опоздание</span>}
+                          </div>
                           <span
                             className={`px-1.5 py-0.2 rounded font-extrabold ${
                               sub.status === 'pending' ? 'bg-amber-400 text-slate-900' : 'bg-emerald-500 text-white'
@@ -1695,7 +1708,12 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               {/* Student Info Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-700">
                 <div>
-                  <h3 className="font-bold text-sm">{selectedSubmission.studentName}</h3>
+                  <div className="flex items-center flex-wrap gap-2">
+                    <h3 className="font-bold text-sm">{selectedSubmission.studentName}</h3>
+                    {selectedSubmission.isLate && (
+                      <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">Сдано с опозданием</span>
+                    )}
+                  </div>
                   <p className="text-xs text-sky-400">
                     Задание: {getHomeworkForSubmission(selectedSubmission.homeworkId)?.title}
                   </p>
@@ -2357,12 +2375,12 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-semibold text-slate-400">Дедлайн сдачи:</label>
+                <label className="font-semibold text-slate-400">Дедлайн:</label>
                 <input
-                  type="text"
-                  value={hwDeadline}
-                  onChange={(e) => setHwDeadline(e.target.value)}
-                  placeholder="Завтра, 18:00"
+                  type="datetime-local"
+                  required
+                  value={hwDeadlineIso}
+                  onChange={(e) => setHwDeadlineIso(e.target.value)}
                   className={`w-full p-2.5 rounded-xl border ${
                     isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
                   }`}

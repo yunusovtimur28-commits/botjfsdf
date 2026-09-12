@@ -108,6 +108,7 @@ export interface Submission {
   submittedAt: string;
   status: HomeworkStatus;
   type: HomeworkType;
+  isLate?: boolean;
   // Test data
   testAnswers?: Record<string, string>;
   testScore?: number;

@@ -62,10 +62,11 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   // Determine effective status for each homework
   const getHomeworkStatus = (hw: Homework): HomeworkStatus => {
     const sub = getSubmissionForHomework(hw.id);
-    if (sub) {
-      return sub.status;
-    }
-    if (hw.deadline === 'Просрочено') {
+    if (sub) return sub.status;
+    
+    if (hw.deadlineDate) {
+      if (Date.now() > new Date(hw.deadlineDate).getTime()) return 'overdue';
+    } else if (hw.deadline === 'Просрочено') {
       return 'overdue';
     }
     return 'todo';
@@ -253,7 +254,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredHomeworks.map((hw) => {
             const sub = getSubmissionForHomework(hw.id);
             const status = getHomeworkStatus(hw);

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="240" viewBox="0 0 600 240">
+  <rect width="600" height="240" fill="#000000"/>
+  <text x="30" y="95" fill="#ffffff" font-family="Liberation Sans, sans-serif" font-weight="900" font-size="88" letter-spacing="-2">делай</text>
+  <text x="30" y="200" fill="#ffffff" font-family="Liberation Sans, sans-serif" font-weight="900" font-size="88" letter-spacing="-2">&amp; точка<tspan fill="#F5A3B7">.</tspan></text>
+</svg>

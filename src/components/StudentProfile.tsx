@@ -11,6 +11,8 @@ import {
   Calendar,
   Sparkles,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   BarChart3,
   Feather,
   Edit3,
@@ -131,6 +133,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>('Август');
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [expandedBadgeId, setExpandedBadgeId] = useState<string | null>(null);
 
   // Form states for editing profile
   const [editName, setEditName] = useState(profile.name);
@@ -141,6 +144,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [editPasswordConfirm, setEditPasswordConfirm] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  // Вычисляем прогресс по ачивкам
+  const sprinterLevels = [7, 15, 30, 50, 100];
+  const unlockedSprinterLevels = sprinterLevels.filter(days => profile.streakDays >= days).length;
+  
+  const otherBadges = profile.badges.filter(b => b.id !== 'b1');
+  const unlockedOtherBadges = otherBadges.filter(b => b.unlocked).length;
+  
+  const totalUnlockedAchievements = unlockedOtherBadges + unlockedSprinterLevels;
+  const totalPossibleAchievements = otherBadges.length + sprinterLevels.length;
+  const achievementProgressPct = Math.round((totalUnlockedAchievements / totalPossibleAchievements) * 100);
 
   const daysOfWeek = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
@@ -470,6 +484,23 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <span>•</span>
                 <span>Сдано ДЗ: <strong className="text-slate-200">{profile.totalHwSubmitted}</strong></span>
               </div>
+              <div className="mt-2.5 space-y-1">
+                <div className="flex items-center justify-between text-[10px] font-bold">
+                  <span className="text-amber-400 flex items-center space-x-1">
+                    <Award className="w-3 h-3" />
+                    <span>Ачивки: {totalUnlockedAchievements} из {totalPossibleAchievements}</span>
+                  </span>
+                  <span className="text-slate-400">{achievementProgressPct}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-800/60 rounded-full overflow-hidden border border-slate-700/50">
+                  <div 
+                    className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-1000 ease-out relative"
+                    style={{ width: `${achievementProgressPct}%` }}
+                  >
+                    <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -529,45 +560,106 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         </h3>
 
         <div className="grid grid-cols-2 gap-2.5">
-          {profile.badges.map((badge) => (
-            <div
-              key={badge.id}
-              className={`p-3 rounded-2xl border transition-all ${
-                badge.unlocked
-                  ? isDarkMode
-                    ? 'bg-amber-950/20 border-amber-500/30'
-                    : 'bg-amber-50 border-amber-200'
-                  : isDarkMode
-                  ? 'bg-[#17212b] border-slate-800 opacity-60'
-                  : 'bg-slate-50 border-slate-200 opacity-60'
-              }`}
-            >
-              <div className="flex items-start space-x-2.5">
-                <div
-                  className={`p-2 rounded-xl shrink-0 ${
-                    badge.unlocked ? 'bg-amber-400 text-slate-900' : 'bg-slate-700 text-slate-400'
-                  }`}
-                >
-                  {badge.iconName === 'Flame' && <Flame className="w-4 h-4 fill-slate-900" />}
-                  {badge.iconName === 'Crown' && <Crown className="w-4 h-4" />}
-                  {badge.iconName === 'Zap' && <Zap className="w-4 h-4" />}
-                  {badge.iconName === 'Feather' && <Feather className="w-4 h-4" />}
-                </div>
+          {profile.badges.map((badge) => {
+            const isSprinter = badge.id === 'b1';
+            const isExpanded = expandedBadgeId === badge.id;
 
-                <div className="space-y-0.5">
-                  <h4 className="font-bold text-xs leading-snug">{badge.title}</h4>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
-                    {badge.description}
-                  </p>
-                  {badge.unlocked && badge.unlockedAt && (
-                    <span className="text-[9px] text-amber-500 font-semibold block pt-0.5">
-                      ✓ Получено {badge.unlockedAt}
-                    </span>
+            return (
+              <div
+                key={badge.id}
+                className={`p-3 rounded-2xl border transition-all flex flex-col ${
+                  isSprinter ? 'cursor-pointer hover:border-amber-400/50' : ''
+                } ${isExpanded ? 'col-span-2' : ''} ${
+                  badge.unlocked
+                    ? isDarkMode
+                      ? 'bg-amber-950/20 border-amber-500/30'
+                      : 'bg-amber-50 border-amber-200'
+                    : isDarkMode
+                    ? 'bg-[#17212b] border-slate-800 opacity-60'
+                    : 'bg-slate-50 border-slate-200 opacity-60'
+                }`}
+                onClick={() => {
+                  if (isSprinter) {
+                    setExpandedBadgeId(isExpanded ? null : badge.id);
+                  }
+                }}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start space-x-2.5">
+                    <div
+                      className={`p-2 rounded-xl shrink-0 ${
+                        badge.unlocked ? 'bg-amber-400 text-slate-900' : 'bg-slate-700 text-slate-400'
+                      }`}
+                    >
+                      {badge.iconName === 'Flame' && <Flame className="w-4 h-4 fill-slate-900" />}
+                      {badge.iconName === 'Crown' && <Crown className="w-4 h-4" />}
+                      {badge.iconName === 'Zap' && <Zap className="w-4 h-4" />}
+                      {badge.iconName === 'Feather' && <Feather className="w-4 h-4" />}
+                    </div>
+                    <div className="space-y-0.5">
+                      <h4 className="font-bold text-xs leading-snug">{badge.title}</h4>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                        {badge.description}
+                      </p>
+                      {isSprinter && (
+                        <p className="text-[10px] text-amber-500/80 font-bold pt-0.5">
+                          Выполнено: {unlockedSprinterLevels} из 5
+                        </p>
+                      )}
+                      {badge.unlocked && badge.unlockedAt && (
+                        <span className="text-[9px] text-amber-500 font-semibold block pt-0.5">
+                            {badge.unlockedAt}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Иконка раскрытия для Спринтера */}
+                  {isSprinter && (
+                    <div className="shrink-0 text-slate-400 mt-1">
+                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </div>
                   )}
                 </div>
+
+                {/* Раскрывающийся блок уровней Спринтера */}
+                {isSprinter && isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-amber-500/20 animate-in fade-in slide-in-from-top-2">
+                    <p className="text-[10px] text-amber-400/80 font-bold uppercase tracking-wider mb-2">
+                      Уровни Спринтера:
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[7, 15, 30, 50, 100].map((days) => {
+                        const unlocked = profile.streakDays >= days;
+                        return (
+                          <div
+                            key={days}
+                            className={`flex items-center space-x-2 p-2 rounded-lg border transition-all ${
+                              unlocked
+                                ? 'bg-amber-500/20 border-amber-500/40 shadow-sm'
+                                : 'bg-slate-800/40 border-slate-700/50'
+                            }`}
+                          >
+                            <Flame
+                              className={`w-3.5 h-3.5 shrink-0 ${
+                                unlocked ? 'text-amber-400 fill-amber-400' : 'text-slate-600'
+                              }`}
+                            />
+                            <span
+                              className={`text-[10px] font-bold ${
+                                unlocked ? 'text-amber-300' : 'text-slate-500'
+                              }`}
+                            >
+                              {days} дней
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

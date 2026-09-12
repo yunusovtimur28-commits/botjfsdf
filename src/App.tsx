@@ -27,6 +27,9 @@ import { StudentProfile } from './components/StudentProfile';
 import { TeacherCabinet } from './components/TeacherCabinet';
 import { AuthModal, AuthUser } from './components/AuthModal';
 import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
+import { isDesktopScreen } from './lib/platform';
+import { DesktopLayout } from './components/DesktopLayout';
+import { MonitorSmartphone } from 'lucide-react';
 import {
   subscribeWebinars,
   subscribeHomeworks,
@@ -85,6 +88,8 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NavTab>('webinars');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [forceMobile, setForceMobile] = useState(false);
+  const showDesktop = isDesktopScreen() && !forceMobile;
 
   // Firestore Real-time Application State
   const [webinars, setWebinars] = useState<Webinar[]>([]);
@@ -238,10 +243,9 @@ export default function App() {
   // Dynamic student profile based on logged in user & their actual submissions
   const currentStudentSubmissions = submissions.filter((s) => s.studentName === currentUser.name);
 
-  // Server-side streak tracking in Firebase
+  // Server-side + Local streak tracking (Bulletproof)
   useEffect(() => {
     if (!isLoggedIn || currentUser.role !== 'student') return;
-
     const student = registeredStudents.find(
       (s) =>
         s.telegramHandle === currentUser.telegramHandle ||
@@ -249,7 +253,6 @@ export default function App() {
           currentUser.telegramHandle &&
           s.telegramHandle.replace('@', '').toLowerCase() === currentUser.telegramHandle.replace('@', '').toLowerCase())
     );
-
     if (!student) return;
 
     const now = new Date();
@@ -258,26 +261,48 @@ export default function App() {
     const day = String(now.getDate()).padStart(2, '0');
     const todayStr = `${year}-${month}-${day}`;
 
-    if (student.lastVisitDate !== todayStr) {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yYear = yesterday.getFullYear();
-      const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-      const yDay = String(yesterday.getDate()).padStart(2, '0');
-      const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yYear = yesterday.getFullYear();
+    const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
+    const yDay = String(yesterday.getDate()).padStart(2, '0');
+    const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
 
-      let newStreak = 1;
-      if (student.lastVisitDate === yesterdayStr) {
-        newStreak = (student.streakDays || 0) + 1;
-      } else {
-        newStreak = 1;
+    const localLastVisit = localStorage.getItem(`last_visit_${student.id}`);
+    const localStreak = localStorage.getItem(`streak_${student.id}`);
+
+    // 1. Если локальный кэш говорит, что мы уже обновили стрик СЕГОДНЯ:
+    if (localLastVisit === todayStr) {
+      const cachedStreak = parseInt(localStreak || '1', 10);
+      // Защита от гонки данных: если база отстает от кэша, принудительно обновляем
+      if (student.lastVisitDate !== todayStr || student.streakDays !== cachedStreak) {
+        dbUpdateStudent(student.id, { streakDays: cachedStreak, lastVisitDate: todayStr });
+        setRegisteredStudents((prev) =>
+          prev.map((s) => (s.id === student.id ? { ...s, streakDays: cachedStreak, lastVisitDate: todayStr } : s))
+        );
       }
-
-      dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
-      setRegisteredStudents((prev) =>
-        prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
-      );
+      return; // Дальше не считаем, на сегодня всё!
     }
+
+    // 2. Если мы здесь, значит сегодня мы еще не заходили
+    const actualLastVisit = student.lastVisitDate || localLastVisit;
+    let newStreak = student.streakDays || 1;
+
+    if (actualLastVisit === yesterdayStr) {
+      newStreak += 1; // Зашел вчера -> плюс один
+    } else if (actualLastVisit && actualLastVisit !== todayStr) {
+      newStreak = 1; // Пропустил день -> сброс
+    }
+
+    // Сохраняем в локальный кэш (БРОНЯ)
+    localStorage.setItem(`last_visit_${student.id}`, todayStr);
+    localStorage.setItem(`streak_${student.id}`, newStreak.toString());
+
+    // Отправляем в базу
+    dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
+    setRegisteredStudents((prev) =>
+      prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
+    );
   }, [currentUser, isLoggedIn, registeredStudents]);
 
   const activeStudentProfile: StudentProfileType = React.useMemo(() => {
@@ -333,6 +358,23 @@ export default function App() {
       });
     }
 
+    const formatRegDate = (dateStr?: string) => {
+      if (!dateStr) return 'Недавно';
+      // Если дата уже в формате "03 Мар 2026", делаем её красивее
+      const months: Record<string, string> = {
+        'Янв': 'января', 'Фев': 'февраля', 'Мар': 'марта', 'Апр': 'апреля',
+        'Май': 'мая', 'Июн': 'июня', 'Июл': 'июля', 'Авг': 'августа',
+        'Сен': 'сентября', 'Окт': 'октября', 'Ноя': 'ноября', 'Дек': 'декабря'
+      };
+      const parts = dateStr.split(' ');
+      if (parts.length === 3) {
+        const [day, mon, year] = parts;
+        const fullMonth = months[mon] || mon;
+        return `${parseInt(day, 10)} ${fullMonth} ${year} года`;
+      }
+      return dateStr;
+    };
+
     return {
       name: currentUser.name,
       telegramHandle: currentUser.telegramHandle,
@@ -357,7 +399,7 @@ export default function App() {
           description: 'Успешная авторизация в платформе «Делай и Точка»',
           iconName: 'Flame',
           unlocked: true,
-          unlockedAt: 'Сегодня',
+          unlockedAt: currentStudent?.addedAt ? formatRegDate(currentStudent.addedAt) : 'Недавно',
         },
         {
           id: 'b1',
@@ -623,6 +665,9 @@ export default function App() {
     const now = new Date();
     const formattedDateTime = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
 
+    const targetHw = homeworks.find(h => h.id === submissionData.homeworkId);
+    const isLate = targetHw?.deadlineDate ? Date.now() > new Date(targetHw.deadlineDate).getTime() : false;
+
     const newSub: Submission = {
       id: `sub-${Date.now()}`,
       homeworkId: submissionData.homeworkId,
@@ -630,6 +675,7 @@ export default function App() {
       submittedAt: submissionData.submittedAt && submissionData.submittedAt !== 'Только что' ? submissionData.submittedAt : formattedDateTime,
       status: submissionData.status || 'pending',
       type: submissionData.type || 'written',
+      isLate,
       testAnswers: submissionData.testAnswers,
       testScore: submissionData.testScore,
       speakingAudioUrl: submissionData.speakingAudioUrl,
@@ -965,123 +1011,80 @@ export default function App() {
     return !sub && hw.deadline !== 'Просрочено';
   }).length;
 
+  const appContent = (
+    <>
+      {!isLoggedIn ? (
+        <WelcomeAuthScreen
+          onLogin={handleLogin}
+          registeredStudents={registeredStudents}
+          onSetStudentPassword={handleSetStudentPassword}
+          isDarkMode={isDarkMode}
+        />
+      ) : (
+        <>
+          {activeTab === 'webinars' && (
+            <WebinarLibrary webinars={webinars} isDarkMode={isDarkMode} onSaveProgress={handleSaveWebinarProgress} />
+          )}
+          {activeTab === 'homeworks' && (
+            <HomeworkList homeworks={visibleHomeworks} submissions={visibleSubmissions} onSubmitHomework={handleSubmitHomework} isDarkMode={isDarkMode} currentUserName={currentUser.name} />
+          )}
+          {activeTab === 'simulator' && (
+            <SpeakingSimulator isDarkMode={isDarkMode} onFinishSimulatedSpeaking={handleFinishSimulatedSpeaking} />
+          )}
+          {activeTab === 'profile' && (
+            <StudentProfile profile={activeStudentProfile} isDarkMode={isDarkMode} onUpdateProfile={handleUpdateProfile} isAdmin={currentUser.role === 'teacher'} registeredStudents={registeredStudents} submissions={visibleSubmissions} homeworks={visibleHomeworks} />
+          )}
+          {activeTab === 'teacher' && (
+            <TeacherCabinet submissions={visibleSubmissions} homeworks={visibleHomeworks} webinars={webinars} registeredStudents={registeredStudents} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onGradeSubmission={handleGradeSubmission} onAddWebinar={handleAddWebinar} onDeleteWebinar={handleDeleteWebinar} onAddHomework={handleAddHomework} onUpdateHomework={handleUpdateHomework} onDeleteHomework={handleDeleteHomework} onDeleteSubmission={handleDeleteSubmission} isDarkMode={isDarkMode} />
+          )}
+        </>
+      )}
+    </>
+  );
+
   return (
-    <div
-      className={`min-h-screen font-sans antialiased transition-colors duration-200 ${
-        isDarkMode ? 'bg-[#0f1721] text-slate-100' : 'bg-slate-100 text-slate-900'
-      }`}
-    >
-      {/* Telegram App Frame Container */}
-      <div className="max-w-md mx-auto min-h-screen flex flex-col shadow-2xl relative bg-inherit">
-        {/* Top Header */}
-        <HeaderTelegram
+    <div className={`min-h-screen font-sans antialiased transition-colors duration-200 ${isDarkMode ? 'bg-[#0f1721] text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
+      {showDesktop ? (
+        <DesktopLayout
+          isDarkMode={isDarkMode}
+          onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+          onForceMobile={() => setForceMobile(true)}
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
           currentUser={currentUser}
           isLoggedIn={isLoggedIn}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          onSelectTab={setActiveTab}
           onLogout={handleLogout}
+          pendingCount={pendingHwCount}
           streakDays={activeStudentProfile.streakDays}
           notifications={visibleNotifications}
           onNotificationRead={handleNotificationRead}
           onDeleteNotification={handleDeleteNotification}
           onClearAllNotifications={handleClearAllNotifications}
-          isDarkMode={isDarkMode}
-          onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-        />
-
-        {/* Main View Body */}
-        <main className="flex-1 px-3.5 pt-3 pb-20">
-          {!isLoggedIn ? (
-            <WelcomeAuthScreen
-              onLogin={handleLogin}
-              registeredStudents={registeredStudents}
-              onSetStudentPassword={handleSetStudentPassword}
-              isDarkMode={isDarkMode}
-            />
-          ) : (
-            <>
-              {activeTab === 'webinars' && (
-                <WebinarLibrary
-                  webinars={webinars}
-                  isDarkMode={isDarkMode}
-                  onSaveProgress={handleSaveWebinarProgress}
-                />
-              )}
-
-              {activeTab === 'homeworks' && (
-                <HomeworkList
-                  homeworks={visibleHomeworks}
-                  submissions={visibleSubmissions}
-                  onSubmitHomework={handleSubmitHomework}
-                  isDarkMode={isDarkMode}
-                  currentUserName={currentUser.name}
-                />
-              )}
-
-              {activeTab === 'simulator' && (
-                <SpeakingSimulator
-                  isDarkMode={isDarkMode}
-                  onFinishSimulatedSpeaking={handleFinishSimulatedSpeaking}
-                />
-              )}
-
-              {activeTab === 'profile' && (
-                <StudentProfile
-                  profile={activeStudentProfile}
-                  isDarkMode={isDarkMode}
-                  onUpdateProfile={handleUpdateProfile}
-                  isAdmin={currentUser.role === 'teacher'}
-                  registeredStudents={registeredStudents}
-                  submissions={visibleSubmissions}
-                  homeworks={visibleHomeworks}
-                />
-              )}
-
-              {activeTab === 'teacher' && (
-                <TeacherCabinet
-                  submissions={visibleSubmissions}
-                  homeworks={visibleHomeworks}
-                  webinars={webinars}
-                  registeredStudents={registeredStudents}
-                  onAddStudent={handleAddStudent}
-                  onDeleteStudent={handleDeleteStudent}
-                  onGradeSubmission={handleGradeSubmission}
-                  onAddWebinar={handleAddWebinar}
-                  onDeleteWebinar={handleDeleteWebinar}
-                  onAddHomework={handleAddHomework}
-                  onUpdateHomework={handleUpdateHomework}
-                  onDeleteHomework={handleDeleteHomework}
-                  onDeleteSubmission={handleDeleteSubmission}
-                  isDarkMode={isDarkMode}
-                />
-              )}
-            </>
+        >
+          {appContent}
+        </DesktopLayout>
+      ) : (
+        <>
+          <div className="max-w-md mx-auto min-h-screen flex flex-col shadow-2xl relative bg-inherit">
+            <HeaderTelegram currentUser={currentUser} isLoggedIn={isLoggedIn} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSelectTab={setActiveTab} onLogout={handleLogout} streakDays={activeStudentProfile.streakDays} notifications={visibleNotifications} onNotificationRead={handleNotificationRead} onDeleteNotification={handleDeleteNotification} onClearAllNotifications={handleClearAllNotifications} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} />
+            <main className="flex-1 px-3.5 pt-3 pb-20">{appContent}</main>
+            {isLoggedIn && <Navigation activeTab={activeTab} onSelectTab={setActiveTab} pendingCount={pendingHwCount} currentRole={currentUser.role} isDarkMode={isDarkMode} />}
+          </div>
+          
+          {/* Плавающая кнопка возврата на десктоп */}
+          {isDesktopScreen() && forceMobile && (
+            <button
+              onClick={() => setForceMobile(false)}
+              className="fixed bottom-8 right-8 z-50 px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl shadow-2xl border border-slate-600 flex items-center space-x-2 transition-all hover:scale-105"
+            >
+              <MonitorSmartphone className="w-5 h-5" />
+              <span>Вернуться на ПК</span>
+            </button>
           )}
-        </main>
-
-        {/* Bottom Navigation (Only visible after authorization) */}
-        {isLoggedIn && (
-          <Navigation
-            activeTab={activeTab}
-            onSelectTab={setActiveTab}
-            pendingCount={pendingHwCount}
-            currentRole={currentUser.role}
-            isDarkMode={isDarkMode}
-          />
-        )}
-
-        {/* Auth & Role Switch Modal */}
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-          currentUser={currentUser}
-          isLoggedIn={isLoggedIn}
-          onLogin={handleLogin}
-          onLogout={handleLogout}
-          isDarkMode={isDarkMode}
-          registeredStudents={registeredStudents}
-        />
-      </div>
+        </>
+      )}
+      
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} currentUser={currentUser} isLoggedIn={isLoggedIn} onLogin={handleLogin} onLogout={handleLogout} isDarkMode={isDarkMode} registeredStudents={registeredStudents} />
     </div>
   );
 }

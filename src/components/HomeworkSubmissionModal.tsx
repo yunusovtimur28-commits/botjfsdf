@@ -31,6 +31,23 @@ interface HomeworkSubmissionModalProps {
   isDarkMode: boolean;
 }
 
+// Умный счетчик слов по правилам ФИПИ (ЕГЭ)
+const countEgeWords = (text: string): number => {
+  if (!text.trim()) return 0;
+  
+  // 1. Убираем пробел между цифрой и знаком процента (например, "50 %" -> "50%")
+  let cleanText = text.replace(/(\d+)\s+%/g, '$1%');
+  
+  // 2. Разбиваем текст по любым пробельным символам (пробелы, переносы строк)
+  const tokens = cleanText.split(/\s+/);
+  
+  // 3. Оставляем только те токены, которые содержат буквы или цифры
+  // Это отсеет тире "—", дефисы "-", точки ".", висящие отдельно
+  const words = tokens.filter((token) => /[a-zA-Zа-яА-Я0-9]/.test(token));
+  
+  return words.length;
+};
+
 export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = ({
   homework,
   existingSubmission,
@@ -93,6 +110,17 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const [aiFeedback, setAiFeedback] = useState<string | null>(
     existingSubmission?.aiPreviewFeedback || null
   );
+
+  // Расчет лимитов слов с учетом правила ±10% ФИПИ
+  const minW = homework.writtenPrompt?.minWords || 200; 
+  const maxW = homework.writtenPrompt?.maxWords || 250; 
+
+  const absoluteMin = Math.ceil(minW * 0.9); // Нижний порог (-10%)
+  const absoluteMax = Math.floor(maxW * 1.1); // Верхний порог (+10%)
+  
+  const currentWordCount = countEgeWords(essayText);
+  const isTooShort = currentWordCount > 0 && currentWordCount < absoluteMin;
+  const isTooLong = currentWordCount > absoluteMax;
 
   // Multi-Task & Photo state
   const [taskAnswers, setTaskAnswers] = useState<
@@ -749,10 +777,28 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                       : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
                   }`}
                 />
-                <div className="flex justify-end pt-1">
-                  <span className={`text-[10px] font-mono font-bold ${essayText.trim().split(/\s+/).filter(w => w.length > 0).length < (homework.writtenPrompt?.minWords || 200) ? 'text-rose-400' : 'text-emerald-400'}`}>
-                    Слов: {essayText.trim().split(/\s+/).filter(w => w.length > 0).length} / {homework.writtenPrompt?.minWords || 200} (мин)
-                  </span>
+                <div className="pt-1.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      Лимит ЕГЭ: {absoluteMin} – {absoluteMax} слов (с учетом ±10%)
+                    </span>
+                    <span className={`text-xs font-mono font-bold ${
+                      isTooShort ? 'text-rose-500' : isTooLong ? 'text-amber-500' : 'text-emerald-400'
+                    }`}>
+                      Слов: {currentWordCount}
+                    </span>
+                  </div>
+                  
+                  {isTooShort && (
+                    <p className="text-[10px] text-rose-500 font-semibold text-right animate-pulse">
+                      Работа будет оценена в 0 баллов (недобор слов!)
+                    </p>
+                  )}
+                  {isTooLong && (
+                    <p className="text-[10px] text-amber-500 font-semibold text-right animate-pulse">
+                      Проверят только первые {maxW} слов!
+                    </p>
+                  )}
                 </div>
               </div>
 
