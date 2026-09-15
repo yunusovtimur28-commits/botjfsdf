@@ -492,7 +492,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
           )}
 
           {/* FORMAT 1: TEST MECHANIC */}
-          {homework.type === 'test' && homework.testQuestions && (
+          {homework.type === 'test' && homework.testQuestions && (!homework.tasks || homework.tasks.length === 0) && (
             <div className="space-y-4 pt-2">
               {homework.testQuestions.map((q, idx) => {
                 const isCorrect =
@@ -589,7 +589,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
           )}
 
           {/* FORMAT 2: SPEAKING MECHANIC */}
-          {homework.type === 'speaking' && homework.speakingPrompt && (
+          {homework.type === 'speaking' && homework.speakingPrompt && (!homework.tasks || homework.tasks.length === 0) && (
             <div className="space-y-4 pt-1">
               <div className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/30 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-sky-400">
@@ -747,7 +747,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
           )}
 
           {/* FORMAT 3: WRITTEN ESSAY MECHANIC */}
-          {homework.type === 'written' && (
+          {homework.type === 'written' && (!homework.tasks || homework.tasks.length === 0) && (
             <div className="space-y-3.5 pt-1">
               <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-1.5">
                 <h4 className="text-xs font-bold text-emerald-400">
@@ -1018,7 +1018,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                       </label>
 
                       {/* TEST TASK TYPE WITH OPTIONS & IMMEDIATE FEEDBACK */}
-                      {task.taskType === 'test' || (task.options && task.options.length > 0) ? (
+                      {task.taskType === 'test' ? (
                         <div className="space-y-2">
                           <p className="text-[10px] text-amber-300 font-bold">
                             Выберите вариант ответа (мгновенная проверка):

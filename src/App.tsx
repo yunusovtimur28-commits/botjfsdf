@@ -88,6 +88,7 @@ export default function App() {
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<NavTab>('webinars');
+  const [targetHomeworkId, setTargetHomeworkId] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [forceMobile, setForceMobile] = useState(false);
   const showDesktop = isDesktopScreen() && !forceMobile;
@@ -926,7 +927,7 @@ export default function App() {
       registeredStudents.forEach((st) => {
         list.push({
           id: `notif-streak-${st.id}`,
-          title: `🔥 Рекорд по стрику дней: ${st.name}`,
+          title: `������ Рекорд по стрику дней: ${st.name}`,
           text: `Ученик успешно заходит в систему и поддерживает ежедневную активность!`,
           time: 'Сегодня',
           isRead: true,
@@ -1062,6 +1063,11 @@ export default function App() {
     await dbUpdateStudent(studentId, updatedData);
   };
 
+  const handleNavigateToSpecificHomework = (hwId: string) => {
+    setTargetHomeworkId(hwId);
+    setActiveTab('homeworks');
+  };
+
   const appContent = (
     <>
       {!isLoggedIn ? (
@@ -1074,7 +1080,14 @@ export default function App() {
       ) : (
         <>
           {activeTab === 'webinars' && (
-            <WebinarLibrary webinars={visibleWebinars} homeworks={visibleHomeworks} onNavigateToTab={setActiveTab} isDarkMode={isDarkMode} onSaveProgress={handleSaveWebinarProgress} />
+            <WebinarLibrary
+              webinars={visibleWebinars}
+              homeworks={visibleHomeworks}
+              onNavigateToTab={setActiveTab}
+              onNavigateToHomeworkItem={handleNavigateToSpecificHomework}
+              isDarkMode={isDarkMode}
+              onSaveProgress={handleSaveWebinarProgress}
+            />
           )}
           {activeTab === 'homeworks' && (
             <HomeworkList 
@@ -1083,7 +1096,9 @@ export default function App() {
               onSubmitHomework={handleSubmitHomework} 
               isDarkMode={isDarkMode} 
               currentUserName={currentUser.name}
-              currentUserId={registeredStudents.find(s => s.name === currentUser.name || s.login === currentUser.name)?.id} 
+              currentUserId={registeredStudents.find(s => s.name === currentUser.name || s.login === currentUser.name)?.id}
+              targetHomeworkId={targetHomeworkId}
+              onClearTargetHomework={() => setTargetHomeworkId(null)}
             />
           )}
           {activeTab === 'simulator' && (

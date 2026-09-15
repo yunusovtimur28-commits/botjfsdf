@@ -17,6 +17,7 @@ interface WebinarLibraryProps {
   webinars: Webinar[];
   homeworks?: Homework[];
   onNavigateToTab?: (tab: any) => void;
+  onNavigateToHomeworkItem?: (hwId: string) => void;
   isDarkMode: boolean;
   onSaveProgress?: (webinarId: string, positionSeconds: number) => void;
 }
@@ -25,6 +26,7 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
   webinars,
   homeworks = [],
   onNavigateToTab,
+  onNavigateToHomeworkItem,
   isDarkMode,
   onSaveProgress,
 }) => {
@@ -285,7 +287,11 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
           linkedHomework={homeworks.find(h => h.id === selectedWebinar.linkedHomeworkId)}
           onNavigateToHomework={() => {
             setSelectedWebinar(null);
-            if (onNavigateToTab) onNavigateToTab('homeworks');
+            if (onNavigateToHomeworkItem && selectedWebinar.linkedHomeworkId) {
+              onNavigateToHomeworkItem(selectedWebinar.linkedHomeworkId);
+            } else if (onNavigateToTab) {
+              onNavigateToTab('homeworks');
+            }
           }}
         />
       )}

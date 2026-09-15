@@ -24,6 +24,8 @@ interface HomeworkListProps {
   isDarkMode: boolean;
   currentUserName?: string;
   currentUserId?: string;
+  targetHomeworkId?: string | null;
+  onClearTargetHomework?: () => void;
 }
 
 export const HomeworkList: React.FC<HomeworkListProps> = ({
@@ -33,12 +35,26 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   isDarkMode,
   currentUserName,
   currentUserId,
+  targetHomeworkId,
+  onClearTargetHomework,
 }) => {
   const [activeTab, setActiveTab] = useState<HomeworkStatus>('todo');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedBlock, setSelectedBlock] = useState<BlockCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
+
+  React.useEffect(() => {
+    if (targetHomeworkId) {
+      const target = homeworks.find((h) => h.id === targetHomeworkId);
+      if (target) {
+        setSelectedHomework(target);
+      }
+      if (onClearTargetHomework) {
+        onClearTargetHomework();
+      }
+    }
+  }, [targetHomeworkId, homeworks, onClearTargetHomework]);
 
   const categories: { id: BlockCategory | 'all'; label: string }[] = [
     { id: 'all', label: 'Все блоки' },
