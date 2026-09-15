@@ -201,8 +201,9 @@ export const HeaderTelegram: React.FC<HeaderTelegramProps> = ({
                   <Send className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm">Уведомления Telegram-бота</h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Бот «Делай и Точка»</p>
+                  <h3 className="font-bold text-sm">
+                    {currentUser.role === 'teacher' ? 'Уведомления' : 'Сообщения от Ангелины'}
+                  </h3>
                 </div>
               </div>
               <div className="flex items-center space-x-2">

@@ -33,6 +33,7 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
   streakDays, notifications, onNotificationRead, onDeleteNotification, onClearAllNotifications
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const navItems = currentUser.role === 'teacher' ? [
@@ -103,7 +104,7 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
                   <p className="text-[10px] text-slate-500 truncate mt-0.5">{currentUser.role === 'teacher' ? 'Преподаватель' : 'Ученик'}</p>
                 </div>
               </div>
-              <button onClick={onLogout} className="p-2 text-slate-400 hover:text-rose-400 transition-colors">
+              <button onClick={() => setShowLogoutConfirm(true)} className="p-2 text-slate-400 hover:text-rose-400 transition-colors" title="Выйти">
                 <LogOut className="w-5 h-5" />
               </button>
             </div>
@@ -135,12 +136,15 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
                  )}
                </button>
 
-               {/* 2. Стрик (Огонек) */}
+               {/* 2. Огонек (Стрик) */}
                {currentUser.role === 'student' && (
-                 <div className="flex items-center space-x-1.5 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 font-extrabold text-sm transition-all cursor-default shrink-0">
+                 <button
+                   onClick={() => onSelectTab('profile')}
+                   className="flex items-center space-x-1.5 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20 active:scale-95 font-extrabold text-sm transition-all shrink-0 cursor-pointer"
+                 >
                    <Flame className="w-4 h-4 fill-amber-500" />
                    <span>{streakDays}</span>
-                 </div>
+                 </button>
                )}
 
                {/* 3. Кнопка Режим телефона */}
@@ -170,8 +174,9 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
                      <Send className="w-4 h-4" />
                    </div>
                    <div>
-                     <h3 className="font-bold text-sm">Уведомления Telegram-бота</h3>
-                     <p className="text-[11px] text-slate-500 dark:text-slate-400">Симуляция сообщений</p>
+                     <h3 className="font-bold text-sm">
+                       {currentUser.role === 'teacher' ? 'Уведомления' : 'Сообщения от Ангелины'}
+                     </h3>
                    </div>
                  </div>
                  <div className="flex items-center space-x-2">
@@ -219,6 +224,23 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
              </div>
            </div>
          )}
+
+          {/* Модальное окно подтверждения выхода */}
+          {showLogoutConfirm && (
+            <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className={`w-full max-w-sm p-6 rounded-3xl shadow-2xl border text-center ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700' : 'bg-white border-slate-200'}`}>
+                <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto mb-4">
+                  <LogOut className="w-8 h-8 text-rose-500" />
+                </div>
+                <h3 className={`text-lg font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Выйти из аккаунта?</h3>
+                <p className="text-xs text-slate-500 mb-6">Вам придется заново ввести данные для входа в платформу.</p>
+                <div className="flex items-center space-x-3">
+                  <button onClick={() => setShowLogoutConfirm(false)} className={`flex-1 py-3 rounded-xl font-bold text-xs transition-all ${isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>Отмена</button>
+                  <button onClick={() => { setShowLogoutConfirm(false); onLogout(); }} className="flex-1 py-3 rounded-xl font-bold text-xs bg-rose-500 hover:bg-rose-600 text-white shadow-lg transition-all active:scale-95">Выйти</button>
+                </div>
+              </div>
+            </div>
+          )}
       </main>
     </div>
   );

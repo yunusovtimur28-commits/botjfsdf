@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Webinar, Timecode, MaterialFile } from '../types';
+import { Webinar, Timecode, MaterialFile, Homework } from '../types';
 import {
   X,
   Play,
@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Sparkles,
   BookOpen,
+  ChevronRight,
 } from 'lucide-react';
 
 interface WebinarModalProps {
@@ -17,6 +18,8 @@ interface WebinarModalProps {
   onClose: () => void;
   isDarkMode: boolean;
   onSaveProgress?: (webinarId: string, positionSeconds: number) => void;
+  linkedHomework?: Homework;
+  onNavigateToHomework?: () => void;
 }
 
 function getVideoEmbedInfo(url: string) {
@@ -76,11 +79,37 @@ function getVideoEmbedInfo(url: string) {
   return { isEmbed: false, embedUrl: cleanUrl, type: 'direct' as const };
 }
 
+// Вспомогательная функция для безопасной конвертации огромных Base64 в Blob в обход лимитов fetch
+const base64ToBlob = (dataURI: string): Blob => {
+  const splitIndex = dataURI.indexOf(',');
+  const meta = dataURI.slice(0, splitIndex);
+  const base64Data = dataURI.slice(splitIndex + 1);
+  const mime = meta.split(':')[1].split(';')[0] || 'application/octet-stream';
+
+  const byteCharacters = atob(base64Data);
+  const byteArrays = [];
+
+  // Конвертируем чанками по 512 байт, чтобы не переполнять память
+  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+    const slice = byteCharacters.slice(offset, offset + 512);
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    byteArrays.push(byteArray);
+  }
+
+  return new Blob(byteArrays, { type: mime });
+};
+
 export const WebinarModal: React.FC<WebinarModalProps> = ({
   webinar,
   onClose,
   isDarkMode,
   onSaveProgress,
+  linkedHomework,
+  onNavigateToHomework,
 }) => {
   const embedInfo = getVideoEmbedInfo(webinar.videoUrl);
   const [iframeUrl, setIframeUrl] = useState<string>(() => embedInfo.embedUrl);
@@ -152,9 +181,38 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
     }
   };
 
-  const handleDownload = (material: MaterialFile) => {
-    setDownloadSuccessMessage(`Файл "${material.name}" сохранен в Telegram!`);
+  const handleDownload = async (material: MaterialFile) => {
+    setDownloadSuccessMessage(`Скачиваем "${material.name}"...`);
     setTimeout(() => setDownloadSuccessMessage(null), 3000);
+
+    try {
+      if (material.url.startsWith('data:')) {
+        // Используем наш безопасный конвертер вместо fetch
+        const blob = base64ToBlob(material.url);
+        const blobUrl = URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = material.name || 'Материал_урока';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } else if (material.url.startsWith('blob:')) {
+        const link = document.createElement('a');
+        link.href = material.url;
+        link.download = material.name || 'Материал_урока';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        window.open(material.url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (error) {
+      console.error('Ошибка при скачивании файла:', error);
+      alert('Не удалось скачать файл. Возможно, он поврежден.');
+    }
   };
 
   const formatSeconds = (sec: number) => {
@@ -295,6 +353,29 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
             <div className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 p-2.5 rounded-xl text-xs flex items-center space-x-2 animate-in fade-in">
               <CheckCircle className="w-4 h-4 shrink-0" />
               <span>{downloadSuccessMessage}</span>
+            </div>
+          )}
+
+          {linkedHomework && onNavigateToHomework && (
+            <div className={`p-3 rounded-2xl border flex items-center justify-between ${
+              isDarkMode ? 'bg-purple-950/30 border-purple-800/40' : 'bg-purple-50 border-purple-200'
+            }`}>
+              <div className="flex items-center space-x-2.5 overflow-hidden">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="overflow-hidden">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-purple-400">Домашнее задание к уроку</p>
+                  <p className="text-xs font-semibold truncate text-slate-800 dark:text-slate-200">{linkedHomework.title}</p>
+                </div>
+              </div>
+              <button
+                onClick={onNavigateToHomework}
+                className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shrink-0 flex items-center space-x-1 shadow-md shadow-purple-600/20 transition-all ml-2"
+              >
+                <span>Перейти к ДЗ</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 

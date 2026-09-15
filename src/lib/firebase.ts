@@ -142,6 +142,16 @@ export async function dbDeleteWebinar(webinarId: string) {
   }
 }
 
+export async function dbUpdateWebinar(webinarId: string, updatedData: Partial<Webinar>) {
+  try {
+    const docRef = doc(db, 'webinars', webinarId);
+    const cleaned = cleanUndefined(updatedData);
+    await setDoc(docRef, cleaned, { merge: true });
+  } catch (e) {
+    console.error('Error updating webinar in Firestore:', e);
+  }
+}
+
 function cleanUndefined<T>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== 'object') return obj;
@@ -161,7 +171,8 @@ function cleanUndefined<T>(obj: T): T {
 export async function dbAddHomework(hw: Homework) {
   try {
     const docRef = doc(db, 'homeworks', hw.id);
-    const cleaned = cleanUndefined({ ...hw, createdAt: new Date().toISOString() });
+    // Берем createdAt из объекта, если его нет — ставим текущую дату
+    const cleaned = cleanUndefined({ ...hw, createdAt: hw.createdAt || new Date().toISOString() });
     await setDoc(docRef, cleaned, { merge: true });
   } catch (e) {
     console.error('Error adding homework to Firestore:', e);

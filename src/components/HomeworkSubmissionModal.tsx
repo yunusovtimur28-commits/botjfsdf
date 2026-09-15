@@ -911,7 +911,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                   >
                     <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
                       <span className="font-extrabold text-xs text-purple-400">
-                        {task.taskNumber || `Задание #${tIdx + 1}`}
+                        {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}
                       </span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 uppercase font-semibold">
                         {task.block === 'speaking'
@@ -923,6 +923,21 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                           : '📚 Лексика'}
                       </span>
                     </div>
+
+                    {/* Task Video Attachment (Auto-playing loop) */}
+                    {Boolean(task.taskVideoUrl && task.taskVideoUrl.trim()) && (
+                      <div className="mt-3 rounded-xl overflow-hidden bg-black flex justify-center border border-slate-700/50 relative shadow-inner">
+                        <video
+                          src={task.taskVideoUrl}
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          controls
+                          className="w-full max-h-[60vh] object-contain"
+                        />
+                      </div>
+                    )}
 
                     {/* Instruction */}
                     {task.instruction && (
@@ -938,12 +953,49 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                       </p>
                     )}
 
-                    {/* Task Image Prompt Attachment */}
-                    {task.taskImageUrl && (
-                      <div className="rounded-xl overflow-hidden border border-slate-700 max-h-60 bg-black/40">
+                    {/* Task Images (Grid for multiple) */}
+                    {Boolean(task.taskImageUrls && task.taskImageUrls.length > 0) && (
+                      <div className={`grid gap-2 my-3 ${task.taskImageUrls!.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                        {task.taskImageUrls!.map((imgUrl, imgIdx) => (
+                          <div key={imgIdx} className="rounded-xl overflow-hidden border border-slate-700 bg-black/40">
+                            <a href={imgUrl} target="_blank" rel="noopener noreferrer" className="block relative group h-full">
+                              <img src={imgUrl} alt={`Иллюстрация ${imgIdx + 1}`} className="w-full h-full object-cover max-h-[40vh]" />
+                              <span className="absolute bottom-2 right-2 bg-black/70 text-[10px] text-white px-2 py-1 rounded-md font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                Увеличить 🔍
+                              </span>
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Fallback for legacy single image */}
+                    {Boolean(!task.taskImageUrls && task.taskImageUrl && task.taskImageUrl.trim()) && (
+                      <div className="rounded-xl overflow-hidden border border-slate-700 bg-black/40 my-3">
                         <a href={task.taskImageUrl} target="_blank" rel="noopener noreferrer" className="block relative group">
-                          <img src={task.taskImageUrl} alt="Иллюстрация к заданию" className="w-full h-full object-contain max-h-60 mx-auto" />
-                          <span className="absolute bottom-1 right-1 bg-black/70 text-[9px] text-white px-2 py-0.5 rounded font-mono">🔍 Открыть картинку в полный размер</span>
+                          <img src={task.taskImageUrl} alt="Иллюстрация к заданию" className="w-full max-h-[50vh] object-contain mx-auto" />
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Task File Attachment */}
+                    {Boolean(task.taskFileLink && task.taskFileLink.trim()) && (
+                      <div className="my-3 p-3 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 flex items-center justify-between">
+                        <div className="flex items-center space-x-3 overflow-hidden">
+                          <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 shrink-0">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                          <div className="truncate">
+                            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Материал к заданию</p>
+                            <p className="text-xs font-semibold text-slate-200 truncate">{task.taskFileName || 'Файл.pdf'}</p>
+                          </div>
+                        </div>
+                        <a
+                          href={task.taskFileLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 shadow-md transition-all ml-2"
+                        >
+                          Открыть
                         </a>
                       </div>
                     )}
@@ -962,7 +1014,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
                       <label className="text-[11px] font-semibold text-slate-300 block">
-                        Ваш ответ на {task.taskNumber || `Задание #${tIdx + 1}`}:
+                        Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
                       </label>
 
                       {/* TEST TASK TYPE WITH OPTIONS & IMMEDIATE FEEDBACK */}

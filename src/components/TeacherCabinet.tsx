@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent } from '../types';
 import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
+import { dbUpdateStudent } from '../lib/firebase';
 import {
   GraduationCap,
   Mic,
@@ -49,11 +50,14 @@ interface TeacherCabinetProps {
   onDeleteStudent?: (studentId: string) => void;
   onGradeSubmission: (submissionId: string, updatedData: Partial<Submission>) => void;
   onAddWebinar: (newWebinar: Webinar) => void;
+  onUpdateWebinar?: (webinar: Webinar) => void;
   onDeleteWebinar?: (webinarId: string) => void;
   onAddHomework?: (newHw: Homework) => void;
   onUpdateHomework?: (updatedHw: Homework) => void;
   onDeleteHomework?: (hwId: string) => void;
   onDeleteSubmission?: (submissionId: string) => void;
+  onUpdateStudentAccess?: (studentId: string, months: string[]) => void;
+  onUpdateStudent?: (studentId: string, updatedData: Partial<RegisteredStudent>) => void;
   isDarkMode: boolean;
 }
 
@@ -68,14 +72,27 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   onDeleteStudent,
   onGradeSubmission,
   onAddWebinar,
+  onUpdateWebinar,
   onDeleteWebinar,
   onAddHomework,
   onUpdateHomework,
   onDeleteHomework,
   onDeleteSubmission,
+  onUpdateStudentAccess,
+  onUpdateStudent,
   isDarkMode,
 }) => {
   const [adminTab, setAdminTab] = useState<AdminTab>('upload_video');
+  const [accessModalStudent, setAccessModalStudent] = useState<RegisteredStudent | null>(null);
+  const [selectedAccessMonths, setSelectedAccessMonths] = useState<string[]>([]);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editStudentLoginVal, setEditStudentLoginVal] = useState('');
+  const [editStudentNameVal, setEditStudentNameVal] = useState('');
+  const ALL_COURSE_MONTHS = [
+    'Январь 2026', 'Февраль 2026', 'Март 2026', 'Апрель 2026', 
+    'Май 2026', 'Июнь 2026', 'Июль 2026', 'Август 2026', 
+    'Сентябрь 2026', 'Октябрь 2026', 'Ноябрь 2026', 'Декабрь 2026'
+  ];
 
   // State for Archive of Graded HWs ("База проверенных ДЗ")
   const [archiveSelectedStudent, setArchiveSelectedStudent] = useState<string>('all');
@@ -246,30 +263,19 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const graded = activeSubmissions.filter((s) => s.status === 'graded');
     if (graded.length === 0) return null;
     const sum = graded.reduce((acc, sub) => {
-      if (sub.totalScore !== undefined && sub.maxScore && sub.maxScore > 0) {
-        return acc + (sub.totalScore / sub.maxScore) * 100;
-      }
-      if (sub.testScore !== undefined) return acc + sub.testScore;
-      return acc;
+      const hw = homeworks.find((h) => h.id === sub.homeworkId);
+      const max = sub.maxScore || hw?.maxPoints || 14;
+      const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+      return acc + Math.min(100, Math.max(0, (score / max) * 100));
     }, 0);
     return Math.round(sum / graded.length);
-  }, [activeSubmissions]);
+  }, [activeSubmissions, homeworks]);
 
   const averageStreakDays = React.useMemo(() => {
     if (activeRegisteredStudents.length === 0) return 0;
     let totalStreak = 0;
     activeRegisteredStudents.forEach((st) => {
-      try {
-        const stored = localStorage.getItem(`ege_app_user_visits_${st.name}`);
-        if (stored) {
-          const visits = JSON.parse(stored);
-          totalStreak += Array.isArray(visits) ? Math.max(1, visits.length) : 7;
-        } else {
-          totalStreak += st.name === 'Дмитрий Волков' ? 7 : 1;
-        }
-      } catch (e) {
-        totalStreak += 7;
-      }
+      totalStreak += st.streakDays || 0;
     });
     return Math.round(totalStreak / activeRegisteredStudents.length);
   }, [activeRegisteredStudents]);
@@ -299,9 +305,17 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   // Submissions state for grading
   const [reviewSubTab, setReviewSubTab] = useState<'pending' | 'graded'>('pending');
   const [reviewFilter, setReviewFilter] = useState<'all' | 'hw' | 'simulator'>('all');
+  const [reviewArchiveMode, setReviewArchiveMode] = useState(false);
 
   const filteredReviewSubmissions = React.useMemo(() => {
     return activeSubmissions.filter((sub) => {
+      const hw = activeHomeworks.find(h => h.id === sub.homeworkId);
+      const isArchive = hw?.deadline === 'Без дедлайна';
+      
+      // Фильтр по режиму архивных/свежих
+      if (reviewArchiveMode && !isArchive) return false;
+      if (!reviewArchiveMode && isArchive) return false;
+
       if (reviewFilter === 'hw') {
         return !sub.homeworkId.startsWith('hw-sim-');
       }
@@ -310,7 +324,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       }
       return true;
     });
-  }, [activeSubmissions, reviewFilter]);
+  }, [activeSubmissions, activeHomeworks, reviewFilter, reviewArchiveMode]);
   const [gradeSuccessToast, setGradeSuccessToast] = useState<{
     studentName: string;
     scoreStr: string;
@@ -411,8 +425,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [aiDraftLoading, setAiDraftLoading] = useState(false);
 
   // VIDEO UPLOAD FORM STATE
+  const [editingWebinarId, setEditingWebinarId] = useState<string | null>(null);
+  const [linkedHomeworkId, setLinkedHomeworkId] = useState<string>('none');
   const [videoTitle, setVideoTitle] = useState('');
   const [videoBlock, setVideoBlock] = useState<BlockCategory>('speaking');
+  const [videoMonth, setVideoMonth] = useState<string>(getCurrentMonthLabel());
   const [videoUrl, setVideoUrl] = useState('');
   const [presetVideoSelect, setPresetVideoSelect] = useState('custom');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
@@ -439,6 +456,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     },
   ]);
   const [newMatName, setNewMatName] = useState('');
+  const [newMatLink, setNewMatLink] = useState('');
   const [uploadSuccessToast, setUploadSuccessToast] = useState<string | null>(null);
 
   // CREATE / EDIT HOMEWORK FORM STATE
@@ -447,6 +465,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [hwBlock, setHwBlock] = useState<BlockCategory>('speaking');
   const [hwType, setHwType] = useState<'test' | 'speaking' | 'written'>('speaking');
   const [hwDeadlineIso, setHwDeadlineIso] = useState('');
+  const [hasNoDeadline, setHasNoDeadline] = useState(false);
+  const [hwCreatedAtIso, setHwCreatedAtIso] = useState('');
   const [hwDescription, setHwDescription] = useState('');
   const [hwSuccessToast, setHwSuccessToast] = useState<string | null>(null);
 
@@ -465,7 +485,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       instruction: string;
       taskPrompt: string;
       taskImageUrl?: string;
+      taskImageUrls?: string[];
+      taskFileLink?: string;
+      taskFileName?: string;
       taskAudioUrl?: string;
+      taskVideoUrl?: string;
       options?: string[];
       correctOptionIndex?: number;
     }[]
@@ -527,19 +551,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   };
 
   const getTaskNumberOptions = (block: BlockCategory): string[] => {
+    const defaultOpt = 'Без номера';
     switch (block) {
       case 'listening':
-        return Array.from({ length: 9 }, (_, i) => `Задание №${i + 1}`);
+        return [defaultOpt, ...Array.from({ length: 9 }, (_, i) => `Задание №${i + 1}`)];
       case 'reading':
-        return Array.from({ length: 9 }, (_, i) => `Задание №${i + 10}`);
+        return [defaultOpt, ...Array.from({ length: 9 }, (_, i) => `Задание №${i + 10}`)];
       case 'grammar_vocabulary':
-        return Array.from({ length: 18 }, (_, i) => `Задание №${i + 19}`);
+        return [defaultOpt, ...Array.from({ length: 18 }, (_, i) => `Задание №${i + 19}`)];
       case 'writing':
-        return ['Задание №37 (Письмо)', 'Задание №38 (Эссе)'];
+        return [defaultOpt, 'Задание №37 (Письмо)', 'Задание №38 (Эссе)'];
       case 'speaking':
-        return ['Задание №1', 'Задание №2', 'Задание №3', 'Задание №4'];
+        return [defaultOpt, 'Задание №1', 'Задание №2', 'Задание №3', 'Задание №4'];
       default:
-        return ['Задание №1'];
+        return [defaultOpt, 'Задание №1'];
     }
   };
 
@@ -577,6 +602,38 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setTimeout(() => {
       setPinChangeToast(null);
     }, 6000);
+  };
+
+  // Защита от случайного закрытия или обновления страницы
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const hasUnsavedVideo = adminTab === 'upload_video' && videoTitle.trim() !== '';
+      const hasUnsavedHw = adminTab === 'create_hw' && hwTitle.trim() !== '';
+      
+      if (hasUnsavedVideo || hasUnsavedHw) {
+        e.preventDefault();
+        e.returnValue = ''; // Требование стандарта для вызова системного окна
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [adminTab, videoTitle, hwTitle]);
+
+  const handleTabChange = (newTab: AdminTab) => {
+    if (adminTab === newTab) return;
+
+    const hasUnsavedVideo = adminTab === 'upload_video' && videoTitle.trim() !== '';
+    const hasUnsavedHw = adminTab === 'create_hw' && hwTitle.trim() !== '';
+
+    if (hasUnsavedVideo) {
+      if (!window.confirm('У вас есть заполненные данные урока. Вы уверены, что хотите уйти? Несохраненные изменения будут потеряны.')) return;
+    }
+    if (hasUnsavedHw) {
+      if (!window.confirm('У вас есть несохраненное домашнее задание. Вы уверены, что хотите уйти? Несохраненные изменения будут потеряны.')) return;
+    }
+
+    setAdminTab(newTab);
   };
 
   // Preset videos for fast testing
@@ -635,19 +692,45 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setTimecodes((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleAddMaterial = () => {
-    if (!newMatName.trim()) return;
+  const handleMaterialFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setMaterials((prev) => [
+            ...prev,
+            {
+              id: `mat-${Date.now()}`,
+              name: file.name,
+              type: file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'doc',
+              size: (file.size / (1024 * 1024)).toFixed(1) + ' МБ',
+              url: event.target.result as string,
+            },
+          ]);
+          // Очищаем инпуты, так как файл уже прикреплен
+          setNewMatName('');
+          setNewMatLink('');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAddMaterialClick = () => {
+    if (!newMatName.trim() || !newMatLink.trim()) return;
     setMaterials((prev) => [
       ...prev,
       {
         id: `mat-${Date.now()}`,
-        name: newMatName.trim().endsWith('.pdf') ? newMatName.trim() : `${newMatName.trim()}.pdf`,
-        type: 'pdf',
-        size: '1.8 МБ',
-        url: '#',
+        name: newMatName.trim().endsWith('.pdf') || newMatName.trim().endsWith('.doc') || newMatName.trim().endsWith('.docx') ? newMatName.trim() : `${newMatName.trim()}.pdf`,
+        type: newMatName.toLowerCase().includes('.doc') ? 'doc' : 'pdf',
+        size: newMatLink.startsWith('data:') ? ((newMatLink.length * 0.75) / (1024 * 1024)).toFixed(1) + ' МБ' : 'Внешняя ссылка',
+        url: newMatLink.trim(),
       },
     ]);
     setNewMatName('');
+    setNewMatLink('');
   };
 
   const handleRemoveMaterial = (id: string) => {
@@ -722,6 +805,18 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       return;
     }
 
+    // Автоматический перехват материалов, если забыли нажать "Прикрепить"
+    const finalMaterials = [...materials];
+    if (newMatName.trim() && newMatLink.trim()) {
+      finalMaterials.push({
+        id: `mat-${Date.now()}`,
+        name: newMatName.trim().endsWith('.pdf') || newMatName.trim().endsWith('.doc') || newMatName.trim().endsWith('.docx') ? newMatName.trim() : `${newMatName.trim()}.pdf`,
+        type: newMatName.toLowerCase().includes('.doc') ? 'doc' : 'pdf',
+        size: newMatLink.startsWith('data:') ? ((newMatLink.length * 0.75) / (1024 * 1024)).toFixed(1) + ' МБ' : 'Внешняя ссылка',
+        url: newMatLink.trim(),
+      });
+    }
+
     const finalVideoUrl =
       videoUrl.trim() ||
       'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
@@ -743,10 +838,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const durSec = parseTimeToSeconds(videoDuration) || 2700;
 
     const newWebinar: Webinar = {
-      id: `web-${Date.now()}`,
+      id: editingWebinarId || `web-${Date.now()}`,
       title: videoTitle.trim(),
       block: videoBlock,
-      description: videoDescription.trim() || 'Эксклюзивный видеоурок от Ангелины с подробным разбором темы.',
+      month: videoMonth,
+      description: videoDescription.trim() || 'Описание не указано',
       videoUrl: finalVideoUrl,
       thumbnailUrl: finalThumbUrl,
       duration: videoDuration || '45:00',
@@ -754,22 +850,30 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       date: getFormattedDateTime(),
       timecodes: timecodes.map((tc) => ({
         timeInSeconds: tc.timeInSeconds,
-        label: tc.label.includes('—') ? tc.label : `${tc.timeStr || '00:00'} — ${tc.label}`,
+        label: tc.label.includes(' ') ? tc.label : `${tc.timeStr || '00:00'} - ${tc.label}`,
       })),
-      materials,
+      materials: finalMaterials,
+      linkedHomeworkId: linkedHomeworkId !== 'none' ? linkedHomeworkId : undefined,
     };
 
-    onAddWebinar(newWebinar);
+    if (editingWebinarId && onUpdateWebinar) {
+      onUpdateWebinar(newWebinar);
+      setUploadSuccessToast("Урок успешно обновлен!");
+    } else {
+      onAddWebinar(newWebinar);
+      setUploadSuccessToast(videoTitle.trim());
+    }
 
-    setUploadSuccessToast(videoTitle.trim());
+    setEditingWebinarId(null);
     setVideoTitle('');
     setVideoDescription('');
     setVideoUrl('');
     setThumbnailUrl('');
-
-    setTimeout(() => {
-      setUploadSuccessToast(null);
-    }, 5000);
+    setLinkedHomeworkId('none');
+    setMaterials([]);
+    setNewMatName('');
+    setNewMatLink('');
+    setTimeout(() => setUploadSuccessToast(null), 5000);
   };
 
   const handleGenerateAiTimecodes = async () => {
@@ -787,10 +891,17 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           title: videoTitle.trim(),
           description: videoDescription.trim(),
           duration: videoDuration || '45:00',
+          videoUrl: videoUrl.trim(),
         }),
       });
 
       const data = await response.json();
+      
+      // Автоматически подставляем точный хронометраж, если бэкенд его нашел
+      if (data.exactDuration) {
+        setVideoDuration(data.exactDuration);
+      }
+
       const rawList = Array.isArray(data)
         ? data
         : Array.isArray(data?.data)
@@ -817,7 +928,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const handleStartEditHomework = (hw: Homework) => {
     setEditingHomeworkId(hw.id);
     setHwTitle(hw.title);
+    setHasNoDeadline(hw.deadline === 'Без дедлайна');
     setHwDeadlineIso(hw.deadlineDate ? hw.deadlineDate.slice(0, 16) : '');
+    setHwCreatedAtIso(hw.createdAt ? new Date(hw.createdAt).toISOString().slice(0, 16) : '');
     setHwDescription(hw.description || '');
     setHwBlock(hw.block);
     if (hw.tasks && hw.tasks.length > 0) {
@@ -830,7 +943,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           instruction: t.instruction || '',
           taskPrompt: t.taskPrompt,
           taskImageUrl: t.taskImageUrl,
+          taskImageUrls: t.taskImageUrls,
+          taskFileLink: t.taskFileLink,
+          taskFileName: t.taskFileName,
           taskAudioUrl: t.taskAudioUrl,
+          taskVideoUrl: t.taskVideoUrl,
           options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
           correctOptionIndex: t.correctOptionIndex ?? 0,
         }))
@@ -860,6 +977,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setHwTitle('');
     setHwDescription('');
     setHwDeadlineIso('');
+    setHasNoDeadline(false);
+    setHwCreatedAtIso('');
     setHwTasks([
       {
         id: 'task-1',
@@ -887,7 +1006,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       instruction: t.instruction,
       taskPrompt: t.taskPrompt,
       taskImageUrl: t.taskImageUrl,
+      taskImageUrls: t.taskImageUrls,
+      taskFileLink: t.taskFileLink,
+      taskFileName: t.taskFileName,
       taskAudioUrl: t.taskAudioUrl,
+      taskVideoUrl: t.taskVideoUrl,
       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
       correctOptionIndex: t.correctOptionIndex ?? 0,
       correctAnswer: t.options ? t.options[t.correctOptionIndex ?? 0] : undefined,
@@ -898,22 +1021,29 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
-    let readableDeadline = 'Без дедлайна';
-    let finalDeadlineDate = new Date(Date.now() + 86400000).toISOString();
-    if (hwDeadlineIso) {
+    let formattedDeadline = 'Без дедлайна';
+    let finalDeadlineDate = '';
+
+    if (!hasNoDeadline && hwDeadlineIso) {
       const d = new Date(hwDeadlineIso);
-      readableDeadline = `${d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+      const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+      formattedDeadline = `${d.getDate()} ${months[d.getMonth()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
       finalDeadlineDate = d.toISOString();
     }
+
+    const pubDate = hwCreatedAtIso ? new Date(hwCreatedAtIso) : new Date();
+    const monthsRu = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+    const hwMonthLabel = `${monthsRu[pubDate.getMonth()]} ${pubDate.getFullYear()}`;
 
     const hwData: Homework = {
       id: targetHwId,
       title: hwTitle.trim(),
       block: primaryBlock,
       type: primaryType as any,
-      deadline: readableDeadline,
-      deadlineDate: finalDeadlineDate,
-      month: getCurrentMonthLabel(),
+      deadline: formattedDeadline,
+      deadlineDate: finalDeadlineDate || undefined,
+      month: hwMonthLabel,
+      createdAt: pubDate.toISOString(),
       maxPoints: formattedTasks.length * 5,
       description: hwDescription.trim() || `Домашнее задание от Ангелины из ${formattedTasks.length} заданий.`,
       tasks: formattedTasks,
@@ -931,6 +1061,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setHwTitle('');
     setHwDescription('');
     setHwDeadlineIso('');
+    setHasNoDeadline(false);
+    setHwCreatedAtIso('');
     setHwTasks([
       {
         id: 'task-1',
@@ -1101,7 +1233,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         {/* Admin Navigation Tabs */}
         <div className="grid grid-cols-5 gap-1 mt-4 p-1 rounded-xl bg-black/40 text-[10px] font-bold">
           <button
-            onClick={() => setAdminTab('upload_video')}
+            onClick={() => handleTabChange('upload_video')}
             className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${
               adminTab === 'upload_video'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -1113,7 +1245,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           </button>
 
           <button
-            onClick={() => setAdminTab('review_hw')}
+            onClick={() => handleTabChange('review_hw')}
             className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 relative ${
               adminTab === 'review_hw'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -1132,7 +1264,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           </button>
 
           <button
-            onClick={() => setAdminTab('archive_graded')}
+            onClick={() => handleTabChange('archive_graded')}
             className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 relative ${
               adminTab === 'archive_graded'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -1153,7 +1285,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           </button>
 
           <button
-            onClick={() => setAdminTab('create_hw')}
+            onClick={() => handleTabChange('create_hw')}
             className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${
               adminTab === 'create_hw'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -1165,7 +1297,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           </button>
 
           <button
-            onClick={() => setAdminTab('analytics')}
+            onClick={() => handleTabChange('analytics')}
             className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${
               adminTab === 'analytics'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -1177,7 +1309,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           </button>
 
           <button
-            onClick={() => setAdminTab('settings')}
+            onClick={() => handleTabChange('settings')}
             className={`py-2 px-1 rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${
               adminTab === 'settings'
                 ? 'bg-purple-600 text-white shadow-md'
@@ -1277,8 +1409,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 />
               </div>
 
-              {/* Category & Duration */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Category, Month, Duration & Linked HW */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-400">Блок / Раздел:</label>
                   <select
@@ -1293,6 +1425,22 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     <option value="grammar_vocabulary">📚 Грамматика и лексика</option>
                     <option value="writing">✍️ Письмо (Writing)</option>
                     <option value="speaking">🗣 Говорение (Speaking)</option>
+                    <option value="free_webinars">🎁 Бесплатные вебинары</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-400">Месяц публикации:</label>
+                  <select
+                    value={videoMonth}
+                    onChange={(e) => setVideoMonth(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
+                    }`}
+                  >
+                    {ALL_COURSE_MONTHS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1307,6 +1455,18 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
                     }`}
                   />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-400">Привязать домашку:</label>
+                  <select
+                    value={linkedHomeworkId}
+                    onChange={(e) => setLinkedHomeworkId(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border ${isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                  >
+                    <option value="none">Без домашки</option>
+                    {homeworks.map(hw => <option key={hw.id} value={hw.id}>{hw.title} ({hw.month || 'Без месяца'})</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -1444,35 +1604,66 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   ))}
                 </div>
 
-                <div className="flex items-center space-x-2 pt-1">
+                <div className="flex flex-col gap-2 pt-1">
                   <input
                     type="text"
                     value={newMatName}
                     onChange={(e) => setNewMatName(e.target.value)}
-                    placeholder="Название файла (например: Шпора_Устная_Часть.pdf)"
-                    className={`flex-1 p-1.5 rounded-lg border text-[11px] ${
-                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
-                    }`}
+                    placeholder="Название (например: Таблица.pdf)"
+                    className={`w-full p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
                   />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newMatLink}
+                      onChange={(e) => setNewMatLink(e.target.value)}
+                      placeholder="Ссылка на файл..."
+                      className={`flex-1 p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                    />
+                    <label className="cursor-pointer px-3 py-2.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 font-bold text-xs rounded-xl border border-sky-500/30 flex items-center shrink-0 transition-all">
+                      <UploadCloud className="w-4 h-4 mr-1" />
+                      <span className="hidden sm:inline">С ПК</span>
+                      <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleMaterialFileUpload} />
+                    </label>
+                  </div>
                   <button
                     type="button"
-                    onClick={handleAddMaterial}
-                    className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-lg shrink-0 flex items-center space-x-1"
+                    onClick={handleAddMaterialClick}
+                    disabled={!newMatName.trim() || !newMatLink.trim()}
+                    className="w-full py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Файл</span>
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Прикрепить материал</span>
                   </button>
                 </div>
               </div>
 
               {/* PUBLISH BUTTON */}
-              <button
-                type="submit"
-                className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/30 transition-all flex items-center justify-center space-x-2"
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span>Опубликовать ролик в платформе</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                {editingWebinarId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingWebinarId(null);
+                      setVideoTitle('');
+                      setVideoDescription('');
+                      setVideoUrl('');
+                      setThumbnailUrl('');
+                      setLinkedHomeworkId('none');
+                    }}
+                    className="py-3 px-4 bg-slate-600 hover:bg-slate-500 text-white font-bold text-xs rounded-xl transition-all shrink-0"
+                  >
+                    Отмена
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-purple-600/30 transition-all flex items-center justify-center space-x-2"
+                >
+                  <UploadCloud className="w-4 h-4" />
+                  <span>{editingWebinarId ? 'Сохранить изменения' : 'Опубликовать ролик в платформе'}</span>
+                </button>
+              </div>
             </form>
           </div>
 
@@ -1517,15 +1708,39 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     </div>
                   </div>
 
-                  {onDeleteWebinar && (
+                  <div className="flex items-center space-x-1.5 ml-2 shrink-0">
                     <button
-                      onClick={() => handleTriggerDeleteWebinar(web.id, web.title)}
-                      title="Удалить ролик"
-                      className="p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors ml-2 shrink-0"
+                      onClick={() => {
+                        setEditingWebinarId(web.id);
+                        setVideoTitle(web.title);
+                        setVideoBlock(web.block);
+                        setVideoMonth(web.month || getCurrentMonthLabel());
+                        setVideoDescription(web.description);
+                        setVideoUrl(web.videoUrl);
+                        setThumbnailUrl(web.thumbnailUrl);
+                        setVideoDuration(web.duration);
+                        setTimecodes(web.timecodes.map(tc => ({ timeInSeconds: tc.timeInSeconds, label: tc.label, timeStr: '00:00' })));
+                        setMaterials(web.materials || []);
+                        setLinkedHomeworkId(web.linkedHomeworkId || 'none');
+                        setAdminTab('upload_video');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="p-2 bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 rounded-lg transition-colors"
+                      title="Редактировать"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Edit2 className="w-4 h-4" />
                     </button>
-                  )}
+
+                    {onDeleteWebinar && (
+                      <button
+                        onClick={() => handleTriggerDeleteWebinar(web.id, web.title)}
+                        title="Удалить ролик"
+                        className="p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1536,6 +1751,23 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       {/* ================= TAB 2: REVIEW SUBMISSIONS ================= */}
       {adminTab === 'review_hw' && (
         <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setReviewArchiveMode(false)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${!reviewArchiveMode ? 'bg-sky-500 text-white border-sky-500 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+            >
+              Свежие (актуальные)
+            </button>
+            <button
+              type="button"
+              onClick={() => setReviewArchiveMode(true)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${reviewArchiveMode ? 'bg-purple-600 text-white border-purple-600 shadow-md' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+            >
+              Архивные ДЗ (старые)
+            </button>
+          </div>
+
           {/* Submissions List Queue with Sub-Tabs */}
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-700/50 pb-2 flex-wrap gap-2">
@@ -2375,16 +2607,32 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="font-semibold text-slate-400">Дедлайн:</label>
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-400">Дедлайн сдачи:</label>
+                  <label className="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer hover:text-slate-300">
+                    <input type="checkbox" checked={hasNoDeadline} onChange={(e) => setHasNoDeadline(e.target.checked)} className="accent-sky-500 w-3.5 h-3.5 rounded" />
+                    <span>Без дедлайна</span>
+                  </label>
+                </div>
+                {!hasNoDeadline && (
+                  <input
+                    type="datetime-local"
+                    value={hwDeadlineIso}
+                    onChange={(e) => setHwDeadlineIso(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border ${isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                  />
+                )}
+              </div>
+
+              <div className="space-y-1 sm:col-span-3">
+                <label className="font-semibold text-slate-400">Дата публикации (для архива):</label>
                 <input
                   type="datetime-local"
-                  required
-                  value={hwDeadlineIso}
-                  onChange={(e) => setHwDeadlineIso(e.target.value)}
-                  className={`w-full p-2.5 rounded-xl border ${
-                    isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
-                  }`}
+                  value={hwCreatedAtIso}
+                  onChange={(e) => setHwCreatedAtIso(e.target.value)}
+                  className={`w-full p-2.5 rounded-xl border ${isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
                 />
+                <p className="text-[10px] text-slate-500">Если пусто — подставится текущее время.</p>
               </div>
             </div>
 
@@ -2565,6 +2813,27 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                     isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
                                   }`}
                                 />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) => {
+                                        if (i !== idx) return t;
+                                        const newOptions = (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']).filter(
+                                          (_, oIdx) => oIdx !== optIdx
+                                        );
+                                        // Защита: чтобы индекс правильного ответа не вышел за пределы массива
+                                        const newCorrectIdx =
+                                          (t.correctOptionIndex ?? 0) >= newOptions.length ? 0 : t.correctOptionIndex;
+                                        return { ...t, options: newOptions, correctOptionIndex: newCorrectIdx };
+                                      })
+                                    );
+                                  }}
+                                  className="p-2 text-slate-400 hover:text-rose-500 bg-black/10 hover:bg-rose-500/10 rounded-xl transition-colors shrink-0"
+                                  title="Удалить вариант"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
                               </div>
                             );
                           })}
@@ -2614,155 +2883,322 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       />
                     </div>
 
-                    {/* 2 ORGANIZED ATTACHMENT ROWS */}
-                    <div className="space-y-2.5 pt-2 border-t border-slate-700/50">
-                      {/* ROW 1: PHOTO ATTACHMENT */}
-                      <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-purple-300 flex items-center space-x-1.5">
-                            <ImageIcon className="w-3.5 h-3.5" />
-                            <span>🖼 Строка 1: Иллюстрация / Фотография к заданию</span>
-                          </span>
-                          {task.taskImageUrl && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setHwTasks((prev) =>
-                                  prev.map((t, i) => (i === idx ? { ...t, taskImageUrl: undefined } : t))
-                                );
-                              }}
-                              className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
-                            >
-                              Удалить фото
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="text"
-                            value={task.taskImageUrl || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setHwTasks((prev) =>
-                                prev.map((t, i) => (i === idx ? { ...t, taskImageUrl: val || undefined } : t))
-                              );
-                            }}
-                            placeholder="Ссылка на фото или загрузите файл..."
-                            className={`flex-1 p-2 rounded-xl text-xs border ${
-                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
-                            }`}
-                          />
-                          <label className="cursor-pointer px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
-                            <Paperclip className="w-3.5 h-3.5" />
-                            <span>Прикрепить</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const url = URL.createObjectURL(file);
-                                  setHwTasks((prev) =>
-                                    prev.map((t, i) => (i === idx ? { ...t, taskImageUrl: url } : t))
-                                  );
-                                }
-                              }}
-                            />
-                          </label>
-                        </div>
-                        {task.taskImageUrl && (
-                          <img
-                            src={task.taskImageUrl}
-                            alt="Превью"
-                            className="h-24 max-w-full rounded-xl object-contain border border-slate-700 bg-black/40 mt-1"
-                          />
+                    {/* Media attach buttons panel */}
+                    <div className="flex items-center space-x-2 pt-1 pb-2 border-b border-slate-700/40">
+                      {(!task.taskImageUrls || task.taskImageUrls.length === 0) && task.taskImageUrl === undefined && (
+                        <button
+                          type="button"
+                          onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskImageUrls: [] } : t))}
+                          className="px-3 py-1.5 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 text-[10px] font-bold rounded-lg border border-purple-500/30 transition-all flex items-center space-x-1.5"
+                        >
+                          <ImageIcon className="w-3.5 h-3.5" />
+                          <span>+ Фото (до 5 шт)</span>
+                        </button>
+                      )}
+                      {task.taskFileLink === undefined && (
+                        <button
+                          type="button"
+                          onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskFileLink: '', taskFileName: '' } : t))}
+                          className="px-3 py-1.5 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 text-[10px] font-bold rounded-lg border border-indigo-500/30 transition-all flex items-center space-x-1.5"
+                        >
+                          <Paperclip className="w-3.5 h-3.5" />
+                          <span>+ Файл (Ссылка)</span>
+                        </button>
+                      )}
+                      {task.taskAudioUrl === undefined && (
+                        <button
+                          type="button"
+                          onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: '' } : t))}
+                          className="px-3 py-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 text-[10px] font-bold rounded-lg border border-sky-500/30 transition-all flex items-center space-x-1.5"
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>+ Добавить аудио</span>
+                        </button>
+                      )}
+                      {task.taskVideoUrl === undefined && (
+                        <button
+                          type="button"
+                          onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskVideoUrl: '' } : t))}
+                          className="px-3 py-1.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-[10px] font-bold rounded-lg border border-rose-500/30 transition-all flex items-center space-x-1.5"
+                        >
+                          <Video className="w-3.5 h-3.5" />
+                          <span>+ Добавить видео</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* ORGANIZED ATTACHMENT ROWS */}
+                    {(task.taskImageUrls !== undefined || task.taskImageUrl !== undefined || task.taskFileLink !== undefined || task.taskAudioUrl !== undefined || task.taskVideoUrl !== undefined) && (
+                      <div className="space-y-2.5 pt-2 border-t border-slate-700/50">
+                        {/* БЛОК ИЗОБРАЖЕНИЙ (ДО 5 ШТ) */}
+                        {task.taskImageUrls !== undefined && (
+                          <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 space-y-2 mb-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[10px] font-bold text-slate-300 flex items-center space-x-1.5">
+                                <ImageIcon className="w-3.5 h-3.5 text-purple-400" />
+                                <span>Фотографии к заданию (Макс. 5)</span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskImageUrls: undefined } : t))}
+                                className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                              {task.taskImageUrls.map((url, imgIdx) => (
+                                <div key={imgIdx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700 bg-black/40 group">
+                                  <img src={url} alt={`Upload ${imgIdx + 1}`} className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setHwTasks(prev => prev.map((t, i) => {
+                                      if (i !== idx) return t;
+                                      const newArr = [...(t.taskImageUrls || [])];
+                                      newArr.splice(imgIdx, 1);
+                                      return { ...t, taskImageUrls: newArr };
+                                    }))}
+                                    className="absolute top-1 right-1 p-1 bg-rose-600/90 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                              {task.taskImageUrls.length < 5 && (
+                                <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-slate-600 hover:border-purple-500 flex flex-col items-center justify-center text-slate-500 hover:text-purple-400 transition-colors bg-black/20">
+                                  <Plus className="w-6 h-6 mb-1" />
+                                  <span className="text-[9px] font-bold">С ПК</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const reader = new FileReader();
+                                        reader.onload = (event) => {
+                                          if (event.target?.result) {
+                                            setHwTasks(prev => prev.map((t, i) => {
+                                              if (i !== idx) return t;
+                                              return { ...t, taskImageUrls: [...(t.taskImageUrls || []), event.target!.result as string] };
+                                            }));
+                                          }
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              )}
+                            </div>
+                          </div>
                         )}
-                      </div>
 
-                      {/* ROW 2: AUDIO / VOICE ATTACHMENT + RECORD BUTTON */}
-                      <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-sky-300 flex items-center space-x-1.5">
-                            <Mic className="w-3.5 h-3.5" />
-                            <span>🎙 Строка 2: Голосовое / Аудио от учителя</span>
-                          </span>
-                          {task.taskAudioUrl && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setHwTasks((prev) =>
-                                  prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: undefined } : t))
-                                );
-                              }}
-                              className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
-                            >
-                              Удалить аудио
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            type="text"
-                            value={task.taskAudioUrl || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setHwTasks((prev) =>
-                                prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: val || undefined } : t))
-                              );
-                            }}
-                            placeholder="Ссылка на аудио файл..."
-                            className={`flex-1 min-w-[160px] p-2 rounded-xl text-xs border ${
-                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
-                            }`}
-                          />
-                          <label className="cursor-pointer px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
-                            <Paperclip className="w-3.5 h-3.5" />
-                            <span>Файл</span>
-                            <input
-                              type="file"
-                              accept="audio/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const url = URL.createObjectURL(file);
+                        {/* БЛОК ПРИКРЕПЛЕНИЯ ФАЙЛА */}
+                        {task.taskFileLink !== undefined && (
+                          <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 space-y-2 mb-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[10px] font-bold text-slate-300 flex items-center space-x-1.5">
+                                <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>Прикрепленный файл к заданию (PDF, Doc)</span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskFileLink: undefined, taskFileName: undefined } : t))}
+                                className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <input
+                                type="text"
+                                value={task.taskFileName || ''}
+                                onChange={(e) => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskFileName: e.target.value } : t))}
+                                placeholder="Название (напр. Таблица.pdf)"
+                                className={`w-full p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                              />
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={task.taskFileLink || ''}
+                                  onChange={(e) => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskFileLink: e.target.value } : t))}
+                                  placeholder="Ссылка на файл (Google Диск / Telegram)"
+                                  className={`flex-1 p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                                />
+                                <label className="cursor-pointer px-3 py-2.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 font-bold text-xs rounded-xl border border-indigo-500/30 transition-all flex items-center space-x-1 shrink-0">
+                                  <UploadCloud className="w-4 h-4" />
+                                  <span className="hidden sm:inline">С ПК</span>
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.doc,.docx"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const reader = new FileReader();
+                                        reader.onload = (event) => {
+                                          if (event.target?.result) {
+                                            setHwTasks(prev => prev.map((t, i) => {
+                                              if (i !== idx) return t;
+                                              return { ...t, taskFileName: file.name, taskFileLink: event.target!.result as string };
+                                            }));
+                                          }
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ROW 2: AUDIO / VOICE ATTACHMENT + RECORD BUTTON */}
+                        {task.taskAudioUrl !== undefined && (
+                          <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-sky-300 flex items-center space-x-1.5">
+                                <Mic className="w-3.5 h-3.5" />
+                                <span>🎙 Строка 2: Голосовое / Аудио от учителя</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: undefined } : t))}
+                                className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                value={task.taskAudioUrl || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
                                   setHwTasks((prev) =>
-                                    prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: url } : t))
+                                    prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: val || undefined } : t))
                                   );
-                                }
-                              }}
-                            />
-                          </label>
+                                }}
+                                placeholder="Ссылка на аудио файл..."
+                                className={`flex-1 min-w-[160px] p-2 rounded-xl text-xs border ${
+                                  isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              />
+                              <label className="cursor-pointer px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
+                                <Paperclip className="w-3.5 h-3.5" />
+                                <span>Файл</span>
+                                <input
+                                  type="file"
+                                  accept="audio/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const url = URL.createObjectURL(file);
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: url } : t))
+                                      );
+                                    }
+                                  }}
+                                />
+                              </label>
 
-                          {/* DIRECT VOICE RECORDING BUTTON */}
-                          {recordingTaskIdx === idx ? (
-                            <button
-                              type="button"
-                              onClick={stopTeacherRecording}
-                              className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl animate-pulse flex items-center space-x-1.5 shadow-lg"
-                            >
-                              <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
-                              <span>Стоп ({teacherRecordingSeconds}с)</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => startTeacherRecording(idx)}
-                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1 shadow-sm shrink-0"
-                            >
-                              <Mic className="w-3.5 h-3.5" />
-                              <span>🎙 Записать голосовое</span>
-                            </button>
-                          )}
-                        </div>
-                        {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) && (
-                          <div className="pt-1">
-                            <audio controls src={task.taskAudioUrl} className="w-full h-8" />
+                              {/* DIRECT VOICE RECORDING BUTTON */}
+                              {recordingTaskIdx === idx ? (
+                                <button
+                                  type="button"
+                                  onClick={stopTeacherRecording}
+                                  className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl animate-pulse flex items-center space-x-1.5 shadow-lg"
+                                >
+                                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                                  <span>Стоп ({teacherRecordingSeconds}с)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startTeacherRecording(idx)}
+                                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1 shadow-sm shrink-0"
+                                >
+                                  <Mic className="w-3.5 h-3.5" />
+                                  <span>🎙 Записать голосовое</span>
+                                </button>
+                              )}
+                            </div>
+                            {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) && (
+                              <div className="pt-1">
+                                <audio controls src={task.taskAudioUrl} className="w-full h-8" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* ROW 3: SHORT VIDEO ATTACHMENT */}
+                        {task.taskVideoUrl !== undefined && (
+                          <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 space-y-2 mb-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[10px] font-bold text-slate-300 flex items-center space-x-1.5">
+                                <Video className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Строка 3: Короткое видео (MP4 / Reels)</span>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskVideoUrl: undefined } : t))}
+                                className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={task.taskVideoUrl || ''}
+                                onChange={(e) => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskVideoUrl: e.target.value } : t))}
+                                placeholder="Прямая ссылка или выберите файл..."
+                                className={`flex-1 p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                              />
+                              <label className="cursor-pointer px-3 py-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-bold text-xs rounded-xl border border-rose-500/30 transition-all flex items-center space-x-1 shrink-0">
+                                <UploadCloud className="w-4 h-4" />
+                                <span className="hidden sm:inline">С ПК</span>
+                                <input
+                                  type="file"
+                                  accept="video/mp4,video/webm,video/quicktime"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      const reader = new FileReader();
+                                      reader.onload = (event) => {
+                                        if (event.target?.result) {
+                                          setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskVideoUrl: event.target.result as string } : t));
+                                        }
+                                      };
+                                      reader.readAsDataURL(file);
+                                    }
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            {Boolean(task.taskVideoUrl && task.taskVideoUrl.trim()) && (
+                              <div className="mt-2 rounded-xl overflow-hidden bg-black flex justify-center border border-slate-700/50 max-h-48">
+                                <video
+                                  src={task.taskVideoUrl}
+                                  autoPlay
+                                  muted
+                                  loop
+                                  playsInline
+                                  controls
+                                  className="w-full max-h-48 object-contain"
+                                />
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    </div>
+                    )}
                   </div>
                 );
               })}
@@ -2865,7 +3301,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-700/50">
                     <button
                       type="button"
-                      onClick={() => handleStartEditHomework(hw)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleStartEditHomework(hw);
+                      }}
                       className="py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 font-bold text-xs rounded-xl border border-purple-500/40 transition-all flex items-center justify-center space-x-1"
                     >
                       <FileText className="w-3.5 h-3.5" />
@@ -2994,18 +3434,22 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               Зарегистрированные ученики ({activeRegisteredStudents.length}):
             </h4>
             {activeRegisteredStudents.length === 0 ? (
-              <p className="text-xs text-slate-400 p-3 italic">
-                Ученики ещё не добавлены. Заполните форму выше, чтобы добавить ученика.
-              </p>
+              <p className="text-xs text-slate-400 italic">Пока нет зарегистрированных учеников.</p>
             ) : (
               activeRegisteredStudents.map((st) => {
-                const stSubmissions = activeSubmissions.filter(
-                  (s) => (s.studentName === st.name || s.studentName === st.login) && s.status === 'graded'
-                );
-                const totalStudentPoints = stSubmissions.reduce((acc, s) => acc + (s.score || 0), 0);
-                const maxStudentPoints = stSubmissions.reduce((acc, s) => acc + (s.maxScore || 100), 0);
-                const stAveragePercent =
-                  maxStudentPoints > 0 ? Math.round((totalStudentPoints / maxStudentPoints) * 100) : null;
+                const isEditingThis = editingStudentId === st.id;
+                const stSubs = activeSubmissions.filter((s) => s.studentName === st.name && s.status === 'graded');
+                let avgScoreDisplay = '—';
+                if (stSubs.length > 0) {
+                  const totalPct = stSubs.reduce((acc, sub) => {
+                    const hw = homeworks.find((h) => h.id === sub.homeworkId);
+                    const max = sub.maxScore || hw?.maxPoints || 14;
+                    const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+                    return acc + Math.min(100, Math.max(0, (score / max) * 100));
+                  }, 0);
+                  const avg = Math.round(totalPct / stSubs.length);
+                  avgScoreDisplay = `${avg}%`;
+                }
 
                 return (
                   <div
@@ -3014,47 +3458,133 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       isDarkMode ? 'bg-[#17212b] border-slate-800' : 'bg-white border-slate-200'
                     }`}
                   >
-                    <div className="space-y-0.5">
-                      <div className="flex items-center space-x-2">
-                        <h5 className="font-bold text-sm">{st.name || 'Имя не выбрано'}</h5>
-                        <span className="text-[10px] text-sky-400 font-mono bg-sky-500/10 px-1.5 py-0.5 rounded">
-                          логин: {st.login || st.telegramHandle}
-                        </span>
+                    {isEditingThis ? (
+                      <div className="flex-1 flex flex-wrap sm:flex-nowrap items-center gap-2 mr-2">
+                        <input
+                          type="text"
+                          value={editStudentNameVal}
+                          onChange={(e) => setEditStudentNameVal(e.target.value)}
+                          placeholder="Имя"
+                          className={`flex-1 min-w-[120px] p-1.5 rounded-lg text-xs border ${
+                            isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                          }`}
+                        />
+                        <input
+                          type="text"
+                          value={editStudentLoginVal}
+                          onChange={(e) => setEditStudentLoginVal(e.target.value)}
+                          placeholder="Логин / ТГ"
+                          className={`flex-1 min-w-[120px] p-1.5 rounded-lg text-xs border ${
+                            isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cleanLogin = editStudentLoginVal.trim().toLowerCase().replace('@', '');
+                            if (cleanLogin) {
+                              const updatedObj = {
+                                login: cleanLogin,
+                                name: editStudentNameVal.trim() || st.name,
+                                telegramHandle: `@${cleanLogin}`,
+                              };
+                              dbUpdateStudent(st.id, updatedObj);
+                              if (onUpdateStudent) {
+                                onUpdateStudent(st.id, updatedObj);
+                              }
+                            }
+                            setEditingStudentId(null);
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors"
+                        >
+                          Сохранить
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingStudentId(null)}
+                          className="px-2.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-slate-300 rounded-lg text-xs transition-colors"
+                        >
+                          Отмена
+                        </button>
                       </div>
-                      <div className="flex items-center space-x-2 text-[10px] text-slate-400">
-                        <span>Добавлен: {st.addedAt}</span>
-                        <span>•</span>
-                        <span className="font-bold text-emerald-400">
-                          Балл ДЗ: {stAveragePercent !== null ? `${stAveragePercent}% (${stSubmissions.length} пров.)` : '—'}
-                        </span>
-                      </div>
-                    </div>
-
-                  <div className="flex items-center space-x-2">
-                    {st.isFirstLogin || !st.password ? (
-                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold text-[10px]">
-                        <KeyRound className="w-3 h-3 text-amber-400" />
-                        <span>Ожидает 1-го входа</span>
-                      </span>
                     ) : (
-                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold text-[10px]">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        <span>Пароль установлен</span>
-                      </span>
-                    )}
+                      <>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center space-x-2">
+                            <h5 className="font-bold text-sm">{st.name || 'Имя не выбрано'}</h5>
+                            <span className="text-[10px] text-sky-400 font-mono bg-sky-500/10 px-1.5 py-0.5 rounded">
+                              {st.telegramHandle || `@${st.login}`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingStudentId(st.id);
+                                setEditStudentNameVal(st.name || '');
+                                setEditStudentLoginVal(st.login || st.telegramHandle?.replace('@', '') || '');
+                              }}
+                              className="text-slate-400 hover:text-sky-400 p-1 transition-colors"
+                              title="Редактировать логин"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <div className="flex items-center space-x-2 text-[10px] text-slate-400">
+                            <span>Сданных ДЗ: {stSubs.length}</span>
+                            <span>•</span>
+                            <span className="font-bold text-emerald-400">
+                              Балл ДЗ: {avgScoreDisplay !== '—' ? `${avgScoreDisplay} (${stSubs.length} пров.)` : '—'}
+                            </span>
+                          </div>
+                        </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleTriggerDeleteStudent(st.id, st.name)}
-                      className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors ml-1"
-                      title="Удалить ученика (с возможностью отмены)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                        <div className="flex items-center space-x-2">
+                          <div className="text-right mr-1">
+                            <span className={`text-sm font-extrabold ${stSubs.length > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                              {avgScoreDisplay}
+                            </span>
+                            <p className="text-[10px] text-slate-400">
+                              {stSubs.length > 0 ? 'Средний балл' : 'Нет оценок'}
+                            </p>
+                          </div>
+
+                          {st.isFirstLogin || !st.password ? (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold text-[10px]">
+                              <KeyRound className="w-3 h-3 text-amber-400" />
+                              <span className="hidden sm:inline">Ожидает 1-го входа</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold text-[10px]">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span className="hidden sm:inline">Пароль установлен</span>
+                            </span>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccessModalStudent(st);
+                              setSelectedAccessMonths(st.accessibleMonths || []);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 font-bold text-[10px] border border-sky-500/30 transition-colors flex items-center space-x-1 ml-2"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Доступы</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleTriggerDeleteStudent(st.id, st.name)}
+                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors ml-1"
+                            title="Удалить ученика (с возможностью отмены)"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </div>
-              );
-            })
+                );
+              })
             )}
           </div>
         </div>
@@ -3166,6 +3696,55 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 Удалить
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ACCESS MANAGEMENT MODAL */}
+      {accessModalStudent && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className={`w-full max-w-sm rounded-2xl p-5 shadow-2xl border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 mb-3">
+              <div className="flex items-center space-x-2">
+                <Lock className="w-5 h-5 text-sky-400" />
+                <h3 className="font-bold text-sm">Доступы: {accessModalStudent.name}</h3>
+              </div>
+              <button onClick={() => setAccessModalStudent(null)} className="p-1.5 rounded-lg hover:bg-slate-700/50 text-slate-400 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {ALL_COURSE_MONTHS.map((month) => {
+                const hasAccess = selectedAccessMonths.includes(month);
+                return (
+                  <label key={month} className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${hasAccess ? 'bg-sky-500/20 border-sky-500/50' : 'bg-black/20 border-slate-700 hover:bg-black/30'}`}>
+                    <span className={`text-xs font-bold ${hasAccess ? 'text-sky-300' : 'text-slate-400'}`}>{month}</span>
+                    <input
+                      type="checkbox"
+                      checked={hasAccess}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedAccessMonths(prev => [...prev, month]);
+                        } else {
+                          setSelectedAccessMonths(prev => prev.filter(m => m !== month));
+                        }
+                      }}
+                      className="w-4 h-4 accent-sky-500 rounded"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => {
+                if (onUpdateStudentAccess) onUpdateStudentAccess(accessModalStudent.id, selectedAccessMonths);
+                setAccessModalStudent(null);
+              }}
+              className="w-full mt-4 py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center space-x-2 transition-all"
+            >
+              <CheckCircle className="w-4 h-4" />
+              <span>Сохранить доступы</span>
+            </button>
           </div>
         </div>
       )}

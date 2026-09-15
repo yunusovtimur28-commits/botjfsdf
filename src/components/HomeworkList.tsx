@@ -23,6 +23,7 @@ interface HomeworkListProps {
   onSubmitHomework: (submissionData: Partial<Submission>) => void;
   isDarkMode: boolean;
   currentUserName?: string;
+  currentUserId?: string;
 }
 
 export const HomeworkList: React.FC<HomeworkListProps> = ({
@@ -31,6 +32,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   onSubmitHomework,
   isDarkMode,
   currentUserName,
+  currentUserId,
 }) => {
   const [activeTab, setActiveTab] = useState<HomeworkStatus>('todo');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
@@ -64,11 +66,28 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
     const sub = getSubmissionForHomework(hw.id);
     if (sub) return sub.status;
     
+    // 1. Ручной архив (домашки без дедлайна)
+    if (hw.deadline === 'Без дедлайна') return 'archive';
+
     if (hw.deadlineDate) {
-      if (Date.now() > new Date(hw.deadlineDate).getTime()) return 'overdue';
+      const deadlineTime = new Date(hw.deadlineDate).getTime();
+      
+      // 2. Автоматическая амнистия для новеньких
+      // Вытаскиваем timestamp регистрации ученика из его ID (формат st-1712345678)
+      if (currentUserId && currentUserId.startsWith('st-')) {
+        const studentJoinTime = parseInt(currentUserId.replace('st-', ''), 10);
+        // Если дедлайн прошел ДО того, как ученик зарегистрировался -> в архив
+        if (studentJoinTime && deadlineTime < studentJoinTime) {
+          return 'archive';
+        }
+      }
+
+      // 3. Обычная проверка на просрочку
+      if (Date.now() > deadlineTime) return 'overdue';
     } else if (hw.deadline === 'Просрочено') {
       return 'overdue';
     }
+    
     return 'todo';
   };
 
@@ -102,19 +121,39 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
       activeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-lg shadow-rose-950/40',
       badgeClass: 'bg-rose-500/30 text-rose-200 border-rose-500/40',
     },
+    {
+      id: 'archive',
+      label: 'Архив 📚',
+      activeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-lg shadow-purple-950/40',
+      badgeClass: 'bg-purple-500/30 text-purple-200 border-purple-500/40',
+    },
   ];
 
-  const filteredHomeworks = homeworks.filter((hw) => {
-    const matchesStatus = getHomeworkStatus(hw) === activeTab;
+  // 1. Базовая фильтрация (по месяцу, блоку и поиску)
+  const baseFilteredHomeworks = homeworks.filter((hw) => {
     const matchesMonth = selectedMonth === 'all' || (hw.month || getCurrentMonthLabel()) === selectedMonth;
     const matchesBlock = selectedBlock === 'all' || hw.block === selectedBlock;
     const query = searchQuery.toLowerCase().trim();
-    const matchesSearch =
-      query === '' ||
-      hw.title.toLowerCase().includes(query) ||
-      (hw.description && hw.description.toLowerCase().includes(query));
+    const matchesSearch = query === '' || hw.title.toLowerCase().includes(query) || (hw.description && hw.description.toLowerCase().includes(query));
+    
+    return matchesMonth && matchesBlock && matchesSearch;
+  });
 
-    return matchesStatus && matchesMonth && matchesBlock && matchesSearch;
+  // 2. Фильтрация по статусу (вкладки)
+  const filteredHomeworks = baseFilteredHomeworks.filter((hw) => {
+    const status = getHomeworkStatus(hw);
+    if (hw.deadline === 'Без дедлайна' && status === 'todo') return false;
+    return status === activeTab;
+  });
+
+  // 3. Умная сортировка от новых к старым
+  const sortedHomeworks = [...filteredHomeworks].sort((a, b) => {
+    const getTime = (item: any) => {
+      if (item.createdAt) return new Date(item.createdAt).getTime();
+      const match = item.id.match(/\d+/);
+      return match ? parseInt(match[0], 10) : 0;
+    };
+    return getTime(b) - getTime(a);
   });
 
   return (
@@ -131,7 +170,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
         {/* Month Selector */}
         <div className="flex items-center space-x-1 overflow-x-auto pb-1 max-w-full">
           {[
-            { id: 'all', label: 'Все месяцы' },
+            { id: 'all', label: 'Все' },
             { id: 'Январь 2026', label: 'Январь' },
             { id: 'Февраль 2026', label: 'Февраль' },
             { id: 'Март 2026', label: 'Март' },
@@ -206,16 +245,24 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
         </div>
       </div>
 
-      {/* Status Filter Tabs (Strict 2x2 Grid: Row 1 = todo & pending, Row 2 = graded & overdue) */}
-      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 p-2 rounded-2xl bg-black/20 dark:bg-[#17212b] border border-slate-700/50">
+      {/* Status Filter Tabs */}
+      <div className="flex flex-wrap gap-2.5 sm:gap-3 p-2 rounded-2xl bg-black/20 dark:bg-[#17212b] border border-slate-700/50">
         {tabs.map((tab) => {
-          const count = homeworks.filter((hw) => getHomeworkStatus(hw) === tab.id).length;
+          const count = baseFilteredHomeworks.filter((hw) => {
+            const status = getHomeworkStatus(hw);
+            // Архивные домашки не учитываются в счетчике "Сделать"
+            if (tab.id === 'todo' && hw.deadline === 'Без дедлайна') return false;
+            return status === tab.id;
+          }).length;
+          // Скрываем вкладку Архива, если там пусто, чтобы не отвлекать
+          if (tab.id === 'archive' && count === 0) return null;
+          
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`py-3 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-between border ${
+              className={`flex-1 min-w-[140px] py-3 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-all flex items-center justify-between border ${
                 isActive
                   ? tab.activeClass
                   : 'bg-slate-800/40 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 border-slate-700/40'
@@ -235,7 +282,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
       </div>
 
       {/* Homework List Items */}
-      {filteredHomeworks.length === 0 ? (
+      {sortedHomeworks.length === 0 ? (
         <div
           className={`text-center py-12 rounded-2xl border ${
             isDarkMode ? 'bg-[#1e2c3a] border-slate-800' : 'bg-white border-slate-200'
@@ -255,7 +302,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredHomeworks.map((hw) => {
+          {sortedHomeworks.map((hw) => {
             const sub = getSubmissionForHomework(hw.id);
             const status = getHomeworkStatus(hw);
 

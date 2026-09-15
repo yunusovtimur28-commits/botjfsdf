@@ -54,18 +54,9 @@ const PRESET_AVATARS = [
 ];
 
 const ALL_MONTHS = [
-  'Январь',
-  'Февраль',
-  'Март',
-  'Апрель',
-  'Май',
-  'Июнь',
-  'Июль',
-  'Август',
-  'Сентябрь',
-  'Октябрь',
-  'Ноябрь',
-  'Декабрь',
+  'Январь 2026', 'Февраль 2026', 'Март 2026', 'Апрель 2026', 
+  'Май 2026', 'Июнь 2026', 'Июль 2026', 'Август 2026', 
+  'Сентябрь 2026', 'Октябрь 2026', 'Ноябрь 2026', 'Декабрь 2026'
 ];
 
 // Helper to extract Russian month name and formatted date label (e.g. "3 Авг") from timestamps
@@ -79,9 +70,9 @@ function parseMonthAndLabel(dateStr?: string): { month: string; dateLabel: strin
   }
 
   const monthMap: Record<string, string> = {
-    'янв': 'Январь', 'фев': 'Февраль', 'мар': 'Март', 'апр': 'Апрель',
-    'май': 'Май', 'мая': 'Май', 'июн': 'Июнь', 'июл': 'Июль',
-    'авг': 'Август', 'сен': 'Сентябрь', 'окт': 'Октябрь', 'ноя': 'Ноябрь', 'дек': 'Декабрь'
+    'янв': 'Январь 2026', 'фев': 'Февраль 2026', 'мар': 'Март 2026', 'апр': 'Апрель 2026',
+    'май': 'Май 2026', 'мая': 'Май 2026', 'июн': 'Июнь 2026', 'июл': 'Июль 2026',
+    'авг': 'Август 2026', 'сен': 'Сентябрь 2026', 'окт': 'Октябрь 2026', 'ноя': 'Ноябрь 2026', 'дек': 'Декабрь 2026'
   };
 
   const lower = dateStr.toLowerCase();
@@ -130,7 +121,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   homeworks = [],
 }) => {
   const [selectedBlock, setSelectedBlock] = useState<'total' | 'speaking' | 'writing' | 'grammar'>('total');
-  const [selectedMonth, setSelectedMonth] = useState<string>('Август');
+  const [selectedMonth, setSelectedMonth] = useState<string>('Сентябрь 2026');
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [expandedBadgeId, setExpandedBadgeId] = useState<string | null>(null);

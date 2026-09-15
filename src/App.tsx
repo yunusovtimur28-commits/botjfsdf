@@ -37,6 +37,7 @@ import {
   subscribeNotifications,
   subscribeStudents,
   dbAddWebinar,
+  dbUpdateWebinar,
   dbDeleteWebinar,
   dbAddHomework,
   dbUpdateHomework,
@@ -153,6 +154,24 @@ export default function App() {
     }
   }, [deletedNotifIds]);
 
+  const [deletedWebinarIds, setDeletedWebinarIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_deleted_webinar_ids');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ege_app_deleted_webinar_ids', JSON.stringify(deletedWebinarIds));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [deletedWebinarIds]);
+
   const handleAddStudent = (login: string, name?: string) => {
     const cleanLogin = login.trim().toLowerCase().replace('@', '');
     const newStudent: RegisteredStudent = {
@@ -163,6 +182,7 @@ export default function App() {
       password: '',
       addedAt: 'Сегодня',
       isFirstLogin: true,
+      accessibleMonths: [],
     };
     setRegisteredStudents((prev) => [newStudent, ...prev]);
     dbAddStudent(newStudent);
@@ -221,6 +241,7 @@ export default function App() {
           password: newPassword,
           addedAt: 'Сегодня',
           isFirstLogin: false,
+          accessibleMonths: [],
         };
         dbAddStudent(newStudent);
         return [newStudent, ...updated];
@@ -243,7 +264,7 @@ export default function App() {
   // Dynamic student profile based on logged in user & their actual submissions
   const currentStudentSubmissions = submissions.filter((s) => s.studentName === currentUser.name);
 
-  // Server-side + Local streak tracking (Bulletproof)
+  // Server-side + Local streak tracking (Bulletproof with legacy support)
   useEffect(() => {
     if (!isLoggedIn || currentUser.role !== 'student') return;
     const student = registeredStudents.find(
@@ -256,53 +277,61 @@ export default function App() {
     if (!student) return;
 
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${year}-${month}-${day}`;
-
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yYear = yesterday.getFullYear();
-    const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-    const yDay = String(yesterday.getDate()).padStart(2, '0');
-    const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+    // Функция-переводчик старых дат (timestamp) в новый формат
+    const normalizeDateStr = (dateVal: string | undefined | null) => {
+      if (!dateVal) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return dateVal;
+      const num = parseInt(dateVal, 10);
+      if (!isNaN(num) && num > 1000000000000) {
+        const d = new Date(num);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      return null;
+    };
 
     const localLastVisit = localStorage.getItem(`last_visit_${student.id}`);
     const localStreak = localStorage.getItem(`streak_${student.id}`);
+    const normalizedDbDate = normalizeDateStr(student.lastVisitDate);
 
-    // 1. Если локальный кэш говорит, что мы уже обновили стрик СЕГОДНЯ:
-    if (localLastVisit === todayStr) {
-      const cachedStreak = parseInt(localStreak || '1', 10);
-      // Защита от гонки данных: если база отстает от кэша, принудительно обновляем
-      if (student.lastVisitDate !== todayStr || student.streakDays !== cachedStreak) {
-        dbUpdateStudent(student.id, { streakDays: cachedStreak, lastVisitDate: todayStr });
-        setRegisteredStudents((prev) =>
-          prev.map((s) => (s.id === student.id ? { ...s, streakDays: cachedStreak, lastVisitDate: todayStr } : s))
-        );
+    // 1. Берем самую свежую дату (защита от медленного ответа базы данных)
+    let actualLastVisit = normalizedDbDate;
+    if (!actualLastVisit || (localLastVisit && localLastVisit > actualLastVisit)) {
+      actualLastVisit = localLastVisit;
+    }
+
+    // 2. Берем максимальный стрик, чтобы не откатиться назад из-за лага
+    const dbStreak = student.streakDays || 1;
+    const locStreak = parseInt(localStreak || '0', 10);
+    const currentActualStreak = Math.max(dbStreak, locStreak);
+
+    if (actualLastVisit !== todayStr) {
+      let newStreak = currentActualStreak;
+      if (actualLastVisit === yesterdayStr) {
+        newStreak += 1;
+      } else if (actualLastVisit && actualLastVisit !== todayStr) {
+        newStreak = 1;
       }
-      return; // Дальше не считаем, на сегодня всё!
+      
+      // Мгновенно сохраняем локально, чтобы заблокировать повторные триггеры
+      localStorage.setItem(`last_visit_${student.id}`, todayStr);
+      localStorage.setItem(`streak_${student.id}`, newStreak.toString());
+      
+      dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
+      setRegisteredStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
+      );
+    } else {
+      // Если сегодня уже заходили, но в базе почему-то цифра меньше локальной — обновляем базу
+      if (student.streakDays !== currentActualStreak) {
+         dbUpdateStudent(student.id, { streakDays: currentActualStreak, lastVisitDate: todayStr });
+      }
     }
-
-    // 2. Если мы здесь, значит сегодня мы еще не заходили
-    const actualLastVisit = student.lastVisitDate || localLastVisit;
-    let newStreak = student.streakDays || 1;
-
-    if (actualLastVisit === yesterdayStr) {
-      newStreak += 1; // Зашел вчера -> плюс один
-    } else if (actualLastVisit && actualLastVisit !== todayStr) {
-      newStreak = 1; // Пропустил день -> сброс
-    }
-
-    // Сохраняем в локальный кэш (БРОНЯ)
-    localStorage.setItem(`last_visit_${student.id}`, todayStr);
-    localStorage.setItem(`streak_${student.id}`, newStreak.toString());
-
-    // Отправляем в базу
-    dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
-    setRegisteredStudents((prev) =>
-      prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
-    );
   }, [currentUser, isLoggedIn, registeredStudents]);
 
   const activeStudentProfile: StudentProfileType = React.useMemo(() => {
@@ -538,8 +567,20 @@ export default function App() {
 
   // Delete Video Lesson (Admin Feature)
   const handleDeleteWebinar = async (webinarId: string) => {
+    const updated = Array.from(new Set([...deletedWebinarIds, webinarId]));
+    setDeletedWebinarIds(updated);
+    try {
+      localStorage.setItem('ege_app_deleted_webinar_ids', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
     setWebinars((prev) => prev.filter((w) => w.id !== webinarId));
     await dbDeleteWebinar(webinarId);
+  };
+
+  const handleUpdateWebinar = async (updatedWebinar: Webinar) => {
+    setWebinars((prev) => prev.map((w) => (w.id === updatedWebinar.id ? updatedWebinar : w)));
+    await dbUpdateWebinar(updatedWebinar.id, updatedWebinar);
   };
 
   // Add Homework (Admin Feature)
@@ -691,16 +732,6 @@ export default function App() {
 
     setSubmissions((prev) => [newSub, ...prev.filter((s) => s.id !== newSub.id)]);
     await dbAddSubmission(newSub);
-
-    const newNotif: TGNotification = {
-      id: `n-${Date.now()}`,
-      title: '📤 ДЗ отправлено Ангелине!',
-      text: 'Ангелина скоро проверит работу и вышлет разбор. Ожидайте уведомления!',
-      time: formattedDateTime,
-      isRead: false,
-      type: 'check',
-    };
-    await dbAddNotification(newNotif);
   };
 
   // Teacher Grades Submission
@@ -709,20 +740,6 @@ export default function App() {
       prev.map((s) => (s.id === submissionId ? { ...s, ...updatedData } : s))
     );
     await dbUpdateSubmission(submissionId, updatedData);
-
-    const sub = submissions.find((s) => s.id === submissionId);
-    if (sub) {
-      const hw = visibleHomeworks.find((h) => h.id === sub.homeworkId);
-      const newNotif: TGNotification = {
-        id: `n-${Date.now()}`,
-        title: '🎧 Ангелина проверила твой ' + (hw?.title || 'ДЗ') + '!',
-        text: `Оценка: ${updatedData.totalScore}/${updatedData.maxScore || 14} баллов. Послушай разбор!`,
-        time: getFormattedDateTime(),
-        isRead: false,
-        type: 'check',
-      };
-      await dbAddNotification(newNotif);
-    }
   };
 
   // Finish Speaking Simulator -> Auto create submission
@@ -838,9 +855,28 @@ export default function App() {
     }
   }, [readNotifIds]);
 
+  // Получаем доступы текущего ученика
+  const currentStudentAccess = React.useMemo(() => {
+    if (currentUser.role === 'teacher') return ['ALL'];
+    const st = registeredStudents.find(s => s.telegramHandle?.toLowerCase() === currentUser.telegramHandle?.toLowerCase() || s.login === currentUser.name);
+    return st?.accessibleMonths || [];
+  }, [currentUser, registeredStudents]);
+
   const visibleHomeworks = React.useMemo(() => {
-    return homeworks.filter((hw) => !deletedHwIds.includes(hw.id));
-  }, [homeworks, deletedHwIds]);
+    let hwList = homeworks.filter((hw) => !deletedHwIds.includes(hw.id));
+    if (currentUser.role === 'student') {
+      hwList = hwList.filter(hw => currentStudentAccess.includes(hw.month || getCurrentMonthLabel()));
+    }
+    return hwList;
+  }, [homeworks, deletedHwIds, currentUser.role, currentStudentAccess]);
+
+  const visibleWebinars = React.useMemo(() => {
+    let webList = webinars.filter(w => !deletedWebinarIds.includes(w.id));
+    if (currentUser.role === 'student') {
+      webList = webList.filter(w => currentStudentAccess.includes(w.month || getCurrentMonthLabel()));
+    }
+    return webList;
+  }, [webinars, deletedWebinarIds, currentUser.role, currentStudentAccess]);
 
   const visibleSubmissions = React.useMemo(() => {
     return submissions.filter(
@@ -855,16 +891,19 @@ export default function App() {
     if (currentUser.role === 'teacher') {
       const list: TGNotification[] = [];
 
-      // 1. Student joined notifications
+      // 1. Уведомление о реальном входе ученика на платформу
       registeredStudents.forEach((st) => {
-        list.push({
-          id: `notif-joined-${st.id}`,
-          title: `👤 Ученик присоединился: ${st.name}`,
-          text: `Ученик авторизовался в системе (${st.telegramHandle}).`,
-          time: st.addedAt || 'Недавно',
-          isRead: false,
-          type: 'webinar',
-        });
+        // Пока ученик ни разу не заходил (нет lastVisitDate), уведомление не показываем
+        if (st.lastVisitDate) {
+          list.push({
+            id: `notif-joined-${st.id}`,
+            title: `Ученик начал обучение: ${st.name || st.login}`,
+            text: `Ученик вошел на платформу и приступил к занятиям (${st.telegramHandle || `@${st.login}`}).`,
+            time: st.lastVisitDate,
+            isRead: false,
+            type: 'webinar',
+          });
+        }
       });
 
       // 2. Submissions submitted by real students
@@ -1008,8 +1047,20 @@ export default function App() {
 
   const pendingHwCount = visibleHomeworks.filter((hw) => {
     const sub = visibleSubmissions.find((s) => s.homeworkId === hw.id && s.studentName === currentUser.name);
-    return !sub && hw.deadline !== 'Просрочено';
+    return !sub && hw.deadline !== 'Просрочено' && hw.deadline !== 'Без дедлайна';
   }).length;
+
+  const handleUpdateStudentAccess = async (studentId: string, months: string[]) => {
+    setRegisteredStudents(prev => prev.map(s => s.id === studentId ? { ...s, accessibleMonths: months } : s));
+    await dbUpdateStudent(studentId, { accessibleMonths: months });
+  };
+
+  const handleUpdateStudent = async (studentId: string, updatedData: Partial<RegisteredStudent>) => {
+    setRegisteredStudents(prev =>
+      prev.map(s => (s.id === studentId ? { ...s, ...updatedData } : s))
+    );
+    await dbUpdateStudent(studentId, updatedData);
+  };
 
   const appContent = (
     <>
@@ -1023,10 +1074,17 @@ export default function App() {
       ) : (
         <>
           {activeTab === 'webinars' && (
-            <WebinarLibrary webinars={webinars} isDarkMode={isDarkMode} onSaveProgress={handleSaveWebinarProgress} />
+            <WebinarLibrary webinars={visibleWebinars} homeworks={visibleHomeworks} onNavigateToTab={setActiveTab} isDarkMode={isDarkMode} onSaveProgress={handleSaveWebinarProgress} />
           )}
           {activeTab === 'homeworks' && (
-            <HomeworkList homeworks={visibleHomeworks} submissions={visibleSubmissions} onSubmitHomework={handleSubmitHomework} isDarkMode={isDarkMode} currentUserName={currentUser.name} />
+            <HomeworkList 
+              homeworks={visibleHomeworks} 
+              submissions={visibleSubmissions} 
+              onSubmitHomework={handleSubmitHomework} 
+              isDarkMode={isDarkMode} 
+              currentUserName={currentUser.name}
+              currentUserId={registeredStudents.find(s => s.name === currentUser.name || s.login === currentUser.name)?.id} 
+            />
           )}
           {activeTab === 'simulator' && (
             <SpeakingSimulator isDarkMode={isDarkMode} onFinishSimulatedSpeaking={handleFinishSimulatedSpeaking} />
@@ -1035,7 +1093,7 @@ export default function App() {
             <StudentProfile profile={activeStudentProfile} isDarkMode={isDarkMode} onUpdateProfile={handleUpdateProfile} isAdmin={currentUser.role === 'teacher'} registeredStudents={registeredStudents} submissions={visibleSubmissions} homeworks={visibleHomeworks} />
           )}
           {activeTab === 'teacher' && (
-            <TeacherCabinet submissions={visibleSubmissions} homeworks={visibleHomeworks} webinars={webinars} registeredStudents={registeredStudents} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onGradeSubmission={handleGradeSubmission} onAddWebinar={handleAddWebinar} onDeleteWebinar={handleDeleteWebinar} onAddHomework={handleAddHomework} onUpdateHomework={handleUpdateHomework} onDeleteHomework={handleDeleteHomework} onDeleteSubmission={handleDeleteSubmission} isDarkMode={isDarkMode} />
+            <TeacherCabinet submissions={visibleSubmissions} homeworks={visibleHomeworks} webinars={webinars} registeredStudents={registeredStudents} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onGradeSubmission={handleGradeSubmission} onAddWebinar={handleAddWebinar} onUpdateWebinar={handleUpdateWebinar} onDeleteWebinar={handleDeleteWebinar} onAddHomework={handleAddHomework} onUpdateHomework={handleUpdateHomework} onDeleteHomework={handleDeleteHomework} onDeleteSubmission={handleDeleteSubmission} isDarkMode={isDarkMode} onUpdateStudentAccess={handleUpdateStudentAccess} onUpdateStudent={handleUpdateStudent} />
           )}
         </>
       )}

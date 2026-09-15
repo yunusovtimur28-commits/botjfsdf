@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Webinar, BlockCategory } from '../types';
+import { Webinar, BlockCategory, Homework } from '../types';
+import { getCurrentMonthLabel } from '../lib/dateUtils';
 import { WebinarModal } from './WebinarModal';
 import {
   Search,
@@ -14,16 +15,21 @@ import {
 
 interface WebinarLibraryProps {
   webinars: Webinar[];
+  homeworks?: Homework[];
+  onNavigateToTab?: (tab: any) => void;
   isDarkMode: boolean;
   onSaveProgress?: (webinarId: string, positionSeconds: number) => void;
 }
 
 export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
   webinars,
+  homeworks = [],
+  onNavigateToTab,
   isDarkMode,
   onSaveProgress,
 }) => {
   const [selectedBlock, setSelectedBlock] = useState<BlockCategory | 'all'>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedWebinar, setSelectedWebinar] = useState<Webinar | null>(null);
 
@@ -32,34 +38,79 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
     { id: 'listening', label: '🎧 Аудирование' },
     { id: 'reading', label: '📖 Чтение' },
     { id: 'grammar_vocabulary', label: '📚 Грамматика и лексика' },
-    { id: 'writing', label: '✍️ Письмо и Эссе' },
-    { id: 'speaking', label: '🗣 Speaking' },
+    { id: 'writing', label: '✍️ Письмо' },
+    { id: 'speaking', label: '🗣 Устная часть' },
+    { id: 'free_webinars', label: '🎁 Бесплатные вебинары' },
   ];
 
-  const filteredWebinars = webinars.filter((web) => {
-    const matchesBlock = selectedBlock === 'all' || web.block === selectedBlock;
+  const filteredWebinars = webinars.filter((webinar) => {
+    const matchesMonth = selectedMonth === 'all' || (webinar.month || getCurrentMonthLabel()) === selectedMonth;
+    const matchesBlock = selectedBlock === 'all' || webinar.block === selectedBlock;
     const query = searchQuery.toLowerCase().trim();
     const matchesSearch =
       query === '' ||
-      web.title.toLowerCase().includes(query) ||
-      web.description.toLowerCase().includes(query) ||
-      web.timecodes.some((tc) => tc.label.toLowerCase().includes(query));
-    return matchesBlock && matchesSearch;
+      webinar.title.toLowerCase().includes(query) ||
+      (webinar.description && webinar.description.toLowerCase().includes(query)) ||
+      webinar.timecodes.some((tc) => tc.label.toLowerCase().includes(query));
+
+    return matchesMonth && matchesBlock && matchesSearch;
+  });
+
+  // Умная сортировка от новых к старым (по дате публикации или ID)
+  const sortedWebinars = [...filteredWebinars].sort((a, b) => {
+    const getTime = (item: any) => {
+      if (item.createdAt) return new Date(item.createdAt).getTime();
+      const match = item.id.match(/\d+/);
+      return match ? parseInt(match[0], 10) : 0;
+    };
+    return getTime(b) - getTime(a);
   });
 
   return (
     <div className="space-y-4 pb-20">
+      {/* Header & Month Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+        <div>
+          <h2 className="text-lg font-bold tracking-tight">📚 Видеотека и База знаний</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Записи вебинаров с ускорением 1.25x - 2.0x, таймкодами и конспектами
+          </p>
+        </div>
+        
+        {/* Month Selector */}
+        <div className="flex items-center space-x-1 overflow-x-auto pb-1 max-w-full no-scrollbar">
+          {[
+            { id: 'all', label: 'Все' },
+            { id: 'Январь 2026', label: 'Январь' },
+            { id: 'Февраль 2026', label: 'Февраль' },
+            { id: 'Март 2026', label: 'Март' },
+            { id: 'Апрель 2026', label: 'Апрель' },
+            { id: 'Май 2026', label: 'Май' },
+            { id: 'Июнь 2026', label: 'Июнь' },
+            { id: 'Июль 2026', label: 'Июль' },
+            { id: 'Август 2026', label: 'Август' },
+            { id: 'Сентябрь 2026', label: 'Сентябрь' },
+            { id: 'Октябрь 2026', label: 'Октябрь' },
+            { id: 'Ноябрь 2026', label: 'Ноябрь' },
+            { id: 'Декабрь 2026', label: 'Декабрь' },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setSelectedMonth(m.id)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                selectedMonth === m.id
+                  ? 'bg-sky-500 text-white shadow-sm'
+                  : 'bg-black/10 dark:bg-[#1e2c3a] text-slate-400 hover:text-white border border-slate-700/50'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Search & Header Section */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold tracking-tight">📚 Видеотека и База знаний</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Записи вебинаров с ускорением 1.25x - 2.0x, таймкодами и конспектами
-            </p>
-          </div>
-        </div>
-
         {/* Search Bar */}
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -105,16 +156,16 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
       </div>
 
       {/* Webinars Cards Grid */}
-      {filteredWebinars.length === 0 ? (
+      {sortedWebinars.length === 0 ? (
         <div className={`text-center py-12 rounded-2xl border ${
           isDarkMode ? 'bg-[#1e2c3a] border-slate-800' : 'bg-white border-slate-200'
         }`}>
           <BookOpen className="w-10 h-10 text-slate-400 mx-auto mb-2 opacity-50" />
           <p className="text-sm font-semibold">Уроки не найдены</p>
           <p className="text-xs text-slate-500 mt-1">Попробуйте изменить поисковый запрос или фильтр</p>
-          {(searchQuery || selectedBlock !== 'all') && (
+          {(searchQuery || selectedBlock !== 'all' || selectedMonth !== 'all') && (
             <button 
-              onClick={() => { setSearchQuery(''); setSelectedBlock('all'); }}
+              onClick={() => { setSearchQuery(''); setSelectedBlock('all'); setSelectedMonth('all'); }}
               className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all"
             >
               Сбросить фильтры
@@ -123,7 +174,7 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredWebinars.map((webinar) => {
+          {sortedWebinars.map((webinar) => {
             const watchedPercent =
               webinar.viewedPositionSeconds && webinar.durationSeconds
                 ? Math.min(100, Math.floor((webinar.viewedPositionSeconds / webinar.durationSeconds) * 100))
@@ -231,6 +282,11 @@ export const WebinarLibrary: React.FC<WebinarLibraryProps> = ({
           onClose={() => setSelectedWebinar(null)}
           isDarkMode={isDarkMode}
           onSaveProgress={onSaveProgress}
+          linkedHomework={homeworks.find(h => h.id === selectedWebinar.linkedHomeworkId)}
+          onNavigateToHomework={() => {
+            setSelectedWebinar(null);
+            if (onNavigateToTab) onNavigateToTab('homeworks');
+          }}
         />
       )}
     </div>

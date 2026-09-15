@@ -1,6 +1,6 @@
 export type UserRole = 'student' | 'teacher';
 
-export type BlockCategory = 'listening' | 'reading' | 'grammar_vocabulary' | 'writing' | 'speaking';
+export type BlockCategory = 'listening' | 'reading' | 'grammar_vocabulary' | 'writing' | 'speaking' | 'free_webinars';
 
 export interface Timecode {
   timeInSeconds: number;
@@ -29,11 +29,13 @@ export interface Webinar {
   materials: MaterialFile[];
   date: string;
   viewedPositionSeconds?: number;
+  month?: string;
+  linkedHomeworkId?: string;
 }
 
 export type HomeworkType = 'test' | 'speaking' | 'written';
 
-export type HomeworkStatus = 'todo' | 'pending' | 'graded' | 'overdue';
+export type HomeworkStatus = 'todo' | 'pending' | 'graded' | 'overdue' | 'archive';
 
 export interface TestOption {
   id: string;
@@ -57,7 +59,11 @@ export interface HomeworkTask {
   instruction?: string; // Инструкция к заданию
   taskPrompt: string; // Задание / Условие
   taskImageUrl?: string; // Фото / Схема / Иллюстрация к заданию
+  taskImageUrls?: string[]; // Фотографии к заданию (до 5 шт)
+  taskFileLink?: string; // Ссылка на файл (PDF, Doc)
+  taskFileName?: string; // Название файла
   taskAudioUrl?: string; // Голосовое / Аудиозапись к заданию (от учителя)
+  taskVideoUrl?: string; // Видео к заданию (Reels / TikTok / MP4)
   options?: string[]; // Варианты ответов для тестовых заданий
   correctOptionIndex?: number; // Индекс правильного ответа (0, 1, 2, 3...)
   correctAnswer?: string; // Текст правильного ответа
@@ -73,6 +79,7 @@ export interface Homework {
   deadline: string; // ISO or readable
   deadlineDate: string;
   month?: string; // Месяц для группировки ("Май 2026", "Апрель 2026", etc.)
+  createdAt?: string; // ISO дата публикации
   maxPoints: number;
   description: string;
   tasks?: HomeworkTask[];
@@ -176,6 +183,7 @@ export interface RegisteredStudent {
   isFirstLogin: boolean;
   streakDays?: number;
   lastVisitDate?: string;
+  accessibleMonths?: string[];
 }
 
 export interface TGNotification {

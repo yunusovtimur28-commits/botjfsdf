@@ -157,27 +157,99 @@ app.post("/api/yt-info", async (req, res) => {
   }
 });
 
-// AI Timecodes generator endpoint
+// AI Timecodes generator endpoint (Smart YouTube Subtitles & Duration Parsing with Browser Spoofing)
 app.post("/api/ai-timecodes", async (req, res) => {
   try {
-    const { title, description, duration } = req.body;
-    const videoTitle = title || "Обучающее видео";
-    const videoDesc = description || "Разбор темы урока";
+    const { title, description, duration, videoUrl } = req.body;
+    const videoTitle = title || "Без названия";
+    const videoDesc = description || "";
     const videoDuration = duration || "45:00";
+
+    let transcriptContext = "";
+    let exactDuration = "";
+
+    // 1. Попытка вытянуть данные напрямую с YouTube
+    if (videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'))) {
+      try {
+        // Добавляем заголовки реального браузера Chrome, чтобы обойти блокировку ботов
+        const ytRes = await fetch(videoUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+          }
+        });
+        const html = await ytRes.text();
+        
+        // Вытягиваем точный хронометраж из кода страницы
+        const matchLen = html.match(/"lengthSeconds":"(\d+)"/);
+        if (matchLen && matchLen[1]) {
+           const totalSeconds = parseInt(matchLen[1], 10);
+           const h = Math.floor(totalSeconds / 3600);
+           const m = Math.floor((totalSeconds % 3600) / 60);
+           const s = totalSeconds % 60;
+           exactDuration = h > 0
+             ? `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`
+             : `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+        
+        // Ищем скрытый JSON с треками субтитров
+        const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+        if (captionMatch) {
+          const tracks = JSON.parse(captionMatch[1]);
+          // Ищем русскую дорожку (автоматическую или загруженную)
+          const track = tracks.find((t: any) => t.languageCode === 'ru' || t.vssId === 'a.ru') || tracks[0];
+          
+          if (track && track.baseUrl) {
+            const xmlRes = await fetch(track.baseUrl);
+            const xml = await xmlRes.text();
+            
+            const regex = /<text start="([\d.]+)"[^>]*>(.*?)<\/text>/g;
+            let match;
+            let lines = [];
+            while ((match = regex.exec(xml)) !== null) {
+              const startSeconds = parseFloat(match[1]);
+              const mm = Math.floor(startSeconds / 60).toString().padStart(2, '0');
+              const ss = Math.floor(startSeconds % 60).toString().padStart(2, '0');
+              const text = match[2].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+              lines.push(`[${mm}:${ss}] ${text}`);
+            }
+            // Увеличили объем забираемого текста для часовых вебинаров
+            transcriptContext = lines.join(' ').substring(0, 70000);
+          }
+        }
+      } catch (e) {
+        console.error("Ошибка при получении данных YouTube:", e);
+      }
+    }
 
     const ai = getGeminiClient();
     if (!ai) {
-      return res.json([
-        { timeStr: "00:00", label: `🎬 Введение и план урока: ${videoTitle}` },
-        { timeStr: "05:00", label: "📖 Разбор теории и критериев ФИПИ" },
-        { timeStr: "15:00", label: "💡 Ключевые правила, структуры и шаблоны" },
-        { timeStr: "25:00", label: "✍️ Практическое задание и разбор примера" },
-        { timeStr: "38:00", label: "🚀 Лайфхаки для максимального балла на экзамене" },
-        { timeStr: "43:00", label: "❓ Итоги урока и домашнее задание" },
-      ]);
+      return res.json({
+        exactDuration,
+        timecodes: [
+          { timeStr: "00:00", label: `Введение: ${videoTitle}` },
+          { timeStr: "05:00", label: "Начало лекции" },
+        ]
+      });
     }
 
-    const prompt = `Ты методист образовательной платформы. У нас есть урок длительностью ${videoDuration}. Название видео: "${videoTitle}". Тезисный план урока: "${videoDesc}". Твоя задача: разбить этот план на 5-8 логичных таймкодов, равномерно распределив их по времени видео от 00:00 до конца. Верни СТРОГО массив JSON без markdown-разметки: [{"timeStr": "MM:SS", "label": "Название темы"}]. Первый таймкод строго 00:00.`;
+    let prompt = `Сгенерируй таймкоды для образовательного видео.
+Название: "${videoTitle}".
+Описание: "${videoDesc}".`;
+
+    if (transcriptContext) {
+      prompt += `\n\nВот точная расшифровка слов спикера с таймингами (по секундам):\n${transcriptContext}\n\nЗАДАЧА: На основе этого ТОЧНОГО текста спикера, выдели 5-8 логических глав.
+СТРОГИЕ ПРАВИЛА:
+1. Укажи ТОЧНОЕ время начала каждой главы из предоставленных субтитров.
+2. НЕ выдумывай темы (например, не пиши "Проверка ДЗ", если этого нет в тексте). Опирайся ТОЛЬКО на то, о чем реально говорит спикер.
+3. Названия глав должны быть короткими, емкими и отражать суть отрезка.`;
+    } else {
+      prompt += `\nДлительность: ${videoDuration}.\n\nЗАДАЧА: Разбей видео на 5-8 логических частей. (Субтитры недоступны, сделай логичное предположение на основе названия).`;
+    }
+
+    prompt += `\nВерни ТОЛЬКО валидный JSON массив объектов (без маркдауна, без блоков \`\`\`json).
+Формат: [{"timeStr": "MM:SS", "label": "Название главы"}].
+Первый таймкод всегда должен быть "00:00".`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.6-flash",
@@ -190,14 +262,18 @@ app.post("/api/ai-timecodes", async (req, res) => {
     const rawText = response.text || "";
     try {
       const parsed = JSON.parse(rawText);
-      return res.json(parsed);
+      return res.json({
+        timecodes: parsed,
+        exactDuration: exactDuration
+      });
     } catch (parseErr) {
       console.error("JSON parse error from Gemini response:", rawText);
-      return res.status(500).json({ error: "Ошибка парсинга" });
+      return res.status(500).json({ error: "Ошибка парсинга JSON" });
     }
+
   } catch (err: any) {
     console.error("AI Timecodes Error:", err);
-    res.status(500).json({ error: "Ошибка генерации таймкодов", details: err.message });
+    res.status(500).json({ error: "Ошибка сервера", details: err.message });
   }
 });
 
