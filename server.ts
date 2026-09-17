@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -10,6 +11,60 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "20mb" }));
+
+// Uploads directory configuration for storing files (PDFs, docs, homework materials)
+const uploadsDir = path.join(process.cwd(), "public", "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve uploaded files statically
+app.use("/uploads", express.static(uploadsDir));
+
+// File Upload Endpoint: Saves large files locally to avoid Firestore 1MB document limit
+app.post("/api/upload-file", async (req, res) => {
+  try {
+    const { fileName, base64 } = req.body;
+    if (!base64) {
+      return res.status(400).json({ success: false, error: "Нет данных файла" });
+    }
+
+    const safeName = (fileName || "material.pdf").replace(/[^a-zA-Z0-9._\-а-яА-ЯёЁ]/g, "_");
+    const ext = path.extname(safeName) || ".bin";
+    const baseWithoutExt = path.basename(safeName, ext);
+    const uniqueFileName = `${Date.now()}_${baseWithoutExt.slice(0, 40)}${ext}`;
+    const filePath = path.join(uploadsDir, uniqueFileName);
+
+    const base64Data = base64.includes("base64,") ? base64.split("base64,")[1] : base64;
+    const buffer = Buffer.from(base64Data, "base64");
+
+    await fs.promises.writeFile(filePath, buffer);
+
+    const publicUrl = `/uploads/${encodeURIComponent(uniqueFileName)}`;
+    return res.json({
+      success: true,
+      url: publicUrl,
+      fileName: fileName || uniqueFileName,
+      sizeBytes: buffer.length,
+      size: (buffer.length / (1024 * 1024)).toFixed(1) + " МБ",
+    });
+  } catch (err: any) {
+    console.error("Upload file error:", err);
+    return res.status(500).json({ success: false, error: "Ошибка сохранения файла", details: err.message });
+  }
+});
+
+// Explicit download endpoint
+app.get("/api/download/:fileName", (req, res) => {
+  const decodedFileName = decodeURIComponent(req.params.fileName);
+  const filePath = path.join(uploadsDir, decodedFileName);
+  if (fs.existsSync(filePath)) {
+    const downloadName = (req.query.name as string) || decodedFileName;
+    res.download(filePath, downloadName);
+  } else {
+    res.status(404).send("Файл не найден");
+  }
+});
 
 // Initialize Gemini client server-side lazily / safely
 function getGeminiClient() {

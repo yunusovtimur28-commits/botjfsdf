@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent } from '../types';
 import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
 import { dbUpdateStudent } from '../lib/firebase';
+import { uploadFileToServer, uploadBase64ToServer } from '../lib/fileUpload';
 import {
   GraduationCap,
   Mic,
@@ -112,11 +113,15 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   }, [registeredStudents, softDeletedStudentIds]);
 
   const activeWebinars = React.useMemo(() => {
-    return webinars.filter((web) => !softDeletedWebinarIds.includes(web.id));
+    return [...webinars]
+      .filter((web) => !softDeletedWebinarIds.includes(web.id))
+      .reverse();
   }, [webinars, softDeletedWebinarIds]);
 
   const activeHomeworks = React.useMemo(() => {
-    return homeworks.filter((hw) => !softDeletedHwIds.includes(hw.id));
+    return [...homeworks]
+      .filter((hw) => !softDeletedHwIds.includes(hw.id))
+      .reverse();
   }, [homeworks, softDeletedHwIds]);
 
   const activeSubmissions = React.useMemo(() => {
@@ -457,6 +462,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   ]);
   const [newMatName, setNewMatName] = useState('');
   const [newMatLink, setNewMatLink] = useState('');
+  const [isUploadingMaterial, setIsUploadingMaterial] = useState(false);
   const [uploadSuccessToast, setUploadSuccessToast] = useState<string | null>(null);
 
   // CREATE / EDIT HOMEWORK FORM STATE
@@ -692,9 +698,27 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setTimecodes((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleMaterialFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMaterialFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+
+    setIsUploadingMaterial(true);
+    try {
+      const uploaded = await uploadFileToServer(file);
+      setMaterials((prev) => [
+        ...prev,
+        {
+          id: `mat-${Date.now()}`,
+          name: file.name,
+          type: file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'doc',
+          size: uploaded.size,
+          url: uploaded.url,
+        },
+      ]);
+      setNewMatName('');
+      setNewMatLink('');
+    } catch (err) {
+      console.error('Error uploading material file:', err);
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -708,25 +732,31 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               url: event.target.result as string,
             },
           ]);
-          // Очищаем инпуты, так как файл уже прикреплен
           setNewMatName('');
           setNewMatLink('');
         }
       };
       reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingMaterial(false);
+      e.target.value = '';
     }
   };
 
-  const handleAddMaterialClick = () => {
+  const handleAddMaterialClick = async () => {
     if (!newMatName.trim() || !newMatLink.trim()) return;
+    let finalUrl = newMatLink.trim();
+    if (finalUrl.startsWith('data:')) {
+      finalUrl = await uploadBase64ToServer(finalUrl, newMatName.trim());
+    }
     setMaterials((prev) => [
       ...prev,
       {
         id: `mat-${Date.now()}`,
         name: newMatName.trim().endsWith('.pdf') || newMatName.trim().endsWith('.doc') || newMatName.trim().endsWith('.docx') ? newMatName.trim() : `${newMatName.trim()}.pdf`,
         type: newMatName.toLowerCase().includes('.doc') ? 'doc' : 'pdf',
-        size: newMatLink.startsWith('data:') ? ((newMatLink.length * 0.75) / (1024 * 1024)).toFixed(1) + ' МБ' : 'Внешняя ссылка',
-        url: newMatLink.trim(),
+        size: finalUrl.startsWith('data:') ? ((finalUrl.length * 0.75) / (1024 * 1024)).toFixed(1) + ' МБ' : 'Файл материала',
+        url: finalUrl,
       },
     ]);
     setNewMatName('');
@@ -798,7 +828,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   };
 
   // PUBLISH VIDEO LESSON / WEBINAR
-  const handlePublishWebinar = (e: React.FormEvent) => {
+  const handlePublishWebinar = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoTitle.trim()) {
       alert('Пожалуйста, укажите название ролика');
@@ -808,12 +838,16 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     // Автоматический перехват материалов, если забыли нажать "Прикрепить"
     const finalMaterials = [...materials];
     if (newMatName.trim() && newMatLink.trim()) {
+      let finalLink = newMatLink.trim();
+      if (finalLink.startsWith('data:')) {
+        finalLink = await uploadBase64ToServer(finalLink, newMatName.trim());
+      }
       finalMaterials.push({
         id: `mat-${Date.now()}`,
         name: newMatName.trim().endsWith('.pdf') || newMatName.trim().endsWith('.doc') || newMatName.trim().endsWith('.docx') ? newMatName.trim() : `${newMatName.trim()}.pdf`,
         type: newMatName.toLowerCase().includes('.doc') ? 'doc' : 'pdf',
-        size: newMatLink.startsWith('data:') ? ((newMatLink.length * 0.75) / (1024 * 1024)).toFixed(1) + ' МБ' : 'Внешняя ссылка',
-        url: newMatLink.trim(),
+        size: finalLink.startsWith('data:') ? ((finalLink.length * 0.75) / (1024 * 1024)).toFixed(1) + ' МБ' : 'Файл материала',
+        url: finalLink,
       });
     }
 
@@ -1620,10 +1654,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       placeholder="Ссылка на файл..."
                       className={`flex-1 p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
                     />
-                    <label className="cursor-pointer px-3 py-2.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 font-bold text-xs rounded-xl border border-sky-500/30 flex items-center shrink-0 transition-all">
-                      <UploadCloud className="w-4 h-4 mr-1" />
-                      <span className="hidden sm:inline">С ПК</span>
-                      <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleMaterialFileUpload} />
+                    <label className={`cursor-pointer px-3 py-2.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 font-bold text-xs rounded-xl border border-sky-500/30 flex items-center shrink-0 transition-all ${isUploadingMaterial ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <UploadCloud className={`w-4 h-4 mr-1 ${isUploadingMaterial ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">{isUploadingMaterial ? 'Загрузка...' : 'С ПК'}</span>
+                      <input type="file" accept=".pdf,.doc,.docx" className="hidden" disabled={isUploadingMaterial} onChange={handleMaterialFileUpload} />
                     </label>
                   </div>
                   <button

@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import config from '../../firebase-applet-config.json';
 import { Webinar, Homework, Submission, TGNotification, RegisteredStudent } from '../types';
+import { uploadBase64ToServer } from './fileUpload';
 
 setLogLevel('silent');
 
@@ -124,13 +125,84 @@ export function subscribeNotifications(
   );
 }
 
+// Helpers to sanitize large data URLs and prevent exceeding the 1MB Firestore document limit
+async function sanitizeLargeDataUrls(data: string, fileName?: string): Promise<string> {
+  if (data && typeof data === 'string' && data.startsWith('data:')) {
+    try {
+      const cleanUrl = await uploadBase64ToServer(data, fileName || 'file.pdf');
+      return cleanUrl;
+    } catch (err) {
+      console.warn('Failed to sanitize large data URL:', err);
+    }
+  }
+  return data;
+}
+
+export async function sanitizeWebinar(webinar: Webinar): Promise<Webinar> {
+  if (!webinar.materials || webinar.materials.length === 0) return webinar;
+
+  const sanitizedMaterials = await Promise.all(
+    webinar.materials.map(async (mat) => {
+      if (mat.url && mat.url.startsWith('data:')) {
+        const cleanUrl = await sanitizeLargeDataUrls(mat.url, mat.name);
+        return { ...mat, url: cleanUrl };
+      }
+      return mat;
+    })
+  );
+
+  return { ...webinar, materials: sanitizedMaterials };
+}
+
+export async function sanitizeHomework(hw: Homework): Promise<Homework> {
+  if (!hw.tasks || hw.tasks.length === 0) return hw;
+  const sanitizedTasks = await Promise.all(
+    hw.tasks.map(async (task) => {
+      let taskFileLink = task.taskFileLink;
+      if (taskFileLink && taskFileLink.startsWith('data:')) {
+        taskFileLink = await sanitizeLargeDataUrls(taskFileLink, task.taskFileName || 'task_file.pdf');
+      }
+
+      let taskVideoUrl = task.taskVideoUrl;
+      if (taskVideoUrl && taskVideoUrl.startsWith('data:')) {
+        taskVideoUrl = await sanitizeLargeDataUrls(taskVideoUrl, 'task_video.mp4');
+      }
+
+      let taskImageUrls = task.taskImageUrls;
+      if (taskImageUrls && taskImageUrls.length > 0) {
+        taskImageUrls = await Promise.all(
+          taskImageUrls.map(async (img, idx) => {
+            if (img.startsWith('data:')) {
+              return await sanitizeLargeDataUrls(img, `task_img_${idx}.png`);
+            }
+            return img;
+          })
+        );
+      }
+
+      return {
+        ...task,
+        taskFileLink,
+        taskVideoUrl,
+        taskImageUrls,
+      };
+    })
+  );
+
+  return { ...hw, tasks: sanitizedTasks };
+}
+
 // Write / Mutation Operations with try-catch
-export async function dbAddWebinar(webinar: Webinar) {
+export async function dbAddWebinar(webinar: Webinar): Promise<Webinar> {
   try {
-    const docRef = doc(db, 'webinars', webinar.id);
-    await setDoc(docRef, { ...webinar, createdAt: new Date().toISOString() });
+    const sanitized = await sanitizeWebinar(webinar);
+    const docRef = doc(db, 'webinars', sanitized.id);
+    const cleaned = cleanUndefined({ ...sanitized, createdAt: new Date().toISOString() });
+    await setDoc(docRef, cleaned);
+    return sanitized;
   } catch (e) {
     console.error('Error adding webinar to Firestore:', e);
+    return webinar;
   }
 }
 
@@ -142,13 +214,20 @@ export async function dbDeleteWebinar(webinarId: string) {
   }
 }
 
-export async function dbUpdateWebinar(webinarId: string, updatedData: Partial<Webinar>) {
+export async function dbUpdateWebinar(webinarId: string, updatedData: Partial<Webinar>): Promise<Webinar | null> {
   try {
     const docRef = doc(db, 'webinars', webinarId);
-    const cleaned = cleanUndefined(updatedData);
+    let sanitizedData = updatedData;
+    if (updatedData.materials) {
+      const tempWebinar = await sanitizeWebinar({ id: webinarId, materials: updatedData.materials } as Webinar);
+      sanitizedData = { ...updatedData, materials: tempWebinar.materials };
+    }
+    const cleaned = cleanUndefined({ ...sanitizedData, updatedAt: new Date().toISOString() });
     await setDoc(docRef, cleaned, { merge: true });
+    return sanitizedData as Webinar;
   } catch (e) {
     console.error('Error updating webinar in Firestore:', e);
+    return null;
   }
 }
 
@@ -168,24 +247,29 @@ function cleanUndefined<T>(obj: T): T {
   return cleaned as T;
 }
 
-export async function dbAddHomework(hw: Homework) {
+export async function dbAddHomework(hw: Homework): Promise<Homework> {
   try {
-    const docRef = doc(db, 'homeworks', hw.id);
-    // Берем createdAt из объекта, если его нет — ставим текущую дату
-    const cleaned = cleanUndefined({ ...hw, createdAt: hw.createdAt || new Date().toISOString() });
+    const sanitized = await sanitizeHomework(hw);
+    const docRef = doc(db, 'homeworks', sanitized.id);
+    const cleaned = cleanUndefined({ ...sanitized, createdAt: sanitized.createdAt || new Date().toISOString() });
     await setDoc(docRef, cleaned, { merge: true });
+    return sanitized;
   } catch (e) {
     console.error('Error adding homework to Firestore:', e);
+    return hw;
   }
 }
 
-export async function dbUpdateHomework(hw: Homework) {
+export async function dbUpdateHomework(hw: Homework): Promise<Homework> {
   try {
-    const docRef = doc(db, 'homeworks', hw.id);
-    const cleaned = cleanUndefined(hw);
+    const sanitized = await sanitizeHomework(hw);
+    const docRef = doc(db, 'homeworks', sanitized.id);
+    const cleaned = cleanUndefined(sanitized);
     await setDoc(docRef, cleaned, { merge: true });
+    return sanitized;
   } catch (e) {
     console.error('Error updating homework in Firestore:', e);
+    return hw;
   }
 }
 

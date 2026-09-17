@@ -551,14 +551,15 @@ export default function App() {
 
   // Add Video Lesson / Webinar (Admin Feature)
   const handleAddWebinar = async (newWebinar: Webinar) => {
-    setWebinars((prev) => [newWebinar, ...prev.filter((w) => w.id !== newWebinar.id)]);
-    await dbAddWebinar(newWebinar);
+    const saved = await dbAddWebinar(newWebinar);
+    const finalWebinar = saved || newWebinar;
+    setWebinars((prev) => [finalWebinar, ...prev.filter((w) => w.id !== finalWebinar.id)]);
 
     // Send Notification to Students
     const newNotif: TGNotification = {
       id: `n-${Date.now()}`,
       title: '🎥 Новый видеоурок от Ангелины!',
-      text: `Опубликован новый урок: «${newWebinar.title}». Смотрите с таймкодами и конспектом!`,
+      text: `Опубликован новый урок: «${finalWebinar.title}». Смотрите с таймкодами и конспектом!`,
       time: getFormattedDateTime(),
       isRead: false,
       type: 'webinar',
@@ -580,19 +581,21 @@ export default function App() {
   };
 
   const handleUpdateWebinar = async (updatedWebinar: Webinar) => {
-    setWebinars((prev) => prev.map((w) => (w.id === updatedWebinar.id ? updatedWebinar : w)));
-    await dbUpdateWebinar(updatedWebinar.id, updatedWebinar);
+    const saved = await dbUpdateWebinar(updatedWebinar.id, updatedWebinar);
+    const finalWebinar = (saved as Webinar) || updatedWebinar;
+    setWebinars((prev) => prev.map((w) => (w.id === finalWebinar.id ? finalWebinar : w)));
   };
 
   // Add Homework (Admin Feature)
   const handleAddHomework = async (newHw: Homework) => {
-    setHomeworks((prev) => [newHw, ...prev.filter((h) => h.id !== newHw.id)]);
-    await dbAddHomework(newHw);
+    const saved = await dbAddHomework(newHw);
+    const finalHw = saved || newHw;
+    setHomeworks((prev) => [finalHw, ...prev.filter((h) => h.id !== finalHw.id)]);
 
     const newNotif: TGNotification = {
       id: `n-${Date.now()}`,
       title: '📌 Новое домашнее задание!',
-      text: `Ангелина опубликовала задание: «${newHw.title}». Дедлайн: ${newHw.deadline}`,
+      text: `Ангелина опубликовала задание: «${finalHw.title}». Дедлайн: ${finalHw.deadline}`,
       time: getFormattedDateTime(),
       isRead: false,
       type: 'deadline',
@@ -602,12 +605,13 @@ export default function App() {
 
   // Update Homework (Admin Feature)
   const handleUpdateHomework = async (updatedHw: Homework) => {
-    setHomeworks((prev) => prev.map((h) => (h.id === updatedHw.id ? updatedHw : h)));
-    await dbUpdateHomework(updatedHw);
+    const saved = await dbUpdateHomework(updatedHw);
+    const finalHw = saved || updatedHw;
+    setHomeworks((prev) => prev.map((h) => (h.id === finalHw.id ? finalHw : h)));
 
     const newNotif: TGNotification = {
       id: `n-${Date.now()}`,
-      title: `📝 ДЗ обновлено: «${updatedHw.title}»`,
+      title: `📝 ДЗ обновлено: «${finalHw.title}»`,
       text: 'Преподаватель внес изменения в домашнее задание. Ознакомьтесь с обновленными инструкциями!',
       time: getFormattedDateTime(),
       isRead: false,
@@ -927,7 +931,7 @@ export default function App() {
       registeredStudents.forEach((st) => {
         list.push({
           id: `notif-streak-${st.id}`,
-          title: `������ Рекорд по стрику дней: ${st.name}`,
+          title: `🔥 Рекорд по стрику дней: ${st.name}`,
           text: `Ученик успешно заходит в систему и поддерживает ежедневную активность!`,
           time: 'Сегодня',
           isRead: true,

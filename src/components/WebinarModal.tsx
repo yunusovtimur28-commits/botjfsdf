@@ -199,7 +199,7 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
         document.body.removeChild(link);
 
         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-      } else if (material.url.startsWith('blob:')) {
+      } else if (material.url.startsWith('blob:') || material.url.startsWith('/uploads/')) {
         const link = document.createElement('a');
         link.href = material.url;
         link.download = material.name || 'Материал_урока';
