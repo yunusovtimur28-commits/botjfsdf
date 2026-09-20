@@ -111,8 +111,15 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
   linkedHomework,
   onNavigateToHomework,
 }) => {
-  const embedInfo = getVideoEmbedInfo(webinar.videoUrl);
-  const [iframeUrl, setIframeUrl] = useState<string>(() => embedInfo.embedUrl);
+  const [activePart, setActivePart] = useState<1 | 2>(1);
+  const currentUrl = activePart === 1 ? webinar.videoUrl : (webinar.videoUrlPart2 || webinar.videoUrl);
+  const embedInfo = getVideoEmbedInfo(currentUrl);
+  const [iframeUrl, setIframeUrl] = useState<string>(embedInfo.embedUrl);
+
+  useEffect(() => {
+    setIframeUrl(getVideoEmbedInfo(currentUrl).embedUrl);
+  }, [currentUrl]);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
@@ -120,10 +127,6 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
   const [duration, setDuration] = useState<number>(webinar.durationSeconds || 0);
   const [activeTab, setActiveTab] = useState<'timecodes' | 'materials'>('timecodes');
   const [downloadSuccessMessage, setDownloadSuccessMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setIframeUrl(embedInfo.embedUrl);
-  }, [webinar.videoUrl]);
 
   // Set initial video time if saved
   useEffect(() => {
@@ -250,6 +253,27 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
           </button>
         </div>
 
+        {webinar.videoUrlPart2 && (
+          <div className="flex bg-black/10 dark:bg-black/20">
+            <button
+              onClick={() => setActivePart(1)}
+              className={`flex-1 py-2.5 text-xs font-bold transition-all ${
+                activePart === 1 ? 'bg-sky-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              Часть 1
+            </button>
+            <button
+              onClick={() => setActivePart(2)}
+              className={`flex-1 py-2.5 text-xs font-bold transition-all ${
+                activePart === 2 ? 'bg-sky-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              Часть 2
+            </button>
+          </div>
+        )}
+
         {/* Video Player Area */}
         <div className="relative bg-black aspect-video flex items-center justify-center group overflow-hidden">
           {embedInfo.isEmbed ? (
@@ -264,7 +288,7 @@ export const WebinarModal: React.FC<WebinarModalProps> = ({
             <>
               <video
                 ref={videoRef}
-                src={webinar.videoUrl}
+                src={currentUrl}
                 poster={webinar.thumbnailUrl}
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={handleLoadedMetadata}

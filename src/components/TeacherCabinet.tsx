@@ -436,6 +436,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [videoBlock, setVideoBlock] = useState<BlockCategory>('speaking');
   const [videoMonth, setVideoMonth] = useState<string>(getCurrentMonthLabel());
   const [videoUrl, setVideoUrl] = useState('');
+  const [videoUrl2, setVideoUrl2] = useState('');
   const [presetVideoSelect, setPresetVideoSelect] = useState('custom');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
   const [videoDuration, setVideoDuration] = useState('45:00');
@@ -878,6 +879,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       month: videoMonth,
       description: videoDescription.trim() || 'Описание не указано',
       videoUrl: finalVideoUrl,
+      videoUrlPart2: videoUrl2.trim() || undefined,
       thumbnailUrl: finalThumbUrl,
       duration: videoDuration || '45:00',
       durationSeconds: durSec,
@@ -902,6 +904,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setVideoTitle('');
     setVideoDescription('');
     setVideoUrl('');
+    setVideoUrl2('');
     setThumbnailUrl('');
     setLinkedHomeworkId('none');
     setMaterials([]);
@@ -1518,6 +1521,17 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-400">Ссылка на видео (Часть 2, опционально):</label>
+                <input
+                  type="text"
+                  value={videoUrl2}
+                  onChange={(e) => setVideoUrl2(e.target.value)}
+                  placeholder="https://youtube.com/... (если есть вторая часть)"
+                  className={`w-full p-2.5 rounded-xl text-xs border ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                />
+              </div>
+
               {/* Thumbnail URL */}
               <div className="space-y-1">
                 <label className="font-semibold text-slate-400">Обложка урока (Image URL):</label>
@@ -1751,6 +1765,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         setVideoMonth(web.month || getCurrentMonthLabel());
                         setVideoDescription(web.description);
                         setVideoUrl(web.videoUrl);
+                        setVideoUrl2(web.videoUrlPart2 || '');
                         setThumbnailUrl(web.thumbnailUrl);
                         setVideoDuration(web.duration);
                         setTimecodes(web.timecodes.map(tc => ({ timeInSeconds: tc.timeInSeconds, label: tc.label, timeStr: '00:00' })));

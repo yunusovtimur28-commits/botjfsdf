@@ -22,6 +22,7 @@ export interface Webinar {
   block: BlockCategory;
   description: string;
   videoUrl: string;
+  videoUrlPart2?: string;
   thumbnailUrl: string;
   duration: string;
   durationSeconds: number;
