@@ -350,6 +350,34 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     selectedSubmission?.teacherFeedbackText || ''
   );
 
+  // Per-task feedbacks (score and comment per individual task)
+  const [taskFeedbacks, setTaskFeedbacks] = useState<Record<string, { comment?: string; score?: number }>>(
+    selectedSubmission?.taskFeedbacks || {}
+  );
+
+  // Alternative school grade (1-5)
+  const [schoolGrade, setSchoolGrade] = useState<number | undefined>(
+    selectedSubmission?.schoolGrade
+  );
+
+  // Keep grading state synchronized when selectedSubmission changes
+  useEffect(() => {
+    if (selectedSubmission) {
+      setTaskFeedbacks(selectedSubmission.taskFeedbacks || {});
+      setSchoolGrade(selectedSubmission.schoolGrade);
+      setFeedbackText(selectedSubmission.teacherFeedbackText || '');
+      setTeacherVoiceUrl(selectedSubmission.teacherVoiceAudioUrl || null);
+      if (selectedSubmission.criteriaScores) {
+        setCriteria(selectedSubmission.criteriaScores);
+      }
+    } else {
+      setTaskFeedbacks({});
+      setSchoolGrade(undefined);
+      setFeedbackText('');
+      setTeacherVoiceUrl(null);
+    }
+  }, [selectedSubmission]);
+
   // Voice recording by Angelina (Teacher)
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingVoiceSeconds, setRecordingVoiceSeconds] = useState(0);
@@ -1135,6 +1163,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     );
     setFeedbackText(sub.teacherFeedbackText || '');
     setTeacherVoiceUrl(sub.teacherVoiceAudioUrl || null);
+    setTaskFeedbacks(sub.taskFeedbacks || {});
+    setSchoolGrade(sub.schoolGrade);
   };
 
   const handleGenerateAiAssistantDraft = async () => {
@@ -1186,6 +1216,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       criteriaScores: criteria,
       totalScore: finalScore,
       maxScore,
+      schoolGrade: schoolGrade,
+      taskFeedbacks: Object.keys(taskFeedbacks).length > 0 ? taskFeedbacks : undefined,
       teacherFeedbackText: feedbackText,
       teacherVoiceAudioUrl: teacherVoiceUrl || undefined,
       teacherCheckedAt: formattedCheckedAt,
@@ -1193,7 +1225,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
     setGradeSuccessToast({
       studentName: selectedSubmission.studentName,
-      scoreStr: `${finalScore} / ${maxScore} баллов`,
+      scoreStr:
+        schoolGrade !== undefined
+          ? `Оценка: ${schoolGrade}`
+          : `${finalScore} / ${maxScore} баллов`,
     });
 
     const remainingPending = submissions.filter(
@@ -2147,24 +2182,325 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               )}
 
               {/* Multi-Task Answers Review */}
-              {selectedSubmission.taskAnswers && Object.keys(selectedSubmission.taskAnswers).length > 0 && (
-                <div className="space-y-2.5 p-3 rounded-xl bg-purple-950/30 border border-purple-500/30">
-                  <h4 className="text-xs font-bold text-purple-300">
-                    📋 Ответы по индивидуальным заданиям:
-                  </h4>
-                  <div className="space-y-2">
-                    {Object.entries(selectedSubmission.taskAnswers).map(([taskId, ans]: [string, any], aIdx) => (
-                      <div key={taskId} className="p-2.5 rounded-lg bg-black/30 border border-slate-700 text-xs space-y-1">
-                        <span className="font-bold text-purple-400">Задание #{aIdx + 1}:</span>
-                        {ans.textAnswer && <p className="text-slate-200">{ans.textAnswer}</p>}
-                        {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
-                          <audio controls src={ans.voiceAudioUrl} className="w-full h-7 mt-1" />
-                        )}
-                      </div>
-                    ))}
+              {(() => {
+                const targetHw = getHomeworkForSubmission(selectedSubmission.homeworkId);
+                const hasTasks = Boolean(targetHw?.tasks && targetHw.tasks.length > 0);
+                const hasTaskAnswers = Boolean(
+                  selectedSubmission.taskAnswers && Object.keys(selectedSubmission.taskAnswers).length > 0
+                );
+
+                if (!hasTasks && !hasTaskAnswers) return null;
+
+                return (
+                  <div className="space-y-2.5 p-3 rounded-xl bg-purple-950/30 border border-purple-500/30">
+                    <h4 className="text-xs font-bold text-purple-300">
+                      📋 Ответы по индивидуальным заданиям:
+                    </h4>
+                    <div className="space-y-2.5">
+                      {hasTasks
+                        ? targetHw!.tasks!.map((task, idx) => {
+                            const ans: any = selectedSubmission.taskAnswers?.[task.id];
+                            return (
+                              <div
+                                key={task.id || idx}
+                                className="p-3 rounded-xl bg-black/30 border border-slate-700/80 text-xs space-y-2"
+                              >
+                                <div className="flex items-center justify-between border-b border-slate-700/50 pb-1.5">
+                                  <span className="font-bold text-purple-300">
+                                    {task.taskNumber && task.taskNumber !== 'Без номера'
+                                      ? task.taskNumber
+                                      : `Задание #${idx + 1}`}
+                                  </span>
+                                  {task.block && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-medium">
+                                      {task.block === 'speaking'
+                                        ? '🗣 Говорение'
+                                        : task.block === 'grammar_vocabulary'
+                                        ? '📝 Грам. и лексика'
+                                        : task.block === 'writing'
+                                        ? '✍️ Письмо'
+                                        : task.block === 'listening'
+                                        ? '🎧 Аудирование'
+                                        : '📖 Чтение'}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {task.taskPrompt && (
+                                  <p className="text-[11px] text-slate-400 italic">
+                                    Условие: {task.taskPrompt}
+                                  </p>
+                                )}
+
+                                {ans ? (
+                                  <div className="space-y-1.5 pt-0.5">
+                                    {ans.textAnswer && (
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 font-semibold block">Ответ:</span>
+                                        <p className="text-slate-200 bg-slate-800/40 p-2 rounded-lg border border-slate-700/40 leading-relaxed whitespace-pre-line">
+                                          {ans.textAnswer}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 font-semibold block mb-1">Голосовой ответ:</span>
+                                        <audio controls src={ans.voiceAudioUrl} className="w-full h-8" />
+                                      </div>
+                                    )}
+                                    {ans.imageUrls && ans.imageUrls.length > 0 && (
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] text-slate-400 font-semibold block">
+                                          Фото ответа ({ans.imageUrls.length}):
+                                        </span>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                          {ans.imageUrls.map((imgUrl: string, imgIdx: number) => (
+                                            <a
+                                              key={imgIdx}
+                                              href={imgUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="block rounded-lg overflow-hidden border border-slate-700 aspect-square group relative"
+                                            >
+                                              <img
+                                                src={imgUrl}
+                                                alt={`Фото ответа ${imgIdx + 1}`}
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                              />
+                                            </a>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p className="text-slate-500 italic text-[11px]">
+                                    Ученик не дал ответ на это задание
+                                  </p>
+                                )}
+
+                                {/* Teacher Grading Interface for this task */}
+                                <div className="mt-2.5 pt-2.5 border-t border-purple-500/20 bg-purple-950/20 p-2.5 rounded-xl space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-bold text-purple-300">
+                                      Оценка за задание:
+                                    </span>
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-[10px] text-slate-400">Балл:</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        placeholder="Балл (0-100)"
+                                        value={taskFeedbacks[task.id]?.score !== undefined ? taskFeedbacks[task.id]?.score : ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                          setTaskFeedbacks((prev) => ({
+                                            ...prev,
+                                            [task.id]: {
+                                              ...prev[task.id],
+                                              score: val,
+                                            },
+                                          }));
+                                        }}
+                                        className={`w-28 px-2 py-1 text-xs rounded-lg border text-center font-bold ${
+                                          isDarkMode
+                                            ? 'bg-[#17212b] border-slate-700 text-white'
+                                            : 'bg-white border-slate-300 text-slate-900'
+                                        }`}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <textarea
+                                      rows={2}
+                                      placeholder="Комментарий учителя к конкретному заданию..."
+                                      value={taskFeedbacks[task.id]?.comment || ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setTaskFeedbacks((prev) => ({
+                                          ...prev,
+                                          [task.id]: {
+                                            ...prev[task.id],
+                                            comment: val,
+                                          },
+                                        }));
+                                      }}
+                                      className={`w-full p-2 text-xs rounded-lg border leading-relaxed ${
+                                        isDarkMode
+                                          ? 'bg-[#17212b] border-slate-700 text-white placeholder-slate-500'
+                                          : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
+                                      }`}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        : Object.entries(selectedSubmission.taskAnswers || {}).map(([taskId, ans]: [string, any], aIdx) => (
+                            <div
+                              key={taskId}
+                              className="p-2.5 rounded-lg bg-black/30 border border-slate-700 text-xs space-y-2"
+                            >
+                              <span className="font-bold text-purple-400">Задание #{aIdx + 1}:</span>
+                              {ans.textAnswer && <p className="text-slate-200">{ans.textAnswer}</p>}
+                              {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
+                                <audio controls src={ans.voiceAudioUrl} className="w-full h-7 mt-1" />
+                              )}
+                              {ans.imageUrls && ans.imageUrls.length > 0 && (
+                                <div className="grid grid-cols-2 gap-2 mt-1">
+                                  {ans.imageUrls.map((imgUrl: string, imgIdx: number) => (
+                                    <a key={imgIdx} href={imgUrl} target="_blank" rel="noopener noreferrer">
+                                      <img src={imgUrl} alt={`Фото ${imgIdx + 1}`} className="rounded object-cover h-20 w-full" />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Teacher Grading Interface for this task */}
+                              <div className="mt-2 pt-2 border-t border-purple-500/20 bg-purple-950/20 p-2 rounded-lg space-y-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-purple-300">
+                                    Оценка за задание:
+                                  </span>
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="text-[10px] text-slate-400">Балл:</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      placeholder="Балл (0-100)"
+                                      value={taskFeedbacks[taskId]?.score !== undefined ? taskFeedbacks[taskId]?.score : ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                        setTaskFeedbacks((prev) => ({
+                                          ...prev,
+                                          [taskId]: {
+                                            ...prev[taskId],
+                                            score: val,
+                                          },
+                                        }));
+                                      }}
+                                      className={`w-28 px-2 py-1 text-xs rounded-lg border text-center font-bold ${
+                                        isDarkMode
+                                          ? 'bg-[#17212b] border-slate-700 text-white'
+                                          : 'bg-white border-slate-300 text-slate-900'
+                                      }`}
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <textarea
+                                    rows={2}
+                                    placeholder="Комментарий учителя к конкретному заданию..."
+                                    value={taskFeedbacks[taskId]?.comment || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setTaskFeedbacks((prev) => ({
+                                        ...prev,
+                                        [taskId]: {
+                                          ...prev[taskId],
+                                          comment: val,
+                                        },
+                                      }));
+                                    }}
+                                    className={`w-full p-2 text-xs rounded-lg border leading-relaxed ${
+                                      isDarkMode
+                                        ? 'bg-[#17212b] border-slate-700 text-white placeholder-slate-500'
+                                        : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
+
+              {/* Test Questions & Answers Review */}
+              {(() => {
+                const targetHw = getHomeworkForSubmission(selectedSubmission.homeworkId);
+                const hasTestQuestions = Boolean(targetHw?.testQuestions && targetHw.testQuestions.length > 0);
+                const hasTestAnswers = Boolean(
+                  selectedSubmission.testAnswers && Object.keys(selectedSubmission.testAnswers).length > 0
+                );
+
+                if (!hasTestQuestions && !hasTestAnswers) return null;
+
+                return (
+                  <div className="space-y-2.5 p-3 rounded-xl bg-sky-950/30 border border-sky-500/30">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-sky-300">
+                        📝 Ответы на тестовые вопросы:
+                      </h4>
+                      {selectedSubmission.testScore !== undefined && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                          Результат: {selectedSubmission.testScore} {selectedSubmission.maxScore ? `/ ${selectedSubmission.maxScore}` : ''}
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {hasTestQuestions
+                        ? targetHw!.testQuestions!.map((q, qIdx) => {
+                            const studentAns = selectedSubmission.testAnswers?.[q.id];
+                            const isCorrect =
+                              studentAns !== undefined &&
+                              studentAns.trim().toLowerCase() === (q.correctAnswer || '').trim().toLowerCase();
+                            return (
+                              <div
+                                key={q.id || qIdx}
+                                className="p-2.5 rounded-lg bg-black/30 border border-slate-700 text-xs space-y-1.5"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="font-bold text-sky-400">
+                                    Вопрос #{qIdx + 1}: {q.question}
+                                  </span>
+                                  {studentAns !== undefined && (
+                                    <span
+                                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                        isCorrect
+                                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                      }`}
+                                    >
+                                      {isCorrect ? '✓ Верно' : '✗ Неверно'}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-slate-300">
+                                  Ответ ученика:{' '}
+                                  <span
+                                    className={`font-semibold ${
+                                      studentAns !== undefined
+                                        ? isCorrect
+                                          ? 'text-emerald-300'
+                                          : 'text-rose-300'
+                                        : 'text-slate-500 italic'
+                                    }`}
+                                  >
+                                    {studentAns || '— (нет ответа)'}
+                                  </span>
+                                </p>
+                                {q.correctAnswer && !isCorrect && (
+                                  <p className="text-slate-400 text-[11px]">
+                                    Правильный ответ: <span className="text-emerald-400 font-medium">{q.correctAnswer}</span>
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })
+                        : Object.entries(selectedSubmission.testAnswers || {}).map(([qId, studentAns], qIdx) => (
+                            <div key={qId} className="p-2.5 rounded-lg bg-black/30 border border-slate-700 text-xs space-y-1">
+                              <span className="font-bold text-sky-400">Вопрос #{qIdx + 1}:</span>
+                              <p className="text-slate-200">Ответ ученика: <span className="font-semibold text-white">{studentAns}</span></p>
+                            </div>
+                          ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* CRITERIA SCORING FORM (ФИПИ) */}
               <div className="space-y-3 pt-2">
@@ -2240,6 +2576,48 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       className="w-full p-1.5 rounded bg-slate-800 text-white font-bold"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* ШКОЛЬНАЯ ОЦЕНКА (1-5) */}
+              <div className="p-3.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/40 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <GraduationCap className="w-4 h-4 text-indigo-400" />
+                    <h4 className="text-xs font-bold text-indigo-300">
+                      Школьная оценка (1-5)
+                    </h4>
+                  </div>
+                  {schoolGrade !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => setSchoolGrade(undefined)}
+                      className="text-[11px] font-medium text-slate-400 hover:text-rose-400 transition-colors"
+                    >
+                      Сбросить
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {[1, 2, 3, 4, 5].map((gradeNum) => {
+                    const isSelected = schoolGrade === gradeNum;
+                    return (
+                      <button
+                        key={gradeNum}
+                        type="button"
+                        onClick={() => setSchoolGrade(isSelected ? undefined : gradeNum)}
+                        className={`py-2 rounded-xl text-sm font-black transition-all border ${
+                          isSelected
+                            ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-600/40 scale-105'
+                            : isDarkMode
+                            ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {gradeNum}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

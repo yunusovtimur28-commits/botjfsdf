@@ -134,6 +134,8 @@ export interface Submission {
   criteriaScores?: FipiCriteriaScores;
   totalScore?: number;
   maxScore?: number;
+  schoolGrade?: number;
+  taskFeedbacks?: Record<string, { comment?: string; score?: number }>;
   teacherFeedbackText?: string;
   teacherVoiceAudioUrl?: string;
   teacherCheckedAt?: string;

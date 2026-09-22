@@ -417,7 +417,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                 ? '🗣 Speaking'
                 : '✍️ Письменное ДЗ'}
             </span>
-            <span className="text-xs text-slate-400 font-medium">Макс: {homework.maxPoints} б.</span>
+            {existingSubmission?.status === 'graded' && existingSubmission.schoolGrade !== undefined ? (
+              <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                Школьная оценка: {existingSubmission.schoolGrade}
+              </span>
+            ) : (
+              <span className="text-xs text-slate-400 font-medium">Макс: {homework.maxPoints} б.</span>
+            )}
           </div>
           <button
             onClick={handleAttemptClose}
@@ -445,9 +451,18 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                   <Award className="w-5 h-5" />
                   <span className="font-bold text-sm">Результат проверки Ангелины</span>
                 </div>
-                <span className="text-sm font-extrabold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full">
-                  {existingSubmission.totalScore} / {homework.maxPoints} баллов
-                </span>
+                <div className="flex items-center space-x-2">
+                  {existingSubmission.schoolGrade !== undefined && (
+                    <span className="text-xs font-black text-indigo-300 bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-0.5 rounded-full">
+                      Школьная оценка: {existingSubmission.schoolGrade}
+                    </span>
+                  )}
+                  {existingSubmission.totalScore !== undefined && (
+                    <span className="text-sm font-extrabold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                      {existingSubmission.totalScore} / {homework.maxPoints} баллов
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Teacher Text Feedback */}
@@ -901,6 +916,10 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
               {homework.tasks.map((task, tIdx) => {
                 const currentAnswer = taskAnswers[task.id] || {};
+                const taskFeedback =
+                  existingSubmission?.status === 'graded'
+                    ? existingSubmission.taskFeedbacks?.[task.id]
+                    : undefined;
 
                 return (
                   <div
@@ -1190,6 +1209,31 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         </div>
                       )}
                     </div>
+
+                    {/* Teacher Feedback for this Task */}
+                    {existingSubmission?.status === 'graded' &&
+                      taskFeedback &&
+                      (taskFeedback.score !== undefined ||
+                        (taskFeedback.comment && taskFeedback.comment.trim())) && (
+                        <div className="mt-3 p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/40 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-1.5 text-purple-300">
+                              <Sparkles className="w-4 h-4 text-amber-300" />
+                              <span className="text-xs font-bold">Оценка преподавателя:</span>
+                            </div>
+                            {taskFeedback.score !== undefined && (
+                              <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-purple-500/25 text-purple-200 border border-purple-500/40 shadow-sm">
+                                Оценка: {taskFeedback.score}
+                              </span>
+                            )}
+                          </div>
+                          {taskFeedback.comment && taskFeedback.comment.trim() && (
+                            <p className="text-xs text-slate-200 bg-black/30 p-2.5 rounded-lg border border-purple-500/20 leading-relaxed whitespace-pre-line">
+                              {taskFeedback.comment}
+                            </p>
+                          )}
+                        </div>
+                      )}
                   </div>
                 );
               })}
