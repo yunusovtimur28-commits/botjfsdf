@@ -13,6 +13,9 @@ service cloud.firestore {
     // Профили учеников (для сохранения стриков) и уведомления
     match /students/{studentId} { allow write: if true; }
     match /notifications/{notifId} { allow write: if true; }
+
+    // Личный дневник для отработки ошибок
+    match /diary/{entryId} { allow write: if true; }
   }
 }
 

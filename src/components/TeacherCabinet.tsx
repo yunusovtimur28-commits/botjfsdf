@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent } from '../types';
+import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent, DiaryEntry, EgeGapFillItem } from '../types';
 import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
 import { dbUpdateStudent } from '../lib/firebase';
 import { uploadFileToServer, uploadBase64ToServer } from '../lib/fileUpload';
@@ -40,6 +40,7 @@ import {
   Download,
   Search,
   Edit2,
+  BookPlus,
 } from 'lucide-react';
 
 interface TeacherCabinetProps {
@@ -59,6 +60,7 @@ interface TeacherCabinetProps {
   onDeleteSubmission?: (submissionId: string) => void;
   onUpdateStudentAccess?: (studentId: string, months: string[]) => void;
   onUpdateStudent?: (studentId: string, updatedData: Partial<RegisteredStudent>) => void;
+  onAddDiaryEntry?: (entry: Partial<DiaryEntry>) => void;
   isDarkMode: boolean;
 }
 
@@ -81,6 +83,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   onDeleteSubmission,
   onUpdateStudentAccess,
   onUpdateStudent,
+  onAddDiaryEntry,
   isDarkMode,
 }) => {
   const [adminTab, setAdminTab] = useState<AdminTab>('upload_video');
@@ -89,6 +92,41 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editStudentLoginVal, setEditStudentLoginVal] = useState('');
   const [editStudentNameVal, setEditStudentNameVal] = useState('');
+
+  // Teacher Diary Error Modal State
+  const [diaryModalStudent, setDiaryModalStudent] = useState<RegisteredStudent | null>(null);
+  const [diarySection, setDiarySection] = useState('Грамматика');
+  const [diaryErrorText, setDiaryErrorText] = useState('');
+  const [diaryCorrectAnswer, setDiaryCorrectAnswer] = useState('');
+  const [diaryExplanation, setDiaryExplanation] = useState('');
+  const [diarySuccessToast, setDiarySuccessToast] = useState<string | null>(null);
+
+  const handleTeacherAddDiary = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!diaryModalStudent || !diaryErrorText.trim() || !diaryCorrectAnswer.trim()) return;
+
+    if (onAddDiaryEntry) {
+      onAddDiaryEntry({
+        studentName: diaryModalStudent.name,
+        section: diarySection,
+        errorText: diaryErrorText.trim(),
+        correctAnswer: diaryCorrectAnswer.trim(),
+        explanation: diaryExplanation.trim(),
+        counter: 1,
+        source: 'teacher',
+      });
+    }
+
+    setDiarySuccessToast(`Ошибка сохранена в дневник ученика ${diaryModalStudent.name}!`);
+    setTimeout(() => {
+      setDiarySuccessToast(null);
+      setDiaryModalStudent(null);
+      setDiaryErrorText('');
+      setDiaryCorrectAnswer('');
+      setDiaryExplanation('');
+    }, 1500);
+  };
+
   const ALL_COURSE_MONTHS = [
     'Январь 2026', 'Февраль 2026', 'Март 2026', 'Апрель 2026', 
     'Май 2026', 'Июнь 2026', 'Июль 2026', 'Август 2026', 
@@ -515,7 +553,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     {
       id: string;
       block: BlockCategory;
-      taskType: 'test' | 'written' | 'speaking';
+      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill';
       taskNumber: string;
       instruction: string;
       taskPrompt: string;
@@ -527,6 +565,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       taskVideoUrl?: string;
       options?: string[];
       correctOptionIndex?: number;
+      correctAnswer?: string;
+      explanation?: string;
+      baseWord?: string;
+      egeItems?: EgeGapFillItem[];
     }[]
   >([
     {
@@ -1015,6 +1057,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           taskVideoUrl: t.taskVideoUrl,
           options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
           correctOptionIndex: t.correctOptionIndex ?? 0,
+          correctAnswer: t.correctAnswer,
+          explanation: t.explanation,
+          baseWord: t.baseWord,
+          egeItems: t.egeItems,
         }))
       );
     } else {
@@ -1076,13 +1122,16 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       taskFileName: t.taskFileName,
       taskAudioUrl: t.taskAudioUrl,
       taskVideoUrl: t.taskVideoUrl,
-      options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
-      correctOptionIndex: t.correctOptionIndex ?? 0,
-      correctAnswer: t.options ? t.options[t.correctOptionIndex ?? 0] : undefined,
+      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
+      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill') ? undefined : (t.correctOptionIndex ?? 0),
+      correctAnswer: t.taskType === 'gap_fill' ? t.correctAnswer?.trim() : (t.options ? t.options[t.correctOptionIndex ?? 0] : undefined),
+      explanation: t.explanation?.trim() || undefined,
+      baseWord: t.taskType === 'gap_fill' ? t.baseWord?.trim() : undefined,
+      egeItems: t.taskType === 'ege_gap_fill' ? t.egeItems : undefined,
     }));
 
     const primaryBlock = formattedTasks[0]?.block || hwBlock;
-    const primaryType = formattedTasks[0]?.taskType || 'test';
+    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill') ? 'test' : (formattedTasks[0]?.taskType || 'test');
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
@@ -2236,10 +2285,80 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   <div className="space-y-1.5 pt-0.5">
                                     {ans.textAnswer && (
                                       <div>
-                                        <span className="text-[10px] text-slate-400 font-semibold block">Ответ:</span>
+                                        <span className="text-[10px] text-slate-400 font-semibold block">Ответ ученика:</span>
                                         <p className="text-slate-200 bg-slate-800/40 p-2 rounded-lg border border-slate-700/40 leading-relaxed whitespace-pre-line">
                                           {ans.textAnswer}
                                         </p>
+                                      </div>
+                                    )}
+                                    {task.taskType === 'gap_fill' && task.correctAnswer && (
+                                      <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-[11px] space-y-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-purple-300 font-medium">Правильный ответ:</span>
+                                          <span className="font-bold text-white bg-purple-900/60 px-2 py-0.5 rounded border border-purple-500/30">
+                                            {task.correctAnswer}
+                                          </span>
+                                        </div>
+                                        {ans?.textAnswer && (
+                                          <div className="flex items-center gap-1.5 pt-0.5">
+                                            <span className="text-slate-400 text-[10px]">Результат автопроверки:</span>
+                                            {ans.textAnswer.trim().toLowerCase() === task.correctAnswer.trim().toLowerCase() ? (
+                                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                                ✅ Совпал верно
+                                              </span>
+                                            ) : (
+                                              <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/30">
+                                                ❌ Не совпал
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {task.explanation && (
+                                          <p className="text-[10px] text-slate-400 italic pt-0.5">
+                                            Пояснение: {task.explanation}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                    {task.taskType === 'ege_gap_fill' && task.egeItems && task.egeItems.length > 0 && (
+                                      <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs space-y-2">
+                                        <div className="flex items-center justify-between font-bold text-indigo-300 text-[11px]">
+                                          <span>Разбор абзацев (ЕГЭ 19–29):</span>
+                                          <span className="text-slate-400 font-normal">{task.egeItems.length} заданий</span>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          {task.egeItems.map((item) => {
+                                            const studentAnswer = (ans?.egeAnswers?.[item.id] || '').trim();
+                                            const isMatch = studentAnswer.toLowerCase() === item.correctAnswer.trim().toLowerCase();
+                                            return (
+                                              <div key={item.id} className="p-2 rounded-lg bg-black/30 border border-slate-700/60 flex items-center justify-between gap-2 text-[11px]">
+                                                <div className="flex items-center gap-2">
+                                                  <span className="w-6 h-6 rounded border border-slate-500 flex items-center justify-center font-bold text-slate-300 shrink-0 text-[11px]">
+                                                    {item.number}
+                                                  </span>
+                                                  <div>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <span className="text-slate-400 text-[10px]">Ответ:</span>
+                                                      <span className={`font-bold ${isMatch ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                        {studentAnswer || '(нет ответа)'}
+                                                      </span>
+                                                      {isMatch ? (
+                                                        <span className="text-[10px] text-emerald-400 font-bold">✅</span>
+                                                      ) : (
+                                                        <span className="text-[10px] text-rose-400 font-bold">❌</span>
+                                                      )}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                                                      <span>Базовое: <b className="text-slate-300 font-mono">{item.baseWord}</b></span>
+                                                      <span>|</span>
+                                                      <span>Верно: <b className="text-emerald-300 font-mono">{item.correctAnswer}</b></span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       </div>
                                     )}
                                     {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
@@ -3102,7 +3221,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         <select
                           value={task.taskType || 'test'}
                           onChange={(e) => {
-                            const val = e.target.value as 'test' | 'written' | 'speaking';
+                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill';
                             setHwTasks((prev) =>
                               prev.map((t, i) =>
                                 i === idx
@@ -3111,6 +3230,29 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       taskType: val,
                                       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
                                       correctOptionIndex: t.correctOptionIndex ?? 0,
+                                      egeItems:
+                                        val === 'ege_gap_fill'
+                                          ? t.egeItems && t.egeItems.length > 0
+                                            ? t.egeItems
+                                            : [
+                                                {
+                                                  id: `ege-${Date.now()}-1`,
+                                                  number: '19',
+                                                  text: 'I arrived in London yesterday and I ___ very excited to see Big Ben.',
+                                                  baseWord: 'FEEL',
+                                                  correctAnswer: 'felt',
+                                                  explanation: 'Past Simple от глагола feel: felt.',
+                                                },
+                                                {
+                                                  id: `ege-${Date.now()}-2`,
+                                                  number: '20',
+                                                  text: 'My friend told me that it was the ___ day of our trip.',
+                                                  baseWord: 'ONE',
+                                                  correctAnswer: 'first',
+                                                  explanation: 'Порядковое числительное от one: first.',
+                                                },
+                                              ]
+                                          : t.egeItems,
                                     }
                                   : t
                               )
@@ -3121,6 +3263,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           }`}
                         >
                           <option value="test">📝 Тест (С выбором ответа)</option>
+                          <option value="gap_fill">Текст с пропусками (Автопроверка)</option>
+                          <option value="ege_gap_fill">Текст с пропусками (ЕГЭ 19-29)</option>
                           <option value="written">✍️ Письменно / Файл</option>
                           <option value="speaking">🗣 Говорение (Аудио)</option>
                         </select>
@@ -3268,6 +3412,71 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       </div>
                     )}
 
+                    {/* GAP FILL AUTO-CHECK EDITOR */}
+                    {task.taskType === 'gap_fill' && (
+                      <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-amber-300 block">
+                            Базовое слово (для трансформации в номерах 19-24 и 25-29):
+                          </label>
+                          <input
+                            type="text"
+                            value={task.baseWord || ''}
+                            onChange={(e) => {
+                              const val = e.target.value.toUpperCase();
+                              setHwTasks((prev) =>
+                                prev.map((t, i) => (i === idx ? { ...t, baseWord: val } : t))
+                              );
+                            }}
+                            placeholder="Базовое слово (например, ENJOY или NOT NEED)"
+                            className={`w-full p-2 rounded-xl text-xs border font-mono uppercase tracking-wider ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-purple-300 block">
+                            Правильный ответ (для автопроверки):
+                          </label>
+                          <input
+                            type="text"
+                            value={task.correctAnswer || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHwTasks((prev) =>
+                                prev.map((t, i) => (i === idx ? { ...t, correctAnswer: val } : t))
+                              );
+                            }}
+                            placeholder="Правильный ответ (для автопроверки)"
+                            className={`w-full p-2 rounded-xl text-xs border ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-300 block">
+                            Объяснение при ошибке:
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={task.explanation || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHwTasks((prev) =>
+                                prev.map((t, i) => (i === idx ? { ...t, explanation: val } : t))
+                              );
+                            }}
+                            placeholder="Объяснение при ошибке"
+                            className={`w-full p-2 rounded-xl text-xs border ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     {/* Instruction input */}
                     <div className="space-y-1">
                       <label className="text-[11px] font-semibold text-slate-400 block">
@@ -3292,10 +3501,12 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     {/* Task Prompt text area */}
                     <div className="space-y-1">
                       <label className="text-[11px] font-semibold text-slate-400 block">
-                        Задание / Условие (или текст с пропусками `___`):
+                        {task.taskType === 'ege_gap_fill'
+                          ? 'Заголовок / Общее условие текста (например: "The History of Tea"):'
+                          : 'Задание / Условие (или текст с пропусками `___`):'}
                       </label>
                       <textarea
-                        rows={3}
+                        rows={task.taskType === 'ege_gap_fill' ? 2 : 3}
                         value={task.taskPrompt}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -3303,12 +3514,249 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             prev.map((t, i) => (i === idx ? { ...t, taskPrompt: val } : t))
                           );
                         }}
-                        placeholder="Текст задания, вопрос или предложение с пропусками..."
+                        placeholder={
+                          task.taskType === 'ege_gap_fill'
+                            ? 'Заголовок текста (например, "The Great Barrier Reef")...'
+                            : 'Текст задания, вопрос или предложение с пропусками...'
+                        }
                         className={`w-full p-2 rounded-xl text-xs border ${
                           isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
                         }`}
                       />
                     </div>
+
+                    {/* EGE GAP FILL (19-29) ITEMS LIST */}
+                    {task.taskType === 'ege_gap_fill' && (
+                      <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-4">
+                        <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+                          <div>
+                            <h4 className="text-xs font-extrabold text-indigo-300 flex items-center gap-1.5">
+                              <span>📑 Абзацы текста с пропусками (ЕГЭ 19–29)</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 font-mono font-bold">
+                                {task.egeItems?.length || 0} шт.
+                              </span>
+                            </h4>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              В тексте абзаца обозначьте пропуск тремя подчеркиваниями: <code className="text-amber-300 font-bold bg-black/40 px-1 rounded">___</code>
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentItems = task.egeItems || [];
+                              const lastNumber = currentItems.length > 0 ? parseInt(currentItems[currentItems.length - 1].number, 10) : 18;
+                              const nextNumber = isNaN(lastNumber) ? `${currentItems.length + 1}` : `${lastNumber + 1}`;
+                              const newItem: EgeGapFillItem = {
+                                id: `ege-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                                number: nextNumber,
+                                text: 'The city was founded in ___ by Peter the Great.',
+                                baseWord: 'ONE',
+                                correctAnswer: 'first',
+                                explanation: 'Пояснение к грамматической форме или слову.',
+                              };
+                              setHwTasks((prev) =>
+                                prev.map((t, i) =>
+                                  i === idx
+                                    ? { ...t, egeItems: [...(t.egeItems || []), newItem] }
+                                    : t
+                                )
+                              );
+                            }}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-sm transition-all"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Добавить абзац</span>
+                          </button>
+                        </div>
+
+                        {/* List of EGE Paragraphs / Items */}
+                        <div className="space-y-3">
+                          {(task.egeItems && task.egeItems.length > 0 ? task.egeItems : []).map((item, itemIdx) => (
+                            <div
+                              key={item.id || itemIdx}
+                              className={`p-3 rounded-xl border space-y-2.5 relative transition-all ${
+                                isDarkMode ? 'bg-[#17212b]/80 border-slate-700/80' : 'bg-white border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[10px] font-bold text-slate-400">Номер:</label>
+                                  <input
+                                    type="text"
+                                    value={item.number}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                egeItems: t.egeItems?.map((it, j) =>
+                                                  j === itemIdx ? { ...it, number: val } : it
+                                                ),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    placeholder="19"
+                                    className={`w-16 p-1.5 rounded-lg text-xs font-bold text-center border ${
+                                      isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-amber-300' : 'bg-slate-50 border-slate-300 text-slate-900'
+                                    }`}
+                                  />
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-1 max-w-xs">
+                                  <label className="text-[10px] font-bold text-amber-300 shrink-0">Базовое слово:</label>
+                                  <input
+                                    type="text"
+                                    value={item.baseWord}
+                                    onChange={(e) => {
+                                      const val = e.target.value.toUpperCase();
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                egeItems: t.egeItems?.map((it, j) =>
+                                                  j === itemIdx ? { ...it, baseWord: val } : it
+                                                ),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    placeholder="FEEL"
+                                    className={`w-full p-1.5 rounded-lg text-xs font-mono font-bold uppercase border ${
+                                      isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                                    }`}
+                                  />
+                                </div>
+
+                                {task.egeItems && task.egeItems.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                egeItems: t.egeItems?.filter((_, j) => j !== itemIdx),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
+                                    title="Удалить абзац"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Text with ___ placeholder */}
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 block">
+                                  Текст абзаца (вместо пропуска напишите <span className="text-amber-300">___</span>):
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={item.text}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) =>
+                                        i === idx
+                                          ? {
+                                              ...t,
+                                              egeItems: t.egeItems?.map((it, j) =>
+                                                j === itemIdx ? { ...it, text: val } : it
+                                              ),
+                                            }
+                                          : t
+                                      )
+                                    );
+                                  }}
+                                  placeholder="Yesterday I visited London and I ___ very happy to see my friends."
+                                  className={`w-full p-2 rounded-xl text-xs border leading-relaxed ${
+                                    isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                                  }`}
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-emerald-400 block">
+                                    Правильный ответ:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={item.correctAnswer}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                egeItems: t.egeItems?.map((it, j) =>
+                                                  j === itemIdx ? { ...it, correctAnswer: val } : it
+                                                ),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    placeholder="felt"
+                                    className={`w-full p-1.5 rounded-lg text-xs font-semibold border ${
+                                      isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-emerald-300' : 'bg-slate-50 border-slate-300 text-emerald-700'
+                                    }`}
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-400 block">
+                                    Объяснение при ошибке:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={item.explanation}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                egeItems: t.egeItems?.map((it, j) =>
+                                                  j === itemIdx ? { ...it, explanation: val } : it
+                                                ),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    placeholder="Past Simple: felt"
+                                    className={`w-full p-1.5 rounded-lg text-xs border ${
+                                      isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {(!task.egeItems || task.egeItems.length === 0) && (
+                          <div className="text-center py-4 text-xs text-slate-400">
+                            Абзацы ещё не добавлены. Нажмите «+ Добавить абзац» выше.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Media attach buttons panel */}
                     <div className="flex items-center space-x-2 pt-1 pb-2 border-b border-slate-700/40">
@@ -3954,6 +4402,22 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDiaryModalStudent(st);
+                                setDiarySection('Грамматика');
+                                setDiaryErrorText('');
+                                setDiaryCorrectAnswer('');
+                                setDiaryExplanation('');
+                                setDiarySuccessToast(null);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-[10px] font-bold flex items-center space-x-1 transition-all"
+                              title="Добавить ошибку в дневник ученика"
+                            >
+                              <BookPlus className="w-3.5 h-3.5 text-purple-400" />
+                              <span>+ Ошибка</span>
+                            </button>
                           </div>
                           <div className="flex items-center space-x-2 text-[10px] text-slate-400">
                             <span>Сданных ДЗ: {stSubs.length}</span>
@@ -4172,6 +4636,123 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               <CheckCircle className="w-4 h-4" />
               <span>Сохранить доступы</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* TEACHER DIARY ADD ERROR MODAL */}
+      {diaryModalStudent && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className={`w-full max-w-md rounded-2xl p-5 shadow-2xl border space-y-4 ${isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+            <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+              <div className="flex items-center space-x-2">
+                <BookPlus className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-sm">Добавить ошибку в дневник</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDiaryModalStudent(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-300">
+              Ученик: <strong className="text-white font-bold">{diaryModalStudent.name}</strong> ({diaryModalStudent.telegramHandle || `@${diaryModalStudent.login}`})
+            </div>
+
+            {diarySuccessToast ? (
+              <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold text-center flex items-center justify-center space-x-2">
+                <CheckCircle className="w-4 h-4" />
+                <span>{diarySuccessToast}</span>
+              </div>
+            ) : (
+              <form onSubmit={handleTeacherAddDiary} className="space-y-3 text-xs">
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300 block">Раздел:</label>
+                  <select
+                    value={diarySection}
+                    onChange={(e) => setDiarySection(e.target.value)}
+                    className={`w-full p-2.5 rounded-xl border text-xs ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  >
+                    <option value="Грамматика">Грамматика</option>
+                    <option value="Произношение">Произношение</option>
+                    <option value="Лексика">Лексика</option>
+                    <option value="Словообразование">Словообразование</option>
+                    <option value="Письмо">Письмо</option>
+                    <option value="Эссе">Эссе</option>
+                    <option value="Аудирование">Аудирование</option>
+                    <option value="Чтение">Чтение</option>
+                    <option value="Разное">Разное</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300 block">
+                    Слово / фраза с ошибкой: <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={diaryErrorText}
+                    onChange={(e) => setDiaryErrorText(e.target.value)}
+                    placeholder="Например: He don't know"
+                    className={`w-full p-2.5 rounded-xl border text-xs font-semibold ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300 block">
+                    Верный ответ: <span className="text-emerald-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={diaryCorrectAnswer}
+                    onChange={(e) => setDiaryCorrectAnswer(e.target.value)}
+                    placeholder="Например: He doesn't know"
+                    className={`w-full p-2.5 rounded-xl border text-xs font-semibold ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300 block">Разбор / Правило / Формула:</label>
+                  <textarea
+                    rows={2}
+                    value={diaryExplanation}
+                    onChange={(e) => setDiaryExplanation(e.target.value)}
+                    placeholder="Пояснение правила для ученика..."
+                    className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setDiaryModalStudent(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-colors"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold transition-all shadow-md flex items-center justify-center space-x-1.5"
+                  >
+                    <BookPlus className="w-4 h-4" />
+                    <span>Добавить в дневник</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

@@ -1,14 +1,16 @@
 import React from 'react';
 import { UserRole } from '../types';
+import { AuthUser } from './AuthModal';
 import {
   BookOpen,
   FileCheck2,
   Timer,
   User,
   GraduationCap,
+  Book,
 } from 'lucide-react';
 
-export type NavTab = 'webinars' | 'homeworks' | 'simulator' | 'profile' | 'teacher';
+export type NavTab = 'webinars' | 'homeworks' | 'simulator' | 'profile' | 'teacher' | 'diary';
 
 interface NavigationProps {
   activeTab: NavTab;
@@ -16,6 +18,7 @@ interface NavigationProps {
   pendingCount: number;
   currentRole: UserRole;
   isDarkMode: boolean;
+  currentUser: AuthUser;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -24,7 +27,12 @@ export const Navigation: React.FC<NavigationProps> = ({
   pendingCount,
   currentRole,
   isDarkMode,
+  currentUser,
 }) => {
+  const isBetaTester =
+    currentUser.name === 'timur_yunusov' ||
+    currentUser.telegramHandle === '@timur_yunusov';
+
   const navItems = currentRole === 'teacher' ? [
     {
       id: 'teacher' as NavTab,
@@ -57,6 +65,14 @@ export const Navigation: React.FC<NavigationProps> = ({
       icon: Timer,
       badge: null,
     },
+    ...(isBetaTester ? [
+      {
+        id: 'diary' as NavTab,
+        label: 'Дневник',
+        icon: Book,
+        badge: null,
+      },
+    ] : []),
     {
       id: 'profile' as NavTab,
       label: 'Профиль',

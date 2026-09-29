@@ -124,7 +124,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   // Multi-Task & Photo state
   const [taskAnswers, setTaskAnswers] = useState<
-    Record<string, { textAnswer?: string; voiceAudioUrl?: string; selectedOptionIndex?: number }>
+    Record<string, { textAnswer?: string; voiceAudioUrl?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string> }>
   >(() => {
     try {
       const saved = localStorage.getItem(tasksDraftKey);
@@ -137,15 +137,99 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     return existingSubmission?.taskAnswers || {};
   });
 
+  // Gap-fill interactive task check status state
+  const [checkedTasks, setCheckedTasks] = useState<Record<string, 'correct' | 'incorrect'>>(() => {
+    const initialChecked: Record<string, 'correct' | 'incorrect'> = {};
+    if (homework.tasks) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'gap_fill' && t.correctAnswer) {
+          const existingAns = (existingSubmission?.taskAnswers?.[t.id]?.textAnswer || '');
+          if (existingAns.trim()) {
+            const isCorrect = existingAns.trim().toLowerCase() === t.correctAnswer.trim().toLowerCase();
+            initialChecked[t.id] = isCorrect ? 'correct' : 'incorrect';
+          }
+        }
+      });
+    }
+    return initialChecked;
+  });
+
+  // EGE Gap-fill (19-29) state
+  const egeDraftKey = `hw_ege_draft_${homework.id}`;
+  const egeCheckedKey = `hw_ege_checked_${homework.id}`;
+  const [egeAnswers, setEgeAnswers] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(egeDraftKey);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error loading ege draft', e);
+    }
+    const fromSub: Record<string, string> = {};
+    if (existingSubmission?.taskAnswers) {
+      Object.values(existingSubmission.taskAnswers).forEach((ans: any) => {
+        if (ans?.egeAnswers) {
+          Object.assign(fromSub, ans.egeAnswers);
+        }
+      });
+    }
+    return fromSub;
+  });
+
+  const [egeChecked, setEgeChecked] = useState<Record<string, 'correct' | 'incorrect'>>(() => {
+    try {
+      const saved = localStorage.getItem(egeCheckedKey);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error loading egeChecked draft', e);
+    }
+    const initial: Record<string, 'correct' | 'incorrect'> = {};
+    if (homework.tasks) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'ege_gap_fill' && t.egeItems) {
+          t.egeItems.forEach((item) => {
+            const existingAns = existingSubmission?.taskAnswers?.[t.id]?.egeAnswers?.[item.id] || '';
+            if (existingAns.trim()) {
+              const isCorrect = existingAns.trim().toLowerCase() === item.correctAnswer.trim().toLowerCase();
+              initial[item.id] = isCorrect ? 'correct' : 'incorrect';
+            }
+          });
+        }
+      });
+    }
+    return initial;
+  });
+
+  // Autosave ege draft & checked state
+  useEffect(() => {
+    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+      try {
+        localStorage.setItem(egeDraftKey, JSON.stringify(egeAnswers));
+      } catch (e) {
+        console.error('Error saving ege draft', e);
+      }
+    }
+  }, [egeAnswers, egeDraftKey, existingSubmission]);
+
+  useEffect(() => {
+    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+      try {
+        localStorage.setItem(egeCheckedKey, JSON.stringify(egeChecked));
+      } catch (e) {
+        console.error('Error saving egeChecked draft', e);
+      }
+    }
+  }, [egeChecked, egeCheckedKey, existingSubmission]);
+
   // Autosave multi-task answers draft (excluding temporary Blob URLs)
   useEffect(() => {
     if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
-      const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number }> = {};
+      const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string> }> = {};
       Object.entries(taskAnswers).forEach(([taskId, ans]: [string, any]) => {
         if (ans) {
           cleanAnswers[taskId] = {
             textAnswer: ans.textAnswer,
             selectedOptionIndex: ans.selectedOptionIndex,
+            egeAnswers: ans.egeAnswers,
           };
         }
       });
@@ -352,6 +436,22 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     const now = new Date();
     const formattedSubmittedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
 
+    const mergedTaskAnswers = { ...taskAnswers };
+    if (homework.tasks) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'ege_gap_fill' && t.egeItems) {
+          const summary = t.egeItems
+            .map((it) => `${it.number}: ${egeAnswers[it.id] || '(пропуск)'}`)
+            .join(', ');
+          mergedTaskAnswers[t.id] = {
+            ...mergedTaskAnswers[t.id],
+            textAnswer: summary,
+            egeAnswers,
+          };
+        }
+      });
+    }
+
     onSubmit({
       homeworkId: homework.id,
       status: 'pending',
@@ -362,12 +462,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
         uploadedFileName ||
         (uploadedPhotos.length > 0 ? `Прикреплено_фото_${uploadedPhotos.length}.png` : undefined),
       writtenImageUrls: uploadedPhotos.length > 0 ? uploadedPhotos : undefined,
-      taskAnswers: Object.keys(taskAnswers).length > 0 ? taskAnswers : undefined,
+      taskAnswers: Object.keys(mergedTaskAnswers).length > 0 ? mergedTaskAnswers : undefined,
       aiPreviewFeedback: aiFeedback || undefined,
       submittedAt: formattedSubmittedAt,
     });
     localStorage.removeItem(draftKey);
     localStorage.removeItem(tasksDraftKey);
+    localStorage.removeItem(egeDraftKey);
+    localStorage.removeItem(egeCheckedKey);
     onClose();
   };
 
@@ -966,7 +1068,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                     )}
 
                     {/* Task Prompt */}
-                    {task.taskPrompt && (
+                    {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskPrompt && (
                       <p className="text-xs text-slate-100 bg-slate-800/60 p-3 rounded-xl border border-slate-700/60 whitespace-pre-line leading-relaxed font-sans">
                         {task.taskPrompt}
                       </p>
@@ -1032,9 +1134,11 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
-                      <label className="text-[11px] font-semibold text-slate-300 block">
-                        Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
-                      </label>
+                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && (
+                        <label className="text-[11px] font-semibold text-slate-300 block">
+                          Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
+                        </label>
+                      )}
 
                       {/* TEST TASK TYPE WITH OPTIONS & IMMEDIATE FEEDBACK */}
                       {task.taskType === 'test' ? (
@@ -1099,6 +1203,285 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                   }`}
                             </div>
                           )}
+                        </div>
+                      ) : task.taskType === 'gap_fill' ? (
+                        <div className="flex items-stretch gap-4 p-3 border-b border-slate-700/40">
+                          {/* Левая колонка (Номер) */}
+                          <div className="shrink-0 w-8 h-8 flex items-center justify-center border-2 border-slate-400 font-bold text-xs rounded-sm">
+                            {task.taskNumber ? (task.taskNumber.replace(/[^0-9]/g, '') || task.taskNumber) : `${tIdx + 1}`}
+                          </div>
+
+                          {/* Центральная колонка (Текст и ввод) */}
+                          <div className="flex-1 space-y-2">
+                            {task.taskPrompt && (
+                              <p className="text-xs sm:text-sm text-slate-100 leading-relaxed font-medium">
+                                {task.taskPrompt}
+                              </p>
+                            )}
+
+                            <div className="space-y-2 pt-1">
+                              <input
+                                type="text"
+                                value={currentAnswer.textAnswer || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setTaskAnswers((prev) => ({
+                                    ...prev,
+                                    [task.id]: { ...prev[task.id], textAnswer: val },
+                                  }));
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const studentAns = (currentAnswer.textAnswer || '').trim().toLowerCase();
+                                    const targetAns = (task.correctAnswer || '').trim().toLowerCase();
+                                    const isCorrect = studentAns === targetAns;
+                                    setCheckedTasks((prev) => ({
+                                      ...prev,
+                                      [task.id]: isCorrect ? 'correct' : 'incorrect',
+                                    }));
+                                  }
+                                }}
+                                placeholder="Введите ваш ответ..."
+                                className={`w-full p-2.5 rounded-xl text-xs border font-medium transition-all ${
+                                  checkedTasks[task.id] === 'correct'
+                                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/20'
+                                    : checkedTasks[task.id] === 'incorrect'
+                                    ? 'bg-rose-500/10 border-rose-500 text-rose-300 ring-2 ring-rose-500/20'
+                                    : isDarkMode
+                                    ? 'bg-[#1e2c3a] border-slate-700 text-white focus:border-purple-500'
+                                    : 'bg-white border-slate-300 text-slate-900 focus:border-purple-500'
+                                }`}
+                              />
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const studentAns = (currentAnswer.textAnswer || '').trim().toLowerCase();
+                                    const targetAns = (task.correctAnswer || '').trim().toLowerCase();
+                                    const isCorrect = studentAns === targetAns;
+                                    setCheckedTasks((prev) => ({
+                                      ...prev,
+                                      [task.id]: isCorrect ? 'correct' : 'incorrect',
+                                    }));
+                                  }}
+                                  className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Проверить</span>
+                                </button>
+
+                                {checkedTasks[task.id] === 'correct' && (
+                                  <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                                    <span>🎉 Верно!</span>
+                                  </span>
+                                )}
+                                {checkedTasks[task.id] === 'incorrect' && (
+                                  <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
+                                    <span>❌ Неверно, попробуйте еще раз</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              {checkedTasks[task.id] === 'incorrect' && task.explanation && (
+                                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs space-y-1">
+                                  <span className="font-bold text-rose-400 block text-[11px] flex items-center gap-1">
+                                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                    <span>Объяснение от преподавателя:</span>
+                                  </span>
+                                  <p className="leading-relaxed whitespace-pre-line text-xs pl-4 text-slate-200">
+                                    {task.explanation}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Правая колонка (Базовое слово) */}
+                          <div className="shrink-0 flex items-center justify-end w-24">
+                            {task.baseWord && (
+                              <span className="font-black uppercase tracking-widest text-slate-400 text-sm">
+                                {task.baseWord}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : task.taskType === 'ege_gap_fill' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* Title / Prompt of the text */}
+                          {task.taskPrompt && (
+                            <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-center">
+                              <h4 className="font-extrabold text-sm text-indigo-300 tracking-wide uppercase">
+                                {task.taskPrompt}
+                              </h4>
+                            </div>
+                          )}
+
+                          {/* List of EGE Paragraphs */}
+                          <div className="border border-slate-700/60 rounded-2xl overflow-hidden bg-black/20">
+                            {(task.egeItems && task.egeItems.length > 0 ? task.egeItems : []).map((item) => {
+                              // Split text by 2 or more underscores
+                              const parts = item.text.split(/_{2,}/);
+                              const isItemChecked = egeChecked[item.id] !== undefined;
+                              const isCorrect = egeChecked[item.id] === 'correct';
+                              const isIncorrect = egeChecked[item.id] === 'incorrect';
+
+                              return (
+                                <div key={item.id} className="border-b border-slate-700/40 last:border-b-0">
+                                  <div className="flex items-stretch gap-4 p-3">
+                                    {/* Левая (Номер): item.number внутри квадрата border-2 border-slate-400 font-bold text-xs p-1 */}
+                                    <div className="shrink-0 w-8 h-8 flex items-center justify-center border-2 border-slate-400 font-bold text-xs p-1 rounded-sm text-slate-200">
+                                      {item.number}
+                                    </div>
+
+                                    {/* Центр (Текст): Единый строчный параграф с inline-полем ввода без подчеркиваний */}
+                                    <div className="flex-1">
+                                      <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+                                        {parts[0]}
+                                        {parts.length > 1 && (
+                                          <input
+                                            type="text"
+                                            disabled={isItemChecked}
+                                            value={egeAnswers[item.id] || ''}
+                                            onChange={(e) => {
+                                              if (isItemChecked) return;
+                                              const val = e.target.value;
+                                              const updated = {
+                                                ...egeAnswers,
+                                                [item.id]: val,
+                                              };
+                                              setEgeAnswers(updated);
+
+                                              // Synchronize with taskAnswers
+                                              const answersSummary = (task.egeItems || [])
+                                                .map((it) => `${it.number}: ${updated[it.id] || '(пропуск)'}`)
+                                                .join(', ');
+
+                                              setTaskAnswers((prev) => ({
+                                                ...prev,
+                                                [task.id]: {
+                                                  ...prev[task.id],
+                                                  textAnswer: answersSummary,
+                                                  egeAnswers: updated,
+                                                },
+                                              }));
+                                            }}
+                                            placeholder="..."
+                                            className={`inline-block w-28 mx-1 px-2 py-0.5 text-center text-xs font-bold border rounded-md focus:outline-none transition-all ${
+                                              isCorrect
+                                                ? 'bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-300 font-bold ring-2 ring-emerald-500/30 opacity-100 disabled:opacity-100 disabled:cursor-not-allowed disabled:bg-emerald-500/15 disabled:text-emerald-600 dark:disabled:text-emerald-300'
+                                                : isIncorrect
+                                                ? 'bg-rose-500/15 border-rose-500 text-rose-600 dark:text-rose-300 font-bold ring-2 ring-rose-500/30 opacity-100 disabled:opacity-100 disabled:cursor-not-allowed disabled:bg-rose-500/15 disabled:text-rose-600 dark:disabled:text-rose-300'
+                                                : isDarkMode
+                                                ? 'bg-[#1e2c3a] border-slate-600 text-white focus:border-indigo-400 disabled:opacity-75 disabled:cursor-not-allowed'
+                                                : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 disabled:opacity-75 disabled:cursor-not-allowed'
+                                            }`}
+                                          />
+                                        )}
+                                        {parts.slice(1).join('')}
+                                      </p>
+                                    </div>
+
+                                    {/* Правая (Базовое слово): item.baseWord с выравниванием по правому краю, uppercase font-black */}
+                                    <div className="shrink-0 flex items-center justify-end w-24">
+                                      <span className="font-black uppercase tracking-widest text-slate-400 text-sm font-mono text-right">
+                                        {item.baseWord}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Если статус incorrect, сразу под этим абзацем выведи item.explanation красным цветом */}
+                                  {isIncorrect && item.explanation && (
+                                    <div className="mx-3 mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2 animate-fadeIn">
+                                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                                      <div className="space-y-0.5">
+                                        <p className="font-bold text-rose-400">
+                                          Правильный ответ: <span className="underline font-mono">{item.correctAnswer}</span>
+                                        </p>
+                                        <p className="text-slate-300 text-[11px] leading-relaxed">
+                                          {item.explanation}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Под всем текстом кнопка "Проверить текст" */}
+                          {(() => {
+                            const isTextChecked =
+                              Boolean(task.egeItems && task.egeItems.length > 0) &&
+                              task.egeItems!.some((item) => egeChecked[item.id] !== undefined);
+
+                            return (
+                              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                {isTextChecked ? (
+                                  <button
+                                    type="button"
+                                    disabled={true}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                  >
+                                    <Check className="w-4 h-4 text-emerald-400" />
+                                    <span>Ответы зафиксированы</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!task.egeItems || task.egeItems.length === 0) return;
+                                      const newChecked: Record<string, 'correct' | 'incorrect'> = {};
+                                      let correctCount = 0;
+
+                                      task.egeItems.forEach((item) => {
+                                        const userAns = (egeAnswers[item.id] || '').trim().toLowerCase();
+                                        const targetAns = item.correctAnswer.trim().toLowerCase();
+                                        const isCorrect = userAns === targetAns;
+                                        newChecked[item.id] = isCorrect ? 'correct' : 'incorrect';
+                                        if (isCorrect) correctCount += 1;
+                                      });
+
+                                      setEgeChecked((prev) => ({ ...prev, ...newChecked }));
+
+                                      const answersSummary = task.egeItems
+                                        .map((it) => `${it.number}: ${egeAnswers[it.id] || '(пропуск)'}`)
+                                        .join(', ');
+
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          textAnswer: answersSummary,
+                                          egeAnswers: { ...egeAnswers },
+                                        },
+                                      }));
+                                    }}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-sky-600 hover:from-indigo-700 hover:to-purple-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                    <span>Проверить текст</span>
+                                  </button>
+                                )}
+
+                                {task.egeItems && task.egeItems.length > 0 && isTextChecked && (
+                                  <div className="text-xs font-bold flex items-center gap-1.5">
+                                    {task.egeItems.every((it) => egeChecked[it.id] === 'correct') ? (
+                                      <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Идеально! Все задания решены верно! 🎉</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                                        Верно: {task.egeItems.filter((it) => egeChecked[it.id] === 'correct').length} из {task.egeItems.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       ) : task.block === 'speaking' ? (
                         <div className="space-y-2">

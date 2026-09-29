@@ -20,6 +20,7 @@ import {
   KeyRound,
   User,
   Trash2,
+  Book,
 } from 'lucide-react';
 
 interface HeaderTelegramProps {
@@ -236,8 +237,14 @@ export const HeaderTelegram: React.FC<HeaderTelegramProps> = ({
                 notifications.map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => onNotificationRead(item.id)}
-                    className={`p-3 rounded-xl transition-all border group relative ${
+                    onClick={() => {
+                      onNotificationRead(item.id);
+                      if (item.type === 'diary' && onSelectTab) {
+                        onSelectTab('diary');
+                        setShowNotifications(false);
+                      }
+                    }}
+                    className={`p-3 rounded-xl transition-all border group relative cursor-pointer ${
                       !item.isRead
                         ? isDarkMode
                           ? 'bg-sky-950/40 border-sky-500/40'
@@ -253,6 +260,7 @@ export const HeaderTelegram: React.FC<HeaderTelegramProps> = ({
                         {item.type === 'deadline' && <Clock className="w-4 h-4 text-amber-500 shrink-0" />}
                         {item.type === 'streak' && <Flame className="w-4 h-4 text-rose-500 shrink-0" />}
                         {item.type === 'webinar' && <Sparkles className="w-4 h-4 text-sky-500 shrink-0" />}
+                        {item.type === 'diary' && <Book className="w-4 h-4 text-purple-400 shrink-0" />}
                         <h4 className="font-semibold text-xs leading-tight">{item.title}</h4>
                       </div>
                       

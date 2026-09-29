@@ -16,7 +16,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import config from '../../firebase-applet-config.json';
-import { Webinar, Homework, Submission, TGNotification, RegisteredStudent } from '../types';
+import { Webinar, Homework, Submission, TGNotification, RegisteredStudent, DiaryEntry } from '../types';
 import { uploadBase64ToServer } from './fileUpload';
 
 setLogLevel('silent');
@@ -43,6 +43,7 @@ export const homeworksCol = collection(db, 'homeworks');
 export const submissionsCol = collection(db, 'submissions');
 export const notificationsCol = collection(db, 'notifications');
 export const studentsCol = collection(db, 'students');
+export const diaryCol = collection(db, 'diary');
 
 // Real-time Listeners with error handling
 export function subscribeWebinars(
@@ -394,3 +395,50 @@ export async function dbUpdateStudent(studentId: string, updatedData: Partial<Re
     console.error('Error updating student in Firestore:', e);
   }
 }
+
+export function subscribeDiaryEntries(
+  callback: (data: DiaryEntry[]) => void,
+  onError?: (err: Error) => void
+) {
+  return onSnapshot(
+    diaryCol,
+    (snapshot) => {
+      const list: DiaryEntry[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() } as DiaryEntry);
+      });
+      callback(list);
+    },
+    (error) => {
+      console.warn('Firestore diary snapshot error:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function dbAddDiaryEntry(entry: DiaryEntry) {
+  try {
+    const docRef = doc(db, 'diary', entry.id);
+    await setDoc(docRef, entry);
+  } catch (e) {
+    console.error('Error saving diary entry to Firestore:', e);
+  }
+}
+
+export async function dbUpdateDiaryEntry(entryId: string, updatedData: Partial<DiaryEntry>) {
+  try {
+    const docRef = doc(db, 'diary', entryId);
+    await setDoc(docRef, updatedData, { merge: true });
+  } catch (e) {
+    console.error('Error updating diary entry in Firestore:', e);
+  }
+}
+
+export async function dbDeleteDiaryEntry(entryId: string) {
+  try {
+    await deleteDoc(doc(db, 'diary', entryId));
+  } catch (e) {
+    console.error('Error deleting diary entry from Firestore:', e);
+  }
+}
+

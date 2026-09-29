@@ -4,7 +4,7 @@ import { AuthUser } from './AuthModal';
 import { TGNotification } from '../types';
 import { getFormattedDateTime } from '../lib/dateUtils';
 import {
-  BookOpen, FileCheck2, Timer, User, GraduationCap,
+  BookOpen, FileCheck2, Timer, User, GraduationCap, Book,
   Moon, Sun, LogOut, MonitorSmartphone,
   Flame, Bell, Send, X, Trash2, CheckCircle, Clock, Sparkles
 } from 'lucide-react';
@@ -36,6 +36,10 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
+  const isBetaTester =
+    currentUser.name === 'timur_yunusov' ||
+    currentUser.telegramHandle === '@timur_yunusov';
+
   const navItems = currentUser.role === 'teacher' ? [
     { id: 'teacher' as NavTab, label: 'Кабинет учителя', icon: GraduationCap, badge: null },
     { id: 'profile' as NavTab, label: 'Профиль', icon: User, badge: null },
@@ -43,6 +47,7 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
     { id: 'webinars' as NavTab, label: 'База знаний', icon: BookOpen, badge: null },
     { id: 'homeworks' as NavTab, label: 'Домашние задания', icon: FileCheck2, badge: pendingCount > 0 ? pendingCount : null },
     { id: 'simulator' as NavTab, label: 'Тренажер ЕГЭ', icon: Timer, badge: null },
+    ...(isBetaTester ? [{ id: 'diary' as NavTab, label: 'Мой дневник', icon: Book, badge: null }] : []),
     { id: 'profile' as NavTab, label: 'Профиль', icon: User, badge: null },
   ];
 
@@ -198,13 +203,14 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
                    </div>
                  ) : (
                    notifications.map((item) => (
-                     <div key={item.id} onClick={() => onNotificationRead(item.id)} className={`p-3 rounded-xl border ${!item.isRead ? (isDarkMode ? 'bg-sky-950/40 border-sky-500/40' : 'bg-sky-50 border-sky-200') : (isDarkMode ? 'bg-[#17212b] border-slate-800' : 'bg-slate-50 border-slate-100')}`}>
+                     <div key={item.id} onClick={() => { onNotificationRead(item.id); if (item.type === 'diary' && onSelectTab) { onSelectTab('diary'); setShowNotifications(false); } }} className={`p-3 rounded-xl border cursor-pointer ${!item.isRead ? (isDarkMode ? 'bg-sky-950/40 border-sky-500/40' : 'bg-sky-50 border-sky-200') : (isDarkMode ? 'bg-[#17212b] border-slate-800' : 'bg-slate-50 border-slate-100')}`}>
                        <div className="flex items-start justify-between">
                          <div className="flex items-center space-x-2 pr-6">
                            {item.type === 'check' && <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />}
                            {item.type === 'deadline' && <Clock className="w-4 h-4 text-amber-500 shrink-0" />}
                            {item.type === 'streak' && <Flame className="w-4 h-4 text-rose-500 shrink-0" />}
                            {item.type === 'webinar' && <Sparkles className="w-4 h-4 text-sky-500 shrink-0" />}
+                          {item.type === 'diary' && <Book className="w-4 h-4 text-purple-400 shrink-0" />}
                            <h4 className="font-semibold text-xs leading-tight">{item.title}</h4>
                          </div>
                          <div className="flex items-center space-x-2 shrink-0 ml-2">

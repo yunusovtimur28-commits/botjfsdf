@@ -89,6 +89,22 @@
         "lastVisitDate": { "type": "string" }
       },
       "required": ["login"]
+    },
+    "diary": {
+      "title": "DiaryEntry",
+      "description": "Student error flashcards and repetition diary",
+      "type": "object",
+      "properties": {
+        "studentName": { "type": "string" },
+        "date": { "type": "string" },
+        "section": { "type": "string" },
+        "errorText": { "type": "string" },
+        "correctAnswer": { "type": "string" },
+        "explanation": { "type": "string" },
+        "counter": { "type": "number" },
+        "source": { "type": "string" }
+      },
+      "required": ["studentName", "errorText", "correctAnswer"]
     }
   }
 }

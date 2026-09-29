@@ -52,13 +52,22 @@ export interface TestQuestion {
   explanation: string;
 }
 
+export interface EgeGapFillItem {
+  id: string;
+  number: string;
+  text: string; // Текст абзаца, где пропуск обозначается как ___
+  baseWord: string; // Базовое слово (КАПСОМ)
+  correctAnswer: string;
+  explanation: string;
+}
+
 export interface HomeworkTask {
   id: string;
   block: BlockCategory;
-  taskType?: 'test' | 'written' | 'speaking'; // Тип задания: тест, письмо, говорение
+  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29
   taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
   instruction?: string; // Инструкция к заданию
-  taskPrompt: string; // Задание / Условие
+  taskPrompt: string; // Задание / Условие / Заголовок текста
   taskImageUrl?: string; // Фото / Схема / Иллюстрация к заданию
   taskImageUrls?: string[]; // Фотографии к заданию (до 5 шт)
   taskFileLink?: string; // Ссылка на файл (PDF, Doc)
@@ -68,7 +77,10 @@ export interface HomeworkTask {
   options?: string[]; // Варианты ответов для тестовых заданий
   correctOptionIndex?: number; // Индекс правильного ответа (0, 1, 2, 3...)
   correctAnswer?: string; // Текст правильного ответа
+  explanation?: string; // Объяснение при ошибке (автопроверка)
   sampleAnswer?: string;
+  baseWord?: string; // Базовое слово капсом для заданий 19-24 и 25-29
+  egeItems?: EgeGapFillItem[]; // Список абзацев с пропусками формата ЕГЭ 19-24 и 25-29
 }
 
 export interface Homework {
@@ -124,7 +136,7 @@ export interface Submission {
   speakingAudioUrl?: string;
   speakingDurationSeconds?: number;
   // Multi-task answers
-  taskAnswers?: Record<string, { textAnswer?: string; voiceAudioUrl?: string; imageUrls?: string[] }>;
+  taskAnswers?: Record<string, { textAnswer?: string; voiceAudioUrl?: string; imageUrls?: string[]; selectedOptionIndex?: number; egeAnswers?: Record<string, string> }>;
   // Written data
   writtenFileUrl?: string;
   writtenFileName?: string;
@@ -195,5 +207,19 @@ export interface TGNotification {
   text: string;
   time: string;
   isRead: boolean;
-  type: 'check' | 'deadline' | 'webinar' | 'streak';
+  type: 'check' | 'deadline' | 'webinar' | 'streak' | 'diary';
 }
+
+export interface DiaryEntry {
+  id: string;
+  studentName: string;
+  date: string;
+  section: string; // Раздел (например, "Грамматика", "Произношение")
+  errorText: string; // Слово с ошибкой
+  correctAnswer: string; // Верный ответ
+  explanation: string; // Правило или формула
+  counter: number; // Прогресс изучения от 1 до 5
+  source: 'auto' | 'teacher' | 'student';
+  lastReviewedAt?: string; // Время последнего повторения / тренировки
+}
+

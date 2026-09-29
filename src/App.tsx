@@ -17,13 +17,14 @@ import {
   initialNotifications,
   initialRegisteredStudents,
 } from './data/mockData';
-import { RegisteredStudent } from './types';
+import { RegisteredStudent, DiaryEntry } from './types';
 import { HeaderTelegram } from './components/HeaderTelegram';
 import { Navigation, NavTab } from './components/Navigation';
 import { WebinarLibrary } from './components/WebinarLibrary';
 import { HomeworkList } from './components/HomeworkList';
 import { SpeakingSimulator } from './components/SpeakingSimulator';
 import { StudentProfile } from './components/StudentProfile';
+import { StudentDiary } from './components/StudentDiary';
 import { TeacherCabinet } from './components/TeacherCabinet';
 import { AuthModal, AuthUser } from './components/AuthModal';
 import { WelcomeAuthScreen } from './components/WelcomeAuthScreen';
@@ -36,6 +37,9 @@ import {
   subscribeSubmissions,
   subscribeNotifications,
   subscribeStudents,
+  subscribeDiaryEntries,
+  dbAddDiaryEntry,
+  dbUpdateDiaryEntry,
   dbAddWebinar,
   dbUpdateWebinar,
   dbDeleteWebinar,
@@ -99,6 +103,57 @@ export default function App() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [notifications, setNotifications] = useState<TGNotification[]>([]);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+  const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_diary_entries');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [
+      {
+        id: 'diary-demo-1',
+        studentName: 'Дмитрий Волков',
+        date: '28 сен',
+        section: 'Грамматика',
+        errorText: "He don't know the answer",
+        correctAnswer: "He doesn't know the answer",
+        explanation: "В 3-м лице единственного числа (he/she/it) используется вспомогательный глагол doesn't.",
+        counter: 2,
+        source: 'teacher',
+      },
+      {
+        id: 'diary-demo-2',
+        studentName: 'Дмитрий Волков',
+        date: '27 сен',
+        section: 'Произношение',
+        errorText: 'Comfortable (/kəmˈfɔːrtəbl/)',
+        correctAnswer: 'Comfortable (/ˈkʌmftəbl/)',
+        explanation: 'Ударение падает строго на 1-й слог, гласная во втором слоге редуцируется: [kʌmf-tə-bl].',
+        counter: 3,
+        source: 'teacher',
+      },
+      {
+        id: 'diary-demo-3',
+        studentName: 'Александр Ковалев',
+        date: '28 сен',
+        section: 'Лексика',
+        errorText: 'Make a photo / Do a mistake',
+        correctAnswer: 'Take a photo / Make a mistake',
+        explanation: 'Устойчивые сочетания: take a photo, но make a mistake.',
+        counter: 1,
+        source: 'teacher',
+      },
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ege_app_diary_entries', JSON.stringify(diaryEntries));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [diaryEntries]);
 
   // Deleted Items Persistence
   const [deletedSubIds, setDeletedSubIds] = useState<string[]>(() => {
@@ -514,12 +569,22 @@ export default function App() {
       () => setRegisteredStudents([])
     );
 
+    const unsubDiary = subscribeDiaryEntries(
+      (list) => {
+        if (list && list.length > 0) {
+          setDiaryEntries(list);
+        }
+      },
+      () => {}
+    );
+
     return () => {
       unsubWebinars();
       unsubHomeworks();
       unsubSubmissions();
       unsubNotifications();
       unsubStudents();
+      unsubDiary();
     };
   }, []);
 
@@ -965,6 +1030,36 @@ export default function App() {
         ? `${streakDays} дня`
         : `${streakDays} дней`;
 
+    // 5. Diary cards repetition reminder (cards with low level 1 or 2 that need review)
+    const userDiaryEntries = diaryEntries.filter((d) => d.studentName === currentUser.name);
+    const lowLevelCards = userDiaryEntries.filter((d) => (d.counter || 1) <= 2);
+
+    const isBetaTester =
+      currentUser.role === 'teacher' ||
+      currentUser.name === 'timur_yunusov' ||
+      currentUser.telegramHandle === '@timur_yunusov';
+
+    let diaryReminderNotif: TGNotification | null = null;
+    if (isBetaTester && lowLevelCards.length > 0) {
+      const cardWord =
+        lowLevelCards.length % 10 === 1 && lowLevelCards.length % 100 !== 11
+          ? 'карточка'
+          : lowLevelCards.length % 10 >= 2 &&
+            lowLevelCards.length % 10 <= 4 &&
+            (lowLevelCards.length % 100 < 10 || lowLevelCards.length % 100 >= 20)
+          ? 'карточки'
+          : 'карточек';
+
+      diaryReminderNotif = {
+        id: `diary-reminder-${currentUser.name}`,
+        title: `📖 Пора повторить карточки в Дневнике!`,
+        text: `У вас ${lowLevelCards.length} ${cardWord} с начальным уровнем (1–2). Повторите их сегодня, чтобы закрепить материал!`,
+        time: 'Сегодня',
+        isRead: false,
+        type: 'diary',
+      };
+    }
+
     if (!isDefaultStudent) {
       // New or custom student (e.g. Тимур)
       const list: TGNotification[] = [];
@@ -1013,6 +1108,11 @@ export default function App() {
         });
       });
 
+      // 5. Diary reminder if any
+      if (diaryReminderNotif) {
+        list.push(diaryReminderNotif);
+      }
+
       // Append any new notifications created during session (excluding n1/n2/n3 defaults)
       const sessionNewNotifs = notifications.filter(
         (n) => n.id !== 'n1' && n.id !== 'n2' && n.id !== 'n3' && !n.id.startsWith('welcome-') && !n.id.startsWith('streak-')
@@ -1036,10 +1136,14 @@ export default function App() {
       return n;
     });
 
+    if (diaryReminderNotif && !result.some((n) => n.id === diaryReminderNotif?.id)) {
+      result.unshift(diaryReminderNotif);
+    }
+
     return result
       .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
       .filter((n) => !deletedNotifIds.includes(n.id));
-  }, [currentUser.name, activeStudentProfile.streakDays, currentStudentSubmissions, visibleHomeworks, notifications, readNotifIds, deletedNotifIds]);
+  }, [currentUser.name, currentUser.role, registeredStudents, activeStudentProfile.streakDays, currentStudentSubmissions, visibleHomeworks, notifications, readNotifIds, deletedNotifIds, diaryEntries]);
 
   // Mark notification read
   const handleNotificationRead = async (id: string) => {
@@ -1070,6 +1174,34 @@ export default function App() {
   const handleNavigateToSpecificHomework = (hwId: string) => {
     setTargetHomeworkId(hwId);
     setActiveTab('homeworks');
+  };
+
+  const handleAddDiaryEntry = async (entry: Partial<DiaryEntry>) => {
+    const now = new Date();
+    const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const formattedDate = `${now.getDate()} ${months[now.getMonth()]}`;
+
+    const newEntry: DiaryEntry = {
+      id: `diary-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      studentName: entry.studentName || currentUser.name,
+      date: entry.date || formattedDate,
+      section: entry.section || 'Грамматика',
+      errorText: entry.errorText || '',
+      correctAnswer: entry.correctAnswer || '',
+      explanation: entry.explanation || '',
+      counter: 1,
+      source: entry.source || (currentUser.role === 'teacher' ? 'teacher' : 'student'),
+    };
+
+    setDiaryEntries((prev) => [newEntry, ...prev]);
+    await dbAddDiaryEntry(newEntry);
+  };
+
+  const handleUpdateDiaryEntry = async (entryId: string, updatedData: Partial<DiaryEntry>) => {
+    setDiaryEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, ...updatedData } : e))
+    );
+    await dbUpdateDiaryEntry(entryId, updatedData);
   };
 
   const appContent = (
@@ -1108,11 +1240,22 @@ export default function App() {
           {activeTab === 'simulator' && (
             <SpeakingSimulator isDarkMode={isDarkMode} onFinishSimulatedSpeaking={handleFinishSimulatedSpeaking} />
           )}
+          {activeTab === 'diary' && (currentUser.role === 'teacher' || currentUser.name === 'timur_yunusov' || currentUser.telegramHandle === '@timur_yunusov') && (
+            <StudentDiary
+              entries={diaryEntries.filter((e) => e.studentName === currentUser.name)}
+              onAddEntry={handleAddDiaryEntry}
+              onUpdateEntry={handleUpdateDiaryEntry}
+              isDarkMode={isDarkMode}
+              currentUserName={currentUser.name}
+              homeworks={visibleHomeworks}
+              submissions={visibleSubmissions}
+            />
+          )}
           {activeTab === 'profile' && (
             <StudentProfile profile={activeStudentProfile} isDarkMode={isDarkMode} onUpdateProfile={handleUpdateProfile} isAdmin={currentUser.role === 'teacher'} registeredStudents={registeredStudents} submissions={visibleSubmissions} homeworks={visibleHomeworks} />
           )}
           {activeTab === 'teacher' && (
-            <TeacherCabinet submissions={visibleSubmissions} homeworks={visibleHomeworks} webinars={webinars} registeredStudents={registeredStudents} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onGradeSubmission={handleGradeSubmission} onAddWebinar={handleAddWebinar} onUpdateWebinar={handleUpdateWebinar} onDeleteWebinar={handleDeleteWebinar} onAddHomework={handleAddHomework} onUpdateHomework={handleUpdateHomework} onDeleteHomework={handleDeleteHomework} onDeleteSubmission={handleDeleteSubmission} isDarkMode={isDarkMode} onUpdateStudentAccess={handleUpdateStudentAccess} onUpdateStudent={handleUpdateStudent} />
+            <TeacherCabinet submissions={visibleSubmissions} homeworks={visibleHomeworks} webinars={webinars} registeredStudents={registeredStudents} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onGradeSubmission={handleGradeSubmission} onAddWebinar={handleAddWebinar} onUpdateWebinar={handleUpdateWebinar} onDeleteWebinar={handleDeleteWebinar} onAddHomework={handleAddHomework} onUpdateHomework={handleUpdateHomework} onDeleteHomework={handleDeleteHomework} onDeleteSubmission={handleDeleteSubmission} isDarkMode={isDarkMode} onUpdateStudentAccess={handleUpdateStudentAccess} onUpdateStudent={handleUpdateStudent} onAddDiaryEntry={handleAddDiaryEntry} />
           )}
         </>
       )}
@@ -1145,7 +1288,7 @@ export default function App() {
           <div className="max-w-md mx-auto min-h-screen flex flex-col shadow-2xl relative bg-inherit">
             <HeaderTelegram currentUser={currentUser} isLoggedIn={isLoggedIn} onOpenAuthModal={() => setIsAuthModalOpen(true)} onSelectTab={setActiveTab} onLogout={handleLogout} streakDays={activeStudentProfile.streakDays} notifications={visibleNotifications} onNotificationRead={handleNotificationRead} onDeleteNotification={handleDeleteNotification} onClearAllNotifications={handleClearAllNotifications} isDarkMode={isDarkMode} onToggleDarkMode={() => setIsDarkMode(!isDarkMode)} />
             <main className="flex-1 px-3.5 pt-3 pb-20">{appContent}</main>
-            {isLoggedIn && <Navigation activeTab={activeTab} onSelectTab={setActiveTab} pendingCount={pendingHwCount} currentRole={currentUser.role} isDarkMode={isDarkMode} />}
+            {isLoggedIn && <Navigation activeTab={activeTab} onSelectTab={setActiveTab} pendingCount={pendingHwCount} currentRole={currentUser.role} isDarkMode={isDarkMode} currentUser={currentUser} />}
           </div>
           
           {/* Плавающая кнопка возврата на десктоп */}
