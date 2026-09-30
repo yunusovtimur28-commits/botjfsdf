@@ -769,6 +769,35 @@ export default function App() {
     );
   };
 
+  // Diary handlers
+  const handleAddDiaryEntry = async (entry: Partial<DiaryEntry>) => {
+    const now = new Date();
+    const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const formattedDate = `${now.getDate()} ${months[now.getMonth()]}`;
+
+    const newEntry: DiaryEntry = {
+      id: `diary-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      studentName: entry.studentName || currentUser.name,
+      date: entry.date || formattedDate,
+      section: entry.section || 'Грамматика',
+      errorText: entry.errorText || '',
+      correctAnswer: entry.correctAnswer || '',
+      explanation: entry.explanation || '',
+      counter: 1,
+      source: entry.source || (currentUser.role === 'teacher' ? 'teacher' : 'student'),
+    };
+
+    setDiaryEntries((prev) => [newEntry, ...prev]);
+    await dbAddDiaryEntry(newEntry);
+  };
+
+  const handleUpdateDiaryEntry = async (entryId: string, updatedData: Partial<DiaryEntry>) => {
+    setDiaryEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, ...updatedData } : e))
+    );
+    await dbUpdateDiaryEntry(entryId, updatedData);
+  };
+
   // Student Submits HW
   const handleSubmitHomework = async (submissionData: Partial<Submission>) => {
     if (!submissionData.homeworkId) return;
@@ -779,8 +808,14 @@ export default function App() {
     const targetHw = homeworks.find(h => h.id === submissionData.homeworkId);
     const isLate = targetHw?.deadlineDate ? Date.now() > new Date(targetHw.deadlineDate).getTime() : false;
 
+    const existingStudentSub = submissions.find(
+      (s) => s.homeworkId === submissionData.homeworkId && s.studentName === currentUser.name
+    );
+
+    const subId = existingStudentSub ? existingStudentSub.id : `sub-${Date.now()}`;
+
     const newSub: Submission = {
-      id: `sub-${Date.now()}`,
+      id: subId,
       homeworkId: submissionData.homeworkId,
       studentName: currentUser.name,
       submittedAt: submissionData.submittedAt && submissionData.submittedAt !== 'Только что' ? submissionData.submittedAt : formattedDateTime,
@@ -800,8 +835,105 @@ export default function App() {
       teacherFeedbackText: submissionData.teacherFeedbackText,
     };
 
-    setSubmissions((prev) => [newSub, ...prev.filter((s) => s.id !== newSub.id)]);
-    await dbAddSubmission(newSub);
+    setSubmissions((prev) => [newSub, ...prev.filter((s) => s.id !== subId)]);
+    if (existingStudentSub) {
+      await dbUpdateSubmission(subId, newSub);
+    } else {
+      await dbAddSubmission(newSub);
+    }
+
+    // Автоматический учет ошибок в личный дневник ученика
+    if (targetHw) {
+      // 1. Ошибки в тесте с выбором ответа (testQuestions)
+      if (targetHw.testQuestions && newSub.testAnswers) {
+        targetHw.testQuestions.forEach((q) => {
+          const userAns = (newSub.testAnswers?.[q.id] || '').trim();
+          const correctAns = (q.correctAnswer || '').trim();
+          if (userAns && userAns.toLowerCase() !== correctAns.toLowerCase()) {
+            const alreadyInDiary = diaryEntries.some(
+              (e) =>
+                e.studentName === currentUser.name &&
+                e.correctAnswer.trim().toLowerCase() === correctAns.toLowerCase()
+            );
+            if (!alreadyInDiary) {
+              const sec =
+                targetHw.block === 'speaking'
+                  ? 'Произношение'
+                  : targetHw.block === 'reading'
+                  ? 'Чтение'
+                  : targetHw.block === 'listening'
+                  ? 'Аудирование'
+                  : 'Грамматика';
+
+              handleAddDiaryEntry({
+                studentName: currentUser.name,
+                section: sec,
+                errorText: userAns,
+                correctAnswer: correctAns,
+                explanation: q.explanation || `Ошибка в задании теста «${targetHw.title}». Правильный ответ: ${correctAns}`,
+                source: 'auto',
+              });
+            }
+          }
+        });
+      }
+
+      // 2. Ошибки в блочных заданиях (gap_fill и ЕГЭ 19-29 ege_gap_fill)
+      if (targetHw.tasks && newSub.taskAnswers) {
+        targetHw.tasks.forEach((task) => {
+          const taskAns = newSub.taskAnswers?.[task.id];
+          if (!taskAns) return;
+
+          // Одиночный gap_fill
+          if (task.taskType === 'gap_fill' && task.correctAnswer) {
+            const userAns = (taskAns.textAnswer || '').trim();
+            const correctAns = task.correctAnswer.trim();
+            if (userAns && userAns.toLowerCase() !== correctAns.toLowerCase()) {
+              const alreadyInDiary = diaryEntries.some(
+                (e) =>
+                  e.studentName === currentUser.name &&
+                  e.correctAnswer.trim().toLowerCase() === correctAns.toLowerCase()
+              );
+              if (!alreadyInDiary) {
+                handleAddDiaryEntry({
+                  studentName: currentUser.name,
+                  section: task.block === 'grammar_vocabulary' ? 'Грамматика' : 'Лексика',
+                  errorText: userAns,
+                  correctAnswer: correctAns,
+                  explanation: task.explanation || `Задание ${task.taskNumber}. Правильный ответ: ${correctAns}`,
+                  source: 'auto',
+                });
+              }
+            }
+          }
+
+          // ЕГЭ задания 19-29 (ege_gap_fill)
+          if (task.taskType === 'ege_gap_fill' && task.egeItems && taskAns.egeAnswers) {
+            task.egeItems.forEach((item) => {
+              const userAns = (taskAns.egeAnswers?.[item.id] || '').trim();
+              const correctAns = item.correctAnswer.trim();
+              if (userAns && userAns.toLowerCase() !== correctAns.toLowerCase()) {
+                const alreadyInDiary = diaryEntries.some(
+                  (e) =>
+                    e.studentName === currentUser.name &&
+                    e.correctAnswer.trim().toLowerCase() === correctAns.toLowerCase()
+                );
+                if (!alreadyInDiary) {
+                  handleAddDiaryEntry({
+                    studentName: currentUser.name,
+                    section: 'Грамматика',
+                    errorText: userAns,
+                    correctAnswer: correctAns,
+                    explanation: item.explanation || `Задание №${item.number} ЕГЭ. Базовое слово: ${item.baseWord}. Правильный ответ: ${correctAns}`,
+                    source: 'auto',
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+    }
   };
 
   // Teacher Grades Submission
@@ -953,6 +1085,24 @@ export default function App() {
       (s) => !deletedSubIds.includes(s.id) && !deletedHwIds.includes(s.homeworkId)
     );
   }, [submissions, deletedSubIds, deletedHwIds]);
+
+  // Submissions filtered strictly for the current student in student view
+  const studentScopedSubmissions = React.useMemo(() => {
+    if (currentUser.role === 'teacher') return visibleSubmissions;
+    const normName = currentUser.name.trim().toLowerCase().replace('@', '');
+    const normLogin = currentUser.login ? currentUser.login.trim().toLowerCase().replace('@', '') : '';
+    const normTg = currentUser.telegramHandle ? currentUser.telegramHandle.trim().toLowerCase().replace('@', '') : '';
+
+    return visibleSubmissions.filter((s) => {
+      if (!s.studentName) return false;
+      const subName = s.studentName.trim().toLowerCase().replace('@', '');
+      return (
+        subName === normName ||
+        (normLogin && subName === normLogin) ||
+        (normTg && subName === normTg)
+      );
+    });
+  }, [visibleSubmissions, currentUser]);
 
   // Compute notifications based on current user role & active profile
   const visibleNotifications = React.useMemo(() => {
@@ -1176,33 +1326,6 @@ export default function App() {
     setActiveTab('homeworks');
   };
 
-  const handleAddDiaryEntry = async (entry: Partial<DiaryEntry>) => {
-    const now = new Date();
-    const months = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-    const formattedDate = `${now.getDate()} ${months[now.getMonth()]}`;
-
-    const newEntry: DiaryEntry = {
-      id: `diary-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      studentName: entry.studentName || currentUser.name,
-      date: entry.date || formattedDate,
-      section: entry.section || 'Грамматика',
-      errorText: entry.errorText || '',
-      correctAnswer: entry.correctAnswer || '',
-      explanation: entry.explanation || '',
-      counter: 1,
-      source: entry.source || (currentUser.role === 'teacher' ? 'teacher' : 'student'),
-    };
-
-    setDiaryEntries((prev) => [newEntry, ...prev]);
-    await dbAddDiaryEntry(newEntry);
-  };
-
-  const handleUpdateDiaryEntry = async (entryId: string, updatedData: Partial<DiaryEntry>) => {
-    setDiaryEntries((prev) =>
-      prev.map((e) => (e.id === entryId ? { ...e, ...updatedData } : e))
-    );
-    await dbUpdateDiaryEntry(entryId, updatedData);
-  };
 
   const appContent = (
     <>
@@ -1228,10 +1351,12 @@ export default function App() {
           {activeTab === 'homeworks' && (
             <HomeworkList 
               homeworks={visibleHomeworks} 
-              submissions={visibleSubmissions} 
+              submissions={studentScopedSubmissions} 
               onSubmitHomework={handleSubmitHomework} 
               isDarkMode={isDarkMode} 
               currentUserName={currentUser.name}
+              currentUserLogin={currentUser.login}
+              currentUserTelegram={currentUser.telegramHandle}
               currentUserId={registeredStudents.find(s => s.name === currentUser.name || s.login === currentUser.name)?.id}
               targetHomeworkId={targetHomeworkId}
               onClearTargetHomework={() => setTargetHomeworkId(null)}

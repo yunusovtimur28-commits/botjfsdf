@@ -23,6 +23,8 @@ interface HomeworkListProps {
   onSubmitHomework: (submissionData: Partial<Submission>) => void;
   isDarkMode: boolean;
   currentUserName?: string;
+  currentUserLogin?: string;
+  currentUserTelegram?: string;
   currentUserId?: string;
   targetHomeworkId?: string | null;
   onClearTargetHomework?: () => void;
@@ -34,6 +36,8 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   onSubmitHomework,
   isDarkMode,
   currentUserName,
+  currentUserLogin,
+  currentUserTelegram,
   currentUserId,
   targetHomeworkId,
   onClearTargetHomework,
@@ -65,16 +69,22 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
     { id: 'speaking', label: '🗣 Говорение' },
   ];
 
-  // Map homework ID to submission belonging to current student or fallback
+  // Map homework ID strictly to the submission belonging to the current student
   const getSubmissionForHomework = (hwId: string): Submission | undefined => {
-    if (currentUserName) {
-      const normName = currentUserName.trim().toLowerCase();
-      const userSub = submissions.find(
-        (s) => s.homeworkId === hwId && s.studentName && s.studentName.trim().toLowerCase() === normName
+    if (!currentUserName) return undefined;
+    const normName = currentUserName.trim().toLowerCase().replace('@', '');
+    const normLogin = currentUserLogin ? currentUserLogin.trim().toLowerCase().replace('@', '') : '';
+    const normTg = currentUserTelegram ? currentUserTelegram.trim().toLowerCase().replace('@', '') : '';
+
+    return submissions.find((s) => {
+      if (s.homeworkId !== hwId || !s.studentName) return false;
+      const subName = s.studentName.trim().toLowerCase().replace('@', '');
+      return (
+        subName === normName ||
+        (normLogin && subName === normLogin) ||
+        (normTg && subName === normTg)
       );
-      if (userSub) return userSub;
-    }
-    return submissions.find((s) => s.homeworkId === hwId);
+    });
   };
 
   // Determine effective status for each homework
@@ -437,6 +447,7 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
           onClose={() => setSelectedHomework(null)}
           onSubmit={onSubmitHomework}
           isDarkMode={isDarkMode}
+          currentUserName={currentUserName}
         />
       )}
     </div>

@@ -201,7 +201,10 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
     }> = [];
 
     if (homeworks && submissions) {
-      const userSubs = submissions.filter((s) => s.studentName === currentUserName);
+      const norm = (currentUserName || '').trim().toLowerCase().replace('@', '');
+      const userSubs = submissions.filter(
+        (s) => s.studentName && s.studentName.trim().toLowerCase().replace('@', '') === norm
+      );
 
       userSubs.forEach((sub) => {
         const hw = homeworks.find((h) => h.id === sub.homeworkId);

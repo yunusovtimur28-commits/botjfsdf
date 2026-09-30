@@ -29,6 +29,7 @@ interface HomeworkSubmissionModalProps {
   onClose: () => void;
   onSubmit: (submissionData: Partial<Submission>) => void;
   isDarkMode: boolean;
+  currentUserName?: string;
 }
 
 // Умный счетчик слов по правилам ФИПИ (ЕГЭ)
@@ -54,7 +55,15 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   onClose,
   onSubmit,
   isDarkMode,
+  currentUserName,
 }) => {
+  // Normalize user identifier to isolate drafts in localStorage per student
+  const userPrefix = (currentUserName || 'guest').trim().toLowerCase().replace(/[^a-zа-я0-9_]/g, '_');
+  const draftKey = `hw_draft_${homework.id}_${userPrefix}`;
+  const tasksDraftKey = `hw_tasks_draft_${homework.id}_${userPrefix}`;
+  const egeDraftKey = `hw_ege_draft_${homework.id}_${userPrefix}`;
+  const egeCheckedKey = `hw_ege_checked_${homework.id}_${userPrefix}`;
+
   // Test state
   const [testAnswers, setTestAnswers] = useState<Record<string, string>>(
     existingSubmission?.testAnswers || {}
@@ -66,8 +75,6 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     existingSubmission?.testScore ?? null
   );
 
-  const draftKey = `hw_draft_${homework.id}`;
-  const tasksDraftKey = `hw_tasks_draft_${homework.id}`;
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   // Audio Recording state for Speaking
@@ -155,8 +162,18 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   });
 
   // EGE Gap-fill (19-29) state
-  const egeDraftKey = `hw_ege_draft_${homework.id}`;
-  const egeCheckedKey = `hw_ege_checked_${homework.id}`;
+  // Clean up legacy un-scoped keys on mount to prevent cross-account draft leakage
+  useEffect(() => {
+    try {
+      localStorage.removeItem(`hw_draft_${homework.id}`);
+      localStorage.removeItem(`hw_tasks_draft_${homework.id}`);
+      localStorage.removeItem(`hw_ege_draft_${homework.id}`);
+      localStorage.removeItem(`hw_ege_checked_${homework.id}`);
+    } catch {
+      // ignore
+    }
+  }, [homework.id]);
+
   const [egeAnswers, setEgeAnswers] = useState<Record<string, string>>(() => {
     try {
       const saved = localStorage.getItem(egeDraftKey);
@@ -470,6 +487,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     localStorage.removeItem(tasksDraftKey);
     localStorage.removeItem(egeDraftKey);
     localStorage.removeItem(egeCheckedKey);
+    try {
+      localStorage.removeItem(`hw_draft_${homework.id}`);
+      localStorage.removeItem(`hw_tasks_draft_${homework.id}`);
+      localStorage.removeItem(`hw_ege_draft_${homework.id}`);
+      localStorage.removeItem(`hw_ege_checked_${homework.id}`);
+    } catch {
+      // ignore
+    }
     onClose();
   };
 
