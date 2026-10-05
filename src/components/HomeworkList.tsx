@@ -72,19 +72,10 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
   // Map homework ID strictly to the submission belonging to the current student
   const getSubmissionForHomework = (hwId: string): Submission | undefined => {
     if (!currentUserName) return undefined;
-    const normName = currentUserName.trim().toLowerCase().replace('@', '');
-    const normLogin = currentUserLogin ? currentUserLogin.trim().toLowerCase().replace('@', '') : '';
-    const normTg = currentUserTelegram ? currentUserTelegram.trim().toLowerCase().replace('@', '') : '';
-
-    return submissions.find((s) => {
-      if (s.homeworkId !== hwId || !s.studentName) return false;
-      const subName = s.studentName.trim().toLowerCase().replace('@', '');
-      return (
-        subName === normName ||
-        (normLogin && subName === normLogin) ||
-        (normTg && subName === normTg)
-      );
-    });
+    const normName = currentUserName.trim().toLowerCase();
+    return submissions.find(
+      (s) => s.homeworkId === hwId && s.studentName && s.studentName.trim().toLowerCase() === normName
+    );
   };
 
   // Determine effective status for each homework
@@ -95,8 +86,10 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
     // 1. Ручной архив (домашки без дедлайна)
     if (hw.deadline === 'Без дедлайна') return 'archive';
 
-    if (hw.deadlineDate) {
-      const deadlineTime = new Date(hw.deadlineDate).getTime();
+    const isValidDate = hw.deadlineDate && hw.deadlineDate !== 'undefined' && !isNaN(new Date(hw.deadlineDate).getTime());
+
+    if (isValidDate) {
+      const deadlineTime = new Date(hw.deadlineDate!).getTime();
       
       // 2. Автоматическая амнистия для новеньких
       // Вытаскиваем timestamp регистрации ученика из его ID (формат st-1712345678)
@@ -431,6 +424,18 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
                         Сдать ДЗ →
                       </span>
                     )}
+
+                    {status === 'archive' && !sub && (
+                      <span className="text-xs font-semibold text-purple-400">
+                        В архиве 📚
+                      </span>
+                    )}
+
+                    {status === 'overdue' && !sub && (
+                      <span className="text-xs font-semibold text-rose-400">
+                        Просрочено ⏳
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -440,16 +445,27 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
       )}
 
       {/* Submission Modal */}
-      {selectedHomework && (
-        <HomeworkSubmissionModal
-          homework={selectedHomework}
-          existingSubmission={getSubmissionForHomework(selectedHomework.id)}
-          onClose={() => setSelectedHomework(null)}
-          onSubmit={onSubmitHomework}
-          isDarkMode={isDarkMode}
-          currentUserName={currentUserName}
-        />
-      )}
+      {selectedHomework && (() => {
+        const sub = getSubmissionForHomework(selectedHomework.id);
+        const status = getHomeworkStatus(selectedHomework);
+        const isLocked = !sub && (status === 'archive' || status === 'overdue');
+        return (
+          <HomeworkSubmissionModal
+            homework={selectedHomework}
+            existingSubmission={sub}
+            onClose={() => setSelectedHomework(null)}
+            onSubmit={onSubmitHomework}
+            isDarkMode={isDarkMode}
+            currentUserName={currentUserName || ''}
+            isSubmissionBlocked={isLocked}
+            blockedReason={
+              status === 'archive'
+                ? 'Задание находится в архиве (дедлайн прошёл до момента вашей регистрации). Сдача ответов закрыта.'
+                : 'Дедлайн выполнения задания истёк. Приём ответов закрыт.'
+            }
+          />
+        );
+      })()}
     </div>
   );
 };

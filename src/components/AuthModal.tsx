@@ -16,8 +16,10 @@ import {
 } from 'lucide-react';
 
 export interface AuthUser {
+  id?: string;
   name: string;
   role: UserRole;
+  login?: string;
   telegramHandle: string;
   avatarUrl: string;
 }
@@ -133,8 +135,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     
     onLogin({
+      id: found.id,
       name: found.name || studentName.trim() || 'Ученик',
       role: 'student',
+      login: found.login || cleanLogin,
       telegramHandle: `@${found.login || cleanLogin}`,
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
     });

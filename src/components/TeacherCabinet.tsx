@@ -553,7 +553,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     {
       id: string;
       block: BlockCategory;
-      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill';
+      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna';
       taskNumber: string;
       instruction: string;
       taskPrompt: string;
@@ -569,6 +569,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       explanation?: string;
       baseWord?: string;
       egeItems?: EgeGapFillItem[];
+      wordBank?: string;
+      textWithGaps?: string;
+      gapAnswers?: string[];
+      qnaItems?: { id: string; question: string; correctAnswer: string }[];
     }[]
   >([
     {
@@ -1061,6 +1065,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           explanation: t.explanation,
           baseWord: t.baseWord,
           egeItems: t.egeItems,
+          wordBank: t.wordBank,
+          textWithGaps: t.textWithGaps,
+          gapAnswers: t.gapAnswers,
+          qnaItems: t.qnaItems,
         }))
       );
     } else {
@@ -1122,16 +1130,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       taskFileName: t.taskFileName,
       taskAudioUrl: t.taskAudioUrl,
       taskVideoUrl: t.taskVideoUrl,
-      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
-      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill') ? undefined : (t.correctOptionIndex ?? 0),
+      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
+      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna') ? undefined : (t.correctOptionIndex ?? 0),
       correctAnswer: t.taskType === 'gap_fill' ? t.correctAnswer?.trim() : (t.options ? t.options[t.correctOptionIndex ?? 0] : undefined),
       explanation: t.explanation?.trim() || undefined,
       baseWord: t.taskType === 'gap_fill' ? t.baseWord?.trim() : undefined,
       egeItems: t.taskType === 'ege_gap_fill' ? t.egeItems : undefined,
+      wordBank: t.taskType === 'text_bank' ? t.wordBank?.trim() : undefined,
+      textWithGaps: t.taskType === 'text_bank' ? t.textWithGaps?.trim() : undefined,
+      gapAnswers: t.taskType === 'text_bank' ? (t.gapAnswers || []).map((a) => a.trim()) : undefined,
+      qnaItems: t.taskType === 'qna' ? (t.qnaItems || []).map((q) => ({ id: q.id, question: q.question.trim(), correctAnswer: q.correctAnswer.trim() })) : undefined,
     }));
 
     const primaryBlock = formattedTasks[0]?.block || hwBlock;
-    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill') ? 'test' : (formattedTasks[0]?.taskType || 'test');
+    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna') ? 'test' : (formattedTasks[0]?.taskType || 'test');
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
@@ -1638,7 +1650,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   value={videoDescription}
                   onChange={(e) => setVideoDescription(e.target.value)}
                   placeholder="Подробно разбираем требования ФИПИ, типичные ошибки и ключевые фреймы..."
-                  className={`w-full p-2.5 rounded-xl border ${
+                  className={`w-full p-2.5 rounded-xl border resize-y ${
                     isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
                   }`}
                 />
@@ -2276,7 +2288,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                 </div>
 
                                 {task.taskPrompt && (
-                                  <p className="text-[11px] text-slate-400 italic">
+                                  <p className="text-[11px] text-slate-400 italic whitespace-pre-wrap">
                                     Условие: {task.taskPrompt}
                                   </p>
                                 )}
@@ -2353,6 +2365,86 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                                       <span>|</span>
                                                       <span>Верно: <b className="text-emerald-300 font-mono">{item.correctAnswer}</b></span>
                                                     </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {task.taskType === 'text_bank' && task.gapAnswers && task.gapAnswers.length > 0 && (
+                                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2">
+                                        <div className="flex items-center justify-between font-bold text-amber-300 text-[11px]">
+                                          <span>Проверка текста с банком слов:</span>
+                                          <span className="text-slate-400 font-normal">{task.gapAnswers.length} пропусков</span>
+                                        </div>
+                                        {task.wordBank && (
+                                          <div className="text-[10px] text-amber-200 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
+                                            Банк слов: {task.wordBank}
+                                          </div>
+                                        )}
+                                        <div className="space-y-1.5">
+                                          {task.gapAnswers.map((targetAns, aIdx) => {
+                                            const studentAns = (ans?.gapInputs?.[aIdx] || '').trim();
+                                            const isMatch = studentAns.toLowerCase() === targetAns.trim().toLowerCase();
+                                            return (
+                                              <div key={aIdx} className="p-2 rounded-lg bg-black/30 border border-slate-700/60 flex items-center justify-between gap-2 text-[11px]">
+                                                <div className="flex items-center gap-2">
+                                                  <span className="w-6 h-6 rounded border border-amber-500/40 flex items-center justify-center font-bold text-amber-300 shrink-0 text-[11px]">
+                                                    №{aIdx + 1}
+                                                  </span>
+                                                  <div>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <span className="text-slate-400 text-[10px]">Ответ:</span>
+                                                      <span className={`font-bold ${isMatch ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                        {studentAns || '(нет ответа)'}
+                                                      </span>
+                                                      {isMatch ? (
+                                                        <span className="text-[10px] text-emerald-400 font-bold">✅</span>
+                                                      ) : (
+                                                        <span className="text-[10px] text-rose-400 font-bold">❌</span>
+                                                      )}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-400">
+                                                      Верно: <b className="text-emerald-300 font-mono">{targetAns}</b>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {task.taskType === 'qna' && task.qnaItems && task.qnaItems.length > 0 && (
+                                      <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-xs space-y-2">
+                                        <div className="flex items-center justify-between font-bold text-cyan-300 text-[11px]">
+                                          <span>Вопрос-Ответ:</span>
+                                          <span className="text-slate-400 font-normal">{task.qnaItems.length} вопросов</span>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          {task.qnaItems.map((item, qIdx) => {
+                                            const studentAns = (ans?.qnaInputs?.[item.id] || '').trim();
+                                            const isMatch = studentAns.toLowerCase() === item.correctAnswer.trim().toLowerCase();
+                                            return (
+                                              <div key={item.id || qIdx} className="p-2 rounded-lg bg-black/30 border border-slate-700/60 flex items-center justify-between gap-2 text-[11px]">
+                                                <div className="space-y-0.5">
+                                                  <p className="text-slate-300 font-medium">{qIdx + 1}. {item.question}</p>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <span className="text-slate-400 text-[10px]">Ответ:</span>
+                                                    <span className={`font-bold ${isMatch ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                      {studentAns || '(нет ответа)'}
+                                                    </span>
+                                                    {isMatch ? (
+                                                      <span className="text-[10px] text-emerald-400 font-bold">✅</span>
+                                                    ) : (
+                                                      <span className="text-[10px] text-rose-400 font-bold">❌</span>
+                                                    )}
+                                                    <span className="text-slate-500">|</span>
+                                                    <span className="text-[10px] text-slate-400">
+                                                      Верно: <b className="text-emerald-300 font-mono">{item.correctAnswer}</b>
+                                                    </span>
                                                   </div>
                                                 </div>
                                               </div>
@@ -3180,6 +3272,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 />
                 <p className="text-[10px] text-slate-500">Если пусто — подставится текущее время.</p>
               </div>
+
+              {/* HW Description */}
+              <div className="space-y-1 sm:col-span-3">
+                <label className="font-semibold text-slate-400">Описание домашнего задания (для учеников):</label>
+                <textarea
+                  rows={3}
+                  value={hwDescription}
+                  onChange={(e) => setHwDescription(e.target.value)}
+                  placeholder="Опишите требования или дайте напутствие к домашнему заданию..."
+                  className={`w-full p-2.5 rounded-xl border resize-y ${
+                    isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300'
+                  }`}
+                />
+              </div>
             </div>
 
             {/* List of Sub-tasks */}
@@ -3221,7 +3327,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         <select
                           value={task.taskType || 'test'}
                           onChange={(e) => {
-                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill';
+                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna';
                             setHwTasks((prev) =>
                               prev.map((t, i) =>
                                 i === idx
@@ -3230,6 +3336,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       taskType: val,
                                       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
                                       correctOptionIndex: t.correctOptionIndex ?? 0,
+                                      gapAnswers: val === 'text_bank' ? (t.gapAnswers && t.gapAnswers.length > 0 ? t.gapAnswers : ['']) : t.gapAnswers,
+                                      qnaItems: val === 'qna' ? (t.qnaItems && t.qnaItems.length > 0 ? t.qnaItems : [{ id: `qna-${Date.now()}-1`, question: '', correctAnswer: '' }]) : t.qnaItems,
                                       egeItems:
                                         val === 'ege_gap_fill'
                                           ? t.egeItems && t.egeItems.length > 0
@@ -3265,6 +3373,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           <option value="test">📝 Тест (С выбором ответа)</option>
                           <option value="gap_fill">Текст с пропусками (Автопроверка)</option>
                           <option value="ege_gap_fill">Текст с пропусками (ЕГЭ 19-29)</option>
+                          <option value="text_bank">Текст с банком слов (Ввод ручками)</option>
+                          <option value="qna">Вопрос-Ответ (Ввод ручками)</option>
                           <option value="written">✍️ Письменно / Файл</option>
                           <option value="speaking">🗣 Говорение (Аудио)</option>
                         </select>
@@ -3460,7 +3570,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             Объяснение при ошибке:
                           </label>
                           <textarea
-                            rows={2}
+                            rows={3}
                             value={task.explanation || ''}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -3469,7 +3579,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                               );
                             }}
                             placeholder="Объяснение при ошибке"
-                            className={`w-full p-2 rounded-xl text-xs border ${
+                            className={`w-full p-2 rounded-xl text-xs border resize-y ${
                               isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                             }`}
                           />
@@ -3482,8 +3592,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       <label className="text-[11px] font-semibold text-slate-400 block">
                         Инструкция к заданию:
                       </label>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={3}
                         value={task.instruction}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -3492,38 +3602,44 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           );
                         }}
                         placeholder="Внимательно прочитайте задание..."
-                        className={`w-full p-2 rounded-xl text-xs border ${
-                          isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
+                        className={`w-full p-2 rounded-xl text-xs border resize-y ${
+                          isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                         }`}
                       />
                     </div>
 
                     {/* Task Prompt text area */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-400 block">
-                        {task.taskType === 'ege_gap_fill'
-                          ? 'Заголовок / Общее условие текста (например: "The History of Tea"):'
-                          : 'Задание / Условие (или текст с пропусками `___`):'}
-                      </label>
-                      <textarea
-                        rows={task.taskType === 'ege_gap_fill' ? 2 : 3}
-                        value={task.taskPrompt}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setHwTasks((prev) =>
-                            prev.map((t, i) => (i === idx ? { ...t, taskPrompt: val } : t))
-                          );
-                        }}
-                        placeholder={
-                          task.taskType === 'ege_gap_fill'
-                            ? 'Заголовок текста (например, "The Great Barrier Reef")...'
-                            : 'Текст задания, вопрос или предложение с пропусками...'
-                        }
-                        className={`w-full p-2 rounded-xl text-xs border ${
-                          isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
-                        }`}
-                      />
-                    </div>
+                    {task.taskType !== 'text_bank' && (
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-400 block">
+                          {task.taskType === 'ege_gap_fill'
+                            ? 'Заголовок / Общее условие текста (например: "The History of Tea"):'
+                            : task.taskType === 'qna'
+                            ? 'Общее условие / Доступные варианты (taskPrompt):'
+                            : 'Задание / Условие (или текст с пропусками `___`):'}
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={task.taskPrompt}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setHwTasks((prev) =>
+                              prev.map((t, i) => (i === idx ? { ...t, taskPrompt: val } : t))
+                            );
+                          }}
+                          placeholder={
+                            task.taskType === 'ege_gap_fill'
+                              ? 'Заголовок текста (например, "The Great Barrier Reef")...'
+                              : task.taskType === 'qna'
+                              ? 'Используйте a scientist / a writer...'
+                              : 'Текст задания, вопрос или предложение с пропусками...'
+                          }
+                          className={`w-full p-2 rounded-xl text-xs border resize-y ${
+                            isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                          }`}
+                        />
+                      </div>
+                    )}
 
                     {/* EGE GAP FILL (19-29) ITEMS LIST */}
                     {task.taskType === 'ege_gap_fill' && (
@@ -3721,8 +3837,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   <label className="text-[10px] font-bold text-slate-400 block">
                                     Объяснение при ошибке:
                                   </label>
-                                  <input
-                                    type="text"
+                                  <textarea
+                                    rows={3}
                                     value={item.explanation}
                                     onChange={(e) => {
                                       const val = e.target.value;
@@ -3740,7 +3856,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       );
                                     }}
                                     placeholder="Past Simple: felt"
-                                    className={`w-full p-1.5 rounded-lg text-xs border ${
+                                    className={`w-full p-2 rounded-xl text-xs border resize-y ${
                                       isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
                                     }`}
                                   />
@@ -3755,6 +3871,286 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             Абзацы ещё не добавлены. Нажмите «+ Добавить абзац» выше.
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* TEXT BANK EDITOR (taskType === 'text_bank') */}
+                    {task.taskType === 'text_bank' && (
+                      <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
+                        <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                          <div>
+                            <h4 className="text-xs font-extrabold text-amber-300 flex items-center gap-1.5">
+                              <span>📚 Текст с банком слов (Ввод ручками)</span>
+                            </h4>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Ученик видит банк слов и вписывает нужные слова в пропуски <code className="text-amber-300 font-bold bg-black/40 px-1 rounded">___</code>
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* wordBank input */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-amber-300 block">
+                            Банк слов (Words):
+                          </label>
+                          <input
+                            type="text"
+                            value={task.wordBank || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHwTasks((prev) => prev.map((t, i) => (i === idx ? { ...t, wordBank: val } : t)));
+                            }}
+                            placeholder="Слова-подсказки: founder, literature..."
+                            className={`w-full p-2.5 rounded-xl text-xs border font-medium ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-amber-200' : 'bg-white border-slate-300 text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        {/* textWithGaps textarea */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-300 block">
+                            Текст с пропусками:
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={task.textWithGaps || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setHwTasks((prev) => prev.map((t, i) => (i === idx ? { ...t, textWithGaps: val } : t)));
+                            }}
+                            placeholder="Текст с пропусками ___"
+                            className={`w-full p-2.5 rounded-xl text-xs border leading-relaxed resize-y ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                            }`}
+                          />
+                        </div>
+
+                        {/* Dynamic gapAnswers list */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-bold text-emerald-400 block">
+                              Правильные ответы для пропусков по порядку:
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) =>
+                                    i === idx
+                                      ? { ...t, gapAnswers: [...(t.gapAnswers || []), ''] }
+                                      : t
+                                  )
+                                );
+                              }}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center space-x-1 shadow-sm transition-all"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Добавить ответ для пропуска</span>
+                            </button>
+                          </div>
+
+                          <div className="space-y-2">
+                            {((task.gapAnswers && task.gapAnswers.length > 0) ? task.gapAnswers : ['']).map((ans, aIdx) => (
+                              <div key={aIdx} className="flex items-center gap-2">
+                                <span className="shrink-0 w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center font-bold text-xs">
+                                  №{aIdx + 1}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={ans}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) =>
+                                        i === idx
+                                          ? {
+                                              ...t,
+                                              gapAnswers: (t.gapAnswers || ['']).map((oldA, j) =>
+                                                j === aIdx ? val : oldA
+                                              ),
+                                            }
+                                          : t
+                                      )
+                                    );
+                                  }}
+                                  placeholder={`Правильный ответ для пропуска №${aIdx + 1}`}
+                                  className={`flex-1 p-2 rounded-xl text-xs border font-medium ${
+                                    isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-emerald-300' : 'bg-white border-slate-300 text-emerald-800'
+                                  }`}
+                                />
+                                {task.gapAnswers && task.gapAnswers.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                gapAnswers: t.gapAnswers?.filter((_, j) => j !== aIdx),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    className="p-2 text-rose-400 hover:bg-rose-500/20 rounded-lg transition-all"
+                                    title="Удалить ответ"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* QNA EDITOR (taskType === 'qna') */}
+                    {task.taskType === 'qna' && (
+                      <div className="p-3.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 space-y-4">
+                        <div className="flex items-center justify-between border-b border-cyan-500/20 pb-2">
+                          <div>
+                            <h4 className="text-xs font-extrabold text-cyan-300 flex items-center gap-1.5">
+                              <span>❓ Вопрос-Ответ (Ввод ручками)</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-200 font-mono font-bold">
+                                {task.qnaItems?.length || 0} шт.
+                              </span>
+                            </h4>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Список вопросов с индивидуальными полями для ручного ввода ответа и автопроверкой
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newItem = {
+                                id: `qna-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                                question: '',
+                                correctAnswer: '',
+                              };
+                              setHwTasks((prev) =>
+                                prev.map((t, i) =>
+                                  i === idx
+                                    ? { ...t, qnaItems: [...(t.qnaItems || []), newItem] }
+                                    : t
+                                )
+                              );
+                            }}
+                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-sm transition-all"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Добавить вопрос</span>
+                          </button>
+                        </div>
+
+                        {/* List of QnA items */}
+                        <div className="space-y-3">
+                          {((task.qnaItems && task.qnaItems.length > 0)
+                            ? task.qnaItems
+                            : [
+                                {
+                                  id: `qna-${Date.now()}-1`,
+                                  question: '',
+                                  correctAnswer: '',
+                                },
+                              ]
+                          ).map((item, qIdx) => (
+                            <div
+                              key={item.id || qIdx}
+                              className={`p-3 rounded-xl border space-y-2.5 relative transition-all ${
+                                isDarkMode ? 'bg-[#17212b]/80 border-slate-700/80' : 'bg-white border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-cyan-400">
+                                  Вопрос #{qIdx + 1}
+                                </span>
+                                {task.qnaItems && task.qnaItems.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                qnaItems: t.qnaItems?.filter((_, j) => j !== qIdx),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    className="text-rose-400 hover:text-rose-300 p-1 hover:bg-rose-500/10 rounded-lg text-xs transition-all flex items-center gap-1"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span className="text-[10px]">Удалить</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 block">
+                                  Вопрос:
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.question}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) =>
+                                        i === idx
+                                          ? {
+                                              ...t,
+                                              qnaItems: (t.qnaItems || []).map((q, j) =>
+                                                j === qIdx ? { ...q, question: val } : q
+                                              ),
+                                            }
+                                          : t
+                                      )
+                                    );
+                                  }}
+                                  placeholder="Вопрос..."
+                                  className={`w-full p-2 rounded-lg text-xs font-medium border ${
+                                    isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                                  }`}
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-emerald-400 block">
+                                  Правильный ответ (скрыто):
+                                </label>
+                                <input
+                                  type="text"
+                                  value={item.correctAnswer}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setHwTasks((prev) =>
+                                      prev.map((t, i) =>
+                                        i === idx
+                                          ? {
+                                              ...t,
+                                              qnaItems: (t.qnaItems || []).map((q, j) =>
+                                                j === qIdx ? { ...q, correctAnswer: val } : q
+                                              ),
+                                            }
+                                          : t
+                                      )
+                                    );
+                                  }}
+                                  placeholder="Правильный ответ (скрыто)"
+                                  className={`w-full p-2 rounded-lg text-xs font-semibold border ${
+                                    isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-emerald-300' : 'bg-slate-50 border-slate-300 text-emerald-800'
+                                  }`}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -4725,11 +5121,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-300 block">Разбор / Правило / Формула:</label>
                   <textarea
-                    rows={2}
+                    rows={3}
                     value={diaryExplanation}
                     onChange={(e) => setDiaryExplanation(e.target.value)}
                     placeholder="Пояснение правила для ученика..."
-                    className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed ${
+                    className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed resize-y ${
                       isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                     }`}
                   />

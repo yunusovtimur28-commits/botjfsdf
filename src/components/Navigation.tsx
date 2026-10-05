@@ -65,14 +65,12 @@ export const Navigation: React.FC<NavigationProps> = ({
       icon: Timer,
       badge: null,
     },
-    ...(isBetaTester ? [
-      {
-        id: 'diary' as NavTab,
-        label: 'Дневник',
-        icon: Book,
-        badge: null,
-      },
-    ] : []),
+    {
+      id: 'diary' as NavTab,
+      label: 'Дневник',
+      icon: Book,
+      badge: null,
+    },
     {
       id: 'profile' as NavTab,
       label: 'Профиль',

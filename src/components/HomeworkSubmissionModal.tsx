@@ -29,7 +29,11 @@ interface HomeworkSubmissionModalProps {
   onClose: () => void;
   onSubmit: (submissionData: Partial<Submission>) => void;
   isDarkMode: boolean;
-  currentUserName?: string;
+  currentUserName: string;
+  currentUserLogin?: string;
+  currentUserId?: string;
+  isSubmissionBlocked?: boolean;
+  blockedReason?: string;
 }
 
 // Умный счетчик слов по правилам ФИПИ (ЕГЭ)
@@ -56,13 +60,35 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   onSubmit,
   isDarkMode,
   currentUserName,
+  currentUserLogin,
+  currentUserId,
+  isSubmissionBlocked = false,
+  blockedReason,
 }) => {
-  // Normalize user identifier to isolate drafts in localStorage per student
-  const userPrefix = (currentUserName || 'guest').trim().toLowerCase().replace(/[^a-zа-я0-9_]/g, '_');
-  const draftKey = `hw_draft_${homework.id}_${userPrefix}`;
-  const tasksDraftKey = `hw_tasks_draft_${homework.id}_${userPrefix}`;
-  const egeDraftKey = `hw_ege_draft_${homework.id}_${userPrefix}`;
-  const egeCheckedKey = `hw_ege_checked_${homework.id}_${userPrefix}`;
+  const draftKey = `hw_draft_${homework.id}_${currentUserName}`;
+  const tasksDraftKey = `hw_tasks_draft_${homework.id}_${currentUserName}`;
+  const egeDraftKey = `hw_ege_draft_${homework.id}_${currentUserName}`;
+  const egeCheckedKey = `hw_ege_checked_${homework.id}_${currentUserName}`;
+
+  // Clean up legacy un-scoped or shared keys on mount to prevent cross-account draft leakage
+  useEffect(() => {
+    try {
+      localStorage.removeItem(`hw_draft_${homework.id}`);
+      localStorage.removeItem(`hw_tasks_draft_${homework.id}`);
+      localStorage.removeItem(`hw_ege_draft_${homework.id}`);
+      localStorage.removeItem(`hw_ege_checked_${homework.id}`);
+      localStorage.removeItem(`hw_draft_${homework.id}_guest`);
+      localStorage.removeItem(`hw_tasks_draft_${homework.id}_guest`);
+      localStorage.removeItem(`hw_ege_draft_${homework.id}_guest`);
+      localStorage.removeItem(`hw_ege_checked_${homework.id}_guest`);
+      localStorage.removeItem(`hw_draft_${homework.id}_ученик`);
+      localStorage.removeItem(`hw_tasks_draft_${homework.id}_ученик`);
+      localStorage.removeItem(`hw_ege_draft_${homework.id}_ученик`);
+      localStorage.removeItem(`hw_ege_checked_${homework.id}_ученик`);
+    } catch {
+      // ignore
+    }
+  }, [homework.id]);
 
   // Test state
   const [testAnswers, setTestAnswers] = useState<Record<string, string>>(
@@ -97,9 +123,10 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const teacherAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Essay / Written state
-  const [essayText, setEssayText] = useState(
-    () => existingSubmission?.essayText || localStorage.getItem(draftKey) || ''
-  );
+  const [essayText, setEssayText] = useState(() => {
+    if (isSubmissionBlocked) return existingSubmission?.essayText || '';
+    return existingSubmission?.essayText || localStorage.getItem(draftKey) || '';
+  });
   const [uploadedFileName, setUploadedFileName] = useState(
     existingSubmission?.writtenFileName || ''
   );
@@ -107,10 +134,11 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   // Autosave essay draft
   useEffect(() => {
+    if (isSubmissionBlocked) return;
     if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
       localStorage.setItem(draftKey, essayText);
     }
-  }, [essayText, draftKey, existingSubmission]);
+  }, [essayText, draftKey, existingSubmission, isSubmissionBlocked]);
 
   // AI Pre-check state
   const [aiLoading, setAiLoading] = useState(false);
@@ -131,8 +159,19 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   // Multi-Task & Photo state
   const [taskAnswers, setTaskAnswers] = useState<
-    Record<string, { textAnswer?: string; voiceAudioUrl?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string> }>
+    Record<
+      string,
+      {
+        textAnswer?: string;
+        voiceAudioUrl?: string;
+        selectedOptionIndex?: number;
+        egeAnswers?: Record<string, string>;
+        gapInputs?: string[];
+        qnaInputs?: Record<string, string>;
+      }
+    >
   >(() => {
+    if (isSubmissionBlocked) return existingSubmission?.taskAnswers || {};
     try {
       const saved = localStorage.getItem(tasksDraftKey);
       if (saved) {
@@ -147,13 +186,27 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   // Gap-fill interactive task check status state
   const [checkedTasks, setCheckedTasks] = useState<Record<string, 'correct' | 'incorrect'>>(() => {
     const initialChecked: Record<string, 'correct' | 'incorrect'> = {};
-    if (homework.tasks) {
+    if (homework.tasks && existingSubmission) {
       homework.tasks.forEach((t) => {
         if (t.taskType === 'gap_fill' && t.correctAnswer) {
-          const existingAns = (existingSubmission?.taskAnswers?.[t.id]?.textAnswer || '');
+          const existingAns = (existingSubmission.taskAnswers?.[t.id]?.textAnswer || '');
           if (existingAns.trim()) {
             const isCorrect = existingAns.trim().toLowerCase() === t.correctAnswer.trim().toLowerCase();
             initialChecked[t.id] = isCorrect ? 'correct' : 'incorrect';
+          }
+        }
+        if (t.taskType === 'text_bank' && t.gapAnswers && t.gapAnswers.length > 0) {
+          const gaps = existingSubmission.taskAnswers?.[t.id]?.gapInputs;
+          if (gaps && gaps.length > 0) {
+            const allMatch = t.gapAnswers.every((ans, i) => (gaps[i] || '').trim().toLowerCase() === ans.trim().toLowerCase());
+            initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
+          }
+        }
+        if (t.taskType === 'qna' && t.qnaItems && t.qnaItems.length > 0) {
+          const qna = existingSubmission.taskAnswers?.[t.id]?.qnaInputs;
+          if (qna && Object.keys(qna).length > 0) {
+            const allMatch = t.qnaItems.every((item) => (qna[item.id] || '').trim().toLowerCase() === item.correctAnswer.trim().toLowerCase());
+            initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
           }
         }
       });
@@ -161,25 +214,58 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     return initialChecked;
   });
 
-  // EGE Gap-fill (19-29) state
-  // Clean up legacy un-scoped keys on mount to prevent cross-account draft leakage
-  useEffect(() => {
-    try {
-      localStorage.removeItem(`hw_draft_${homework.id}`);
-      localStorage.removeItem(`hw_tasks_draft_${homework.id}`);
-      localStorage.removeItem(`hw_ege_draft_${homework.id}`);
-      localStorage.removeItem(`hw_ege_checked_${homework.id}`);
-    } catch {
-      // ignore
+  const [gapChecked, setGapChecked] = useState<Record<string, Record<number, 'correct' | 'incorrect'>>>(() => {
+    const initial: Record<string, Record<number, 'correct' | 'incorrect'>> = {};
+    if (homework.tasks && existingSubmission) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'text_bank' && t.gapAnswers) {
+          const gaps = existingSubmission.taskAnswers?.[t.id]?.gapInputs;
+          if (gaps && gaps.length > 0) {
+            const map: Record<number, 'correct' | 'incorrect'> = {};
+            t.gapAnswers.forEach((ans, i) => {
+              const val = (gaps[i] || '').trim().toLowerCase();
+              if (val) {
+                map[i] = val === ans.trim().toLowerCase() ? 'correct' : 'incorrect';
+              }
+            });
+            initial[t.id] = map;
+          }
+        }
+      });
     }
-  }, [homework.id]);
+    return initial;
+  });
+
+  const [qnaChecked, setQnaChecked] = useState<Record<string, Record<string, 'correct' | 'incorrect'>>>(() => {
+    const initial: Record<string, Record<string, 'correct' | 'incorrect'>> = {};
+    if (homework.tasks && existingSubmission) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'qna' && t.qnaItems) {
+          const qna = existingSubmission.taskAnswers?.[t.id]?.qnaInputs;
+          if (qna) {
+            const map: Record<string, 'correct' | 'incorrect'> = {};
+            t.qnaItems.forEach((item) => {
+              const val = (qna[item.id] || '').trim().toLowerCase();
+              if (val) {
+                map[item.id] = val === item.correctAnswer.trim().toLowerCase() ? 'correct' : 'incorrect';
+              }
+            });
+            initial[t.id] = map;
+          }
+        }
+      });
+    }
+    return initial;
+  });
 
   const [egeAnswers, setEgeAnswers] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem(egeDraftKey);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Error loading ege draft', e);
+    if (!isSubmissionBlocked) {
+      try {
+        const saved = localStorage.getItem(egeDraftKey);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error loading ege draft', e);
+      }
     }
     const fromSub: Record<string, string> = {};
     if (existingSubmission?.taskAnswers) {
@@ -193,14 +279,16 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   });
 
   const [egeChecked, setEgeChecked] = useState<Record<string, 'correct' | 'incorrect'>>(() => {
-    try {
-      const saved = localStorage.getItem(egeCheckedKey);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Error loading egeChecked draft', e);
+    if (!isSubmissionBlocked) {
+      try {
+        const saved = localStorage.getItem(egeCheckedKey);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error loading egeChecked draft', e);
+      }
     }
     const initial: Record<string, 'correct' | 'incorrect'> = {};
-    if (homework.tasks) {
+    if (homework.tasks && existingSubmission) {
       homework.tasks.forEach((t) => {
         if (t.taskType === 'ege_gap_fill' && t.egeItems) {
           t.egeItems.forEach((item) => {
@@ -240,13 +328,15 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   // Autosave multi-task answers draft (excluding temporary Blob URLs)
   useEffect(() => {
     if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
-      const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string> }> = {};
+      const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string>; gapInputs?: string[]; qnaInputs?: Record<string, string> }> = {};
       Object.entries(taskAnswers).forEach(([taskId, ans]: [string, any]) => {
         if (ans) {
           cleanAnswers[taskId] = {
             textAnswer: ans.textAnswer,
             selectedOptionIndex: ans.selectedOptionIndex,
             egeAnswers: ans.egeAnswers,
+            gapInputs: ans.gapInputs,
+            qnaInputs: ans.qnaInputs,
           };
         }
       });
@@ -396,9 +486,11 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     if (!homework.testQuestions) return;
     let correctCount = 0;
     homework.testQuestions.forEach((q) => {
+      const selectedOpt = q.options?.find((o) => o.id === testAnswers[q.id]);
       const userAns = (testAnswers[q.id] || '').trim().toLowerCase();
-      const correctAns = q.correctAnswer.trim().toLowerCase();
-      if (userAns === correctAns) {
+      const userTextAns = (selectedOpt?.text || '').trim().toLowerCase();
+      const correctAns = (q.correctAnswer || '').trim().toLowerCase();
+      if ((userAns && userAns === correctAns) || (userTextAns && userTextAns === correctAns)) {
         correctCount += 1;
       }
     });
@@ -464,6 +556,24 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             ...mergedTaskAnswers[t.id],
             textAnswer: summary,
             egeAnswers,
+          };
+        }
+        if (t.taskType === 'text_bank') {
+          const gaps = taskAnswers[t.id]?.gapInputs || [];
+          const summary = gaps.map((ans, i) => `${i + 1}. ${ans || '(пропуск)'}`).join(', ');
+          mergedTaskAnswers[t.id] = {
+            ...mergedTaskAnswers[t.id],
+            textAnswer: summary,
+            gapInputs: gaps,
+          };
+        }
+        if (t.taskType === 'qna') {
+          const qna = taskAnswers[t.id]?.qnaInputs || {};
+          const summary = (t.qnaItems || []).map((q) => `${q.question}: ${qna[q.id] || '(нет ответа)'}`).join('\n');
+          mergedTaskAnswers[t.id] = {
+            ...mergedTaskAnswers[t.id],
+            textAnswer: summary,
+            qnaInputs: qna,
           };
         }
       });
@@ -565,10 +675,25 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
           {/* Title & Description */}
           <div>
             <h2 className="text-base font-bold leading-snug">{homework.title}</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed whitespace-pre-wrap">
               {homework.description}
             </p>
           </div>
+
+          {/* Submission Blocked / Archived Banner */}
+          {isSubmissionBlocked && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start space-x-3 text-amber-200">
+              <AlertCircle className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
+              <div className="text-xs space-y-1">
+                <p className="font-bold text-amber-300">
+                  🔒 Приём ответов закрыт (Режим просмотра)
+                </p>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  {blockedReason || 'Дедлайн выполнения этого задания уже истёк или задание было опубликовано до момента вашей регистрации. Вы можете ознакомиться с материалами и заданиями в режиме просмотра.'}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Existing Review from Angelina if Graded */}
           {existingSubmission?.status === 'graded' && (
@@ -637,10 +762,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
           {homework.type === 'test' && homework.testQuestions && (!homework.tasks || homework.tasks.length === 0) && (
             <div className="space-y-4 pt-2">
               {homework.testQuestions.map((q, idx) => {
+                const selectedOpt = q.options?.find((o) => o.id === testAnswers[q.id]);
+                const userAns = (testAnswers[q.id] || '').trim().toLowerCase();
+                const userTextAns = (selectedOpt?.text || '').trim().toLowerCase();
+                const correctAns = (q.correctAnswer || '').trim().toLowerCase();
                 const isCorrect =
                   testSubmitted &&
-                  (testAnswers[q.id] || '').trim().toLowerCase() ===
-                    q.correctAnswer.trim().toLowerCase();
+                  ((userAns && userAns === correctAns) || (userTextAns && userTextAns === correctAns));
 
                 return (
                   <div
@@ -655,7 +783,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         : 'bg-slate-50 border-slate-200'
                     }`}
                   >
-                    <h4 className="font-bold text-xs mb-2.5 leading-snug">
+                    <h4 className="font-bold text-xs mb-2.5 leading-snug whitespace-pre-wrap">
                       {idx + 1}. {q.question}
                     </h4>
 
@@ -674,7 +802,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             <input
                               type="radio"
                               name={q.id}
-                              disabled={testSubmitted}
+                              disabled={testSubmitted || isSubmissionBlocked}
                               checked={testAnswers[q.id] === opt.id}
                               onChange={() =>
                                 setTestAnswers((prev) => ({ ...prev, [q.id]: opt.id }))
@@ -691,7 +819,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                     {q.type === 'input' && (
                       <input
                         type="text"
-                        disabled={testSubmitted}
+                        disabled={testSubmitted || isSubmissionBlocked}
                         value={testAnswers[q.id] || ''}
                         onChange={(e) =>
                           setTestAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
@@ -711,14 +839,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         <p className={isCorrect ? 'text-emerald-400 font-medium' : 'text-rose-400 font-medium'}>
                           {isCorrect ? '✓ Правильный ответ!' : `✗ Правильно: "${q.correctAnswer}"`}
                         </p>
-                        <p className="text-slate-400 mt-1">{q.explanation}</p>
+                        <p className="text-slate-400 mt-1 whitespace-pre-wrap">{q.explanation}</p>
                       </div>
                     )}
                   </div>
                 );
               })}
 
-              {!testSubmitted && (
+              {!testSubmitted && !isSubmissionBlocked && (
                 <button
                   onClick={handleTestSubmit}
                   className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center space-x-2"
@@ -741,7 +869,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                     <span>Подготовка: {homework.speakingPrompt.preparationSeconds} сек</span>
                   </span>
                 </div>
-                <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                <p className="text-xs text-slate-200 leading-relaxed font-medium whitespace-pre-wrap">
                   {homework.speakingPrompt.textPrompt}
                 </p>
 
@@ -803,7 +931,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                 )}
 
                 {/* Recorder Control Buttons */}
-                {!recordedAudioUrl ? (
+                {isSubmissionBlocked ? (
+                  <p className="text-xs text-slate-400 py-2">Запись и загрузка аудио недоступны (сдача закрыта).</p>
+                ) : !recordedAudioUrl ? (
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       {!isRecording ? (
@@ -895,7 +1025,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                 <h4 className="text-xs font-bold text-emerald-400">
                   {homework.writtenPrompt?.taskTitle || 'Письменная работа ФИПИ'}
                 </h4>
-                <p className="text-xs text-slate-200 leading-relaxed">
+                <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">
                   {homework.writtenPrompt?.instructions}
                 </p>
                 <p className="text-[10px] text-slate-400 font-medium">
@@ -911,10 +1041,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                 </label>
                 <textarea
                   value={essayText}
+                  disabled={isSubmissionBlocked || existingSubmission?.status === 'graded' || existingSubmission?.status === 'pending'}
                   onChange={(e) => setEssayText(e.target.value)}
-                  placeholder="Imagine that I am doing a project on why teenagers in Zetland choose a career in IT..."
+                  placeholder={isSubmissionBlocked ? 'Сдача текста закрыта' : 'Imagine that I am doing a project on why teenagers in Zetland choose a career in IT...'}
                   className={`w-full p-3 rounded-xl text-xs border leading-relaxed min-h-[200px] resize-y ${
-                    isDarkMode
+                    isSubmissionBlocked
+                      ? 'opacity-80 cursor-not-allowed bg-black/10 border-slate-700'
+                      : isDarkMode
                       ? 'bg-[#17212b] border-slate-700 text-white placeholder-slate-500'
                       : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
                   }`}
@@ -945,7 +1078,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
               </div>
 
               {/* AI Pre-check Button */}
-              {essayText.trim().length > 30 && (
+              {!isSubmissionBlocked && essayText.trim().length > 30 && (
                 <div className="pt-1">
                   <button
                     onClick={handleAiPreCheck}
@@ -983,6 +1116,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                   type="file"
                   accept="image/*"
                   multiple
+                  disabled={isSubmissionBlocked}
                   ref={photoInputRef}
                   onChange={handleAddPhotos}
                   className="hidden"
@@ -995,20 +1129,22 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                       className="relative group rounded-xl overflow-hidden border border-slate-700 bg-slate-800 aspect-square"
                     >
                       <img src={photoUrl} alt={`Фото ${idx + 1}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePhoto(idx)}
-                        className="absolute top-1 right-1 p-1 bg-rose-600/90 hover:bg-rose-600 text-white rounded-lg transition-all"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!isSubmissionBlocked && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePhoto(idx)}
+                          className="absolute top-1 right-1 p-1 bg-rose-600/90 hover:bg-rose-600 text-white rounded-lg transition-all"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 text-[9px] text-white rounded-md font-semibold">
                         #{idx + 1}
                       </span>
                     </div>
                   ))}
 
-                  {uploadedPhotos.length < 10 && (
+                  {!isSubmissionBlocked && uploadedPhotos.length < 10 && (
                     <button
                       type="button"
                       onClick={() => photoInputRef.current?.click()}
@@ -1087,14 +1223,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                     {/* Instruction */}
                     {task.instruction && (
-                      <p className="text-xs text-amber-200/90 font-medium bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 leading-relaxed">
+                      <p className="text-xs text-amber-200/90 font-medium bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 leading-relaxed whitespace-pre-wrap">
                         📌 {task.instruction}
                       </p>
                     )}
 
                     {/* Task Prompt */}
-                    {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskPrompt && (
-                      <p className="text-xs text-slate-100 bg-slate-800/60 p-3 rounded-xl border border-slate-700/60 whitespace-pre-line leading-relaxed font-sans">
+                    {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskPrompt && (
+                      <p className="text-xs text-slate-100 bg-slate-800/60 p-3 rounded-xl border border-slate-700/60 whitespace-pre-wrap leading-relaxed font-sans">
                         {task.taskPrompt}
                       </p>
                     )}
@@ -1159,7 +1295,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
-                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && (
+                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && (
                         <label className="text-[11px] font-semibold text-slate-300 block">
                           Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
                         </label>
@@ -1181,7 +1317,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                 <button
                                   key={optIdx}
                                   type="button"
+                                  disabled={isSubmissionBlocked || Boolean(existingSubmission)}
                                   onClick={() => {
+                                    if (isSubmissionBlocked) return;
                                     setTaskAnswers((prev) => ({
                                       ...prev,
                                       [task.id]: {
@@ -1192,6 +1330,8 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     }));
                                   }}
                                   className={`w-full text-left p-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center justify-between ${
+                                    isSubmissionBlocked ? 'cursor-not-allowed opacity-80' : ''
+                                  } ${
                                     isSelected
                                       ? isCorrectOpt
                                         ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-md'
@@ -1239,7 +1379,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                           {/* Центральная колонка (Текст и ввод) */}
                           <div className="flex-1 space-y-2">
                             {task.taskPrompt && (
-                              <p className="text-xs sm:text-sm text-slate-100 leading-relaxed font-medium">
+                              <p className="text-xs sm:text-sm text-slate-100 leading-relaxed font-medium whitespace-pre-wrap">
                                 {task.taskPrompt}
                               </p>
                             )}
@@ -1247,8 +1387,10 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             <div className="space-y-2 pt-1">
                               <input
                                 type="text"
+                                disabled={isSubmissionBlocked || checkedTasks[task.id] !== undefined}
                                 value={currentAnswer.textAnswer || ''}
                                 onChange={(e) => {
+                                  if (isSubmissionBlocked) return;
                                   const val = e.target.value;
                                   setTaskAnswers((prev) => ({
                                     ...prev,
@@ -1256,6 +1398,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                   }));
                                 }}
                                 onKeyDown={(e) => {
+                                  if (isSubmissionBlocked) return;
                                   if (e.key === 'Enter') {
                                     e.preventDefault();
                                     const studentAns = (currentAnswer.textAnswer || '').trim().toLowerCase();
@@ -1267,9 +1410,11 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     }));
                                   }
                                 }}
-                                placeholder="Введите ваш ответ..."
+                                placeholder={isSubmissionBlocked ? 'Сдача закрыта' : 'Введите ваш ответ...'}
                                 className={`w-full p-2.5 rounded-xl text-xs border font-medium transition-all ${
-                                  checkedTasks[task.id] === 'correct'
+                                  isSubmissionBlocked
+                                    ? 'opacity-80 cursor-not-allowed bg-black/10 border-slate-700'
+                                    : checkedTasks[task.id] === 'correct'
                                     ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/20'
                                     : checkedTasks[task.id] === 'incorrect'
                                     ? 'bg-rose-500/10 border-rose-500 text-rose-300 ring-2 ring-rose-500/20'
@@ -1280,22 +1425,25 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                               />
 
                               <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const studentAns = (currentAnswer.textAnswer || '').trim().toLowerCase();
-                                    const targetAns = (task.correctAnswer || '').trim().toLowerCase();
-                                    const isCorrect = studentAns === targetAns;
-                                    setCheckedTasks((prev) => ({
-                                      ...prev,
-                                      [task.id]: isCorrect ? 'correct' : 'incorrect',
-                                    }));
-                                  }}
-                                  className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Проверить</span>
-                                </button>
+                                {!isSubmissionBlocked && (
+                                  <button
+                                    type="button"
+                                    disabled={checkedTasks[task.id] !== undefined}
+                                    onClick={() => {
+                                      const studentAns = (currentAnswer.textAnswer || '').trim().toLowerCase();
+                                      const targetAns = (task.correctAnswer || '').trim().toLowerCase();
+                                      const isCorrect = studentAns === targetAns;
+                                      setCheckedTasks((prev) => ({
+                                        ...prev,
+                                        [task.id]: isCorrect ? 'correct' : 'incorrect',
+                                      }));
+                                    }}
+                                    className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Проверить</span>
+                                  </button>
+                                )}
 
                                 {checkedTasks[task.id] === 'correct' && (
                                   <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
@@ -1337,7 +1485,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                           {/* Title / Prompt of the text */}
                           {task.taskPrompt && (
                             <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-center">
-                              <h4 className="font-extrabold text-sm text-indigo-300 tracking-wide uppercase">
+                              <h4 className="font-extrabold text-sm text-indigo-300 tracking-wide uppercase whitespace-pre-wrap">
                                 {task.taskPrompt}
                               </h4>
                             </div>
@@ -1362,15 +1510,15 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                                     {/* Центр (Текст): Единый строчный параграф с inline-полем ввода без подчеркиваний */}
                                     <div className="flex-1">
-                                      <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+                                      <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
                                         {parts[0]}
                                         {parts.length > 1 && (
                                           <input
                                             type="text"
-                                            disabled={isItemChecked}
+                                            disabled={isItemChecked || isSubmissionBlocked}
                                             value={egeAnswers[item.id] || ''}
                                             onChange={(e) => {
-                                              if (isItemChecked) return;
+                                              if (isItemChecked || isSubmissionBlocked) return;
                                               const val = e.target.value;
                                               const updated = {
                                                 ...egeAnswers,
@@ -1424,7 +1572,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                         <p className="font-bold text-rose-400">
                                           Правильный ответ: <span className="underline font-mono">{item.correctAnswer}</span>
                                         </p>
-                                        <p className="text-slate-300 text-[11px] leading-relaxed">
+                                        <p className="text-slate-300 text-[11px] leading-relaxed whitespace-pre-wrap">
                                           {item.explanation}
                                         </p>
                                       </div>
@@ -1443,7 +1591,12 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                             return (
                               <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
-                                {isTextChecked ? (
+                                {isSubmissionBlocked ? (
+                                  <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Режим просмотра (сдача закрыта)</span>
+                                  </div>
+                                ) : isTextChecked ? (
                                   <button
                                     type="button"
                                     disabled={true}
@@ -1500,6 +1653,323 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     ) : (
                                       <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
                                         Верно: {task.egeItems.filter((it) => egeChecked[it.id] === 'correct').length} из {task.egeItems.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : task.taskType === 'text_bank' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* Word Bank Accent Block */}
+                          {Boolean(task.wordBank && task.wordBank.trim()) && (
+                            <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-200 shadow-sm">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                  Words:
+                                </span>
+                              </div>
+                              <p className="text-xs sm:text-sm font-semibold tracking-wide text-amber-100 leading-relaxed font-sans whitespace-pre-wrap">
+                                {task.wordBank}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Monolithic Text with Inline Inputs */}
+                          {(() => {
+                            const rawText = task.textWithGaps || '';
+                            const parts = rawText.split(/(?:_{3,}|___)/);
+                            const currentGaps = currentAnswer.gapInputs || [];
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+
+                            return (
+                              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-700/60 space-y-3">
+                                <p className="text-xs sm:text-sm text-slate-100 leading-loose sm:leading-loose font-medium whitespace-pre-wrap">
+                                  {parts.map((part, pIdx) => {
+                                    const isLast = pIdx === parts.length - 1;
+                                    const gapVal = currentGaps[pIdx] || '';
+                                    const gapStatus = gapChecked[task.id]?.[pIdx];
+                                    const isCorrect = gapStatus === 'correct';
+                                    const isIncorrect = gapStatus === 'incorrect';
+
+                                    return (
+                                      <React.Fragment key={pIdx}>
+                                        <span>{part}</span>
+                                        {!isLast && (
+                                          <input
+                                            type="text"
+                                            disabled={isSubmissionBlocked || isTaskChecked}
+                                            value={gapVal}
+                                            onChange={(e) => {
+                                              if (isSubmissionBlocked || isTaskChecked) return;
+                                              const val = e.target.value;
+                                              const updated = [...(currentAnswer.gapInputs || [])];
+                                              while (updated.length <= pIdx) updated.push('');
+                                              updated[pIdx] = val;
+                                              setTaskAnswers((prev) => ({
+                                                ...prev,
+                                                [task.id]: {
+                                                  ...prev[task.id],
+                                                  gapInputs: updated,
+                                                },
+                                              }));
+                                            }}
+                                            placeholder={`(${pIdx + 1})`}
+                                            className={`inline-block w-28 mx-1 border-b-2 bg-transparent text-center focus:outline-none text-xs sm:text-sm font-bold transition-all px-1.5 py-0.5 ${
+                                              isCorrect
+                                                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10 rounded-sm'
+                                                : isIncorrect
+                                                ? 'border-rose-500 text-rose-400 bg-rose-500/10 rounded-sm'
+                                                : isDarkMode
+                                                ? 'border-amber-400/80 text-amber-200 focus:border-amber-300'
+                                                : 'border-indigo-500 text-slate-900 focus:border-indigo-700'
+                                            } ${isSubmissionBlocked || isTaskChecked ? 'cursor-not-allowed opacity-90' : ''}`}
+                                          />
+                                        )}
+                                      </React.Fragment>
+                                    );
+                                  })}
+                                </p>
+                              </div>
+                            );
+                          })()}
+
+                          {/* "Проверить текст" Button & Result */}
+                          {(() => {
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const answers = task.gapAnswers || [];
+                            const studentInputs = currentAnswer.gapInputs || [];
+
+                            return (
+                              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                {isSubmissionBlocked ? (
+                                  <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Режим просмотра (сдача закрыта)</span>
+                                  </div>
+                                ) : isTaskChecked ? (
+                                  <button
+                                    type="button"
+                                    disabled={true}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                  >
+                                    <Check className="w-4 h-4 text-emerald-400" />
+                                    <span>Ответы зафиксированы</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newMap: Record<number, 'correct' | 'incorrect'> = {};
+                                      let correctCount = 0;
+
+                                      answers.forEach((ans, idx) => {
+                                        const userAns = (studentInputs[idx] || '').trim().toLowerCase();
+                                        const target = ans.trim().toLowerCase();
+                                        const isMatch = userAns === target;
+                                        newMap[idx] = isMatch ? 'correct' : 'incorrect';
+                                        if (isMatch) correctCount++;
+                                      });
+
+                                      setGapChecked((prev) => ({
+                                        ...prev,
+                                        [task.id]: newMap,
+                                      }));
+
+                                      const allCorrect = answers.length > 0 && correctCount === answers.length;
+                                      setCheckedTasks((prev) => ({
+                                        ...prev,
+                                        [task.id]: allCorrect ? 'correct' : 'incorrect',
+                                      }));
+
+                                      const summary = answers.map((_, i) => `${i + 1}. ${studentInputs[i] || ''}`).join(', ');
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          textAnswer: summary,
+                                          gapInputs: studentInputs,
+                                        },
+                                      }));
+                                    }}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                    <span>Проверить текст</span>
+                                  </button>
+                                )}
+
+                                {isTaskChecked && answers.length > 0 && (
+                                  <div className="text-xs font-bold flex items-center gap-1.5">
+                                    {answers.every((ans, idx) => (studentInputs[idx] || '').trim().toLowerCase() === ans.trim().toLowerCase()) ? (
+                                      <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Идеально! Все слова вставлены верно! 🎉</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                                        Верно: {answers.filter((ans, idx) => (studentInputs[idx] || '').trim().toLowerCase() === ans.trim().toLowerCase()).length} из {answers.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : task.taskType === 'qna' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* General Condition / Task Prompt */}
+                          {Boolean(task.taskPrompt && task.taskPrompt.trim()) && (
+                            <div className="p-3.5 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 shadow-sm">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-black uppercase tracking-wider text-cyan-300">
+                                  Условие задания:
+                                </span>
+                              </div>
+                              <p className="text-xs sm:text-sm font-semibold tracking-wide text-cyan-100 whitespace-pre-wrap leading-relaxed font-sans">
+                                {task.taskPrompt}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Numbered Questions List */}
+                          <div className="space-y-3">
+                            {(task.qnaItems || []).map((item, qIdx) => {
+                              const userVal = currentAnswer.qnaInputs?.[item.id] || '';
+                              const itemStatus = qnaChecked[task.id]?.[item.id];
+                              const isCorrect = itemStatus === 'correct';
+                              const isIncorrect = itemStatus === 'incorrect';
+                              const isQnaTaskChecked = checkedTasks[task.id] !== undefined;
+
+                              return (
+                                <div
+                                  key={item.id || qIdx}
+                                  className={`p-3.5 rounded-2xl border space-y-2 transition-all ${
+                                    isDarkMode ? 'bg-slate-900/60 border-slate-700/60' : 'bg-white border-slate-200'
+                                  }`}
+                                >
+                                  <p className="font-semibold text-xs sm:text-sm text-slate-200 leading-snug whitespace-pre-wrap">
+                                    <span className="font-bold text-cyan-400 mr-1.5">{qIdx + 1}.</span>
+                                    {item.question}
+                                  </p>
+
+                                  <input
+                                    type="text"
+                                    disabled={isSubmissionBlocked || isQnaTaskChecked}
+                                    value={userVal}
+                                    onChange={(e) => {
+                                      if (isSubmissionBlocked || isQnaTaskChecked) return;
+                                      const val = e.target.value;
+                                      const updated = { ...(currentAnswer.qnaInputs || {}), [item.id]: val };
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          qnaInputs: updated,
+                                        },
+                                      }));
+                                    }}
+                                    placeholder="Введите ваш ответ..."
+                                    className={`w-full p-2.5 rounded-xl text-xs sm:text-sm font-medium border transition-all ${
+                                      isCorrect
+                                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/20'
+                                        : isIncorrect
+                                        ? 'bg-rose-500/10 border-rose-500 text-rose-300 ring-2 ring-rose-500/20'
+                                        : isDarkMode
+                                        ? 'bg-[#1e2c3a] border-slate-700 text-white focus:border-cyan-500'
+                                        : 'bg-white border-slate-300 text-slate-900 focus:border-cyan-500'
+                                    } ${isSubmissionBlocked || isQnaTaskChecked ? 'cursor-not-allowed opacity-90' : ''}`}
+                                  />
+
+                                  {isIncorrect && (
+                                    <p className="text-[11px] text-rose-400 font-semibold flex items-center gap-1 pt-0.5">
+                                      <span>Правильный ответ:</span>
+                                      <span className="font-mono underline">{item.correctAnswer}</span>
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* "Проверить ответы" Button & Result */}
+                          {(() => {
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const items = task.qnaItems || [];
+                            const studentInputs = currentAnswer.qnaInputs || {};
+
+                            return (
+                              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                {isSubmissionBlocked ? (
+                                  <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Режим просмотра (сдача закрыта)</span>
+                                  </div>
+                                ) : isTaskChecked ? (
+                                  <button
+                                    type="button"
+                                    disabled={true}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                  >
+                                    <Check className="w-4 h-4 text-emerald-400" />
+                                    <span>Ответы зафиксированы</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newMap: Record<string, 'correct' | 'incorrect'> = {};
+                                      let correctCount = 0;
+
+                                      items.forEach((item) => {
+                                        const userAns = (studentInputs[item.id] || '').trim().toLowerCase();
+                                        const target = item.correctAnswer.trim().toLowerCase();
+                                        const isMatch = userAns === target;
+                                        newMap[item.id] = isMatch ? 'correct' : 'incorrect';
+                                        if (isMatch) correctCount++;
+                                      });
+
+                                      setQnaChecked((prev) => ({
+                                        ...prev,
+                                        [task.id]: newMap,
+                                      }));
+
+                                      const allCorrect = items.length > 0 && correctCount === items.length;
+                                      setCheckedTasks((prev) => ({
+                                        ...prev,
+                                        [task.id]: allCorrect ? 'correct' : 'incorrect',
+                                      }));
+
+                                      const summary = items.map((q) => `${q.question}: ${studentInputs[q.id] || ''}`).join('\n');
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          textAnswer: summary,
+                                          qnaInputs: studentInputs,
+                                        },
+                                      }));
+                                    }}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-cyan-600 via-sky-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-cyan-600/20 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                    <span>Проверить ответы</span>
+                                  </button>
+                                )}
+
+                                {isTaskChecked && items.length > 0 && (
+                                  <div className="text-xs font-bold flex items-center gap-1.5">
+                                    {items.every((item) => (studentInputs[item.id] || '').trim().toLowerCase() === item.correctAnswer.trim().toLowerCase()) ? (
+                                      <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Все ответы верны! Отличная работа! 🎉</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-cyan-300 bg-cyan-500/10 px-3 py-1.5 rounded-xl border border-cyan-500/30">
+                                        Верно: {items.filter((item) => (studentInputs[item.id] || '').trim().toLowerCase() === item.correctAnswer.trim().toLowerCase()).length} из {items.length}
                                       </span>
                                     )}
                                   </div>
@@ -1648,8 +2118,15 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             </div>
           )}
 
-          {/* Main Submit Button for Student */}
-          {existingSubmission?.status !== 'graded' && (() => {
+          {/* Main Submit Button for Student or Locked State */}
+          {isSubmissionBlocked ? (
+            <div className="pt-3 sticky bottom-0 bg-inherit border-t border-slate-700/80 -mx-4 -mb-4 p-4 shadow-2xl z-10">
+              <div className="w-full py-3.5 px-4 bg-slate-800/90 border border-slate-700 text-slate-300 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center space-x-2 shadow-inner">
+                <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{blockedReason || 'Приём ответов по данному заданию закрыт (дедлайн прошёл)'}</span>
+              </div>
+            </div>
+          ) : existingSubmission?.status !== 'graded' && (() => {
             const hasAnyAnswer = Boolean(
               Object.keys(testAnswers).length > 0 ||
               recordedAudioUrl ||

@@ -193,9 +193,11 @@ export const WelcomeAuthScreen: React.FC<WelcomeAuthScreenProps> = ({
 
     // Log in
     onLogin({
+      id: found?.id,
       name: finalName,
       role: 'student',
-      telegramHandle: `@${found.login || cleanInput}`,
+      login: found ? (found.login || cleanInput) : cleanInput,
+      telegramHandle: `@${found ? (found.login || cleanInput) : cleanInput}`,
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
     });
   };
@@ -228,8 +230,10 @@ export const WelcomeAuthScreen: React.FC<WelcomeAuthScreenProps> = ({
     const finalName = found.name || studentName.trim() || 'Ученик';
 
     onLogin({
+      id: found.id,
       name: finalName,
       role: 'student',
+      login: found.login || cleanInput,
       telegramHandle: `@${found.login || cleanInput}`,
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
     });

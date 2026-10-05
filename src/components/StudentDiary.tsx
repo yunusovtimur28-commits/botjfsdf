@@ -306,6 +306,60 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
                 }
               });
             }
+
+            // Text bank
+            if (task.taskType === 'text_bank' && task.gapAnswers && taskAns.gapInputs) {
+              task.gapAnswers.forEach((correctAns, idx) => {
+                const userAns = (taskAns.gapInputs?.[idx] || '').trim();
+                const trimmedCorrect = correctAns.trim();
+                if (userAns && userAns.toLowerCase() !== trimmedCorrect.toLowerCase()) {
+                  const alreadyExists = entries.some(
+                    (e) =>
+                      e.correctAnswer.trim().toLowerCase() === trimmedCorrect.toLowerCase() &&
+                      e.errorText.trim().toLowerCase() === userAns.toLowerCase()
+                  );
+
+                  if (!alreadyExists && !result.some((r) => r.correctAnswer.toLowerCase() === trimmedCorrect.toLowerCase())) {
+                    result.push({
+                      id: `err-${hw.id}-${task.id}-gap-${idx}`,
+                      testTitle: `${hw.title} (${task.taskNumber || 'Текст с банком слов'})`,
+                      questionPrompt: `Пропуск №${idx + 1}. Банк: ${task.wordBank || ''}`,
+                      errorText: userAns,
+                      correctAnswer: trimmedCorrect,
+                      explanation: `Задание ${task.taskNumber}, пропуск №${idx + 1}. Правильный ответ: ${trimmedCorrect}`,
+                      section: 'Лексика',
+                    });
+                  }
+                }
+              });
+            }
+
+            // QnA
+            if (task.taskType === 'qna' && task.qnaItems && taskAns.qnaInputs) {
+              task.qnaItems.forEach((item, qIdx) => {
+                const userAns = (taskAns.qnaInputs?.[item.id] || '').trim();
+                const trimmedCorrect = item.correctAnswer.trim();
+                if (userAns && userAns.toLowerCase() !== trimmedCorrect.toLowerCase()) {
+                  const alreadyExists = entries.some(
+                    (e) =>
+                      e.correctAnswer.trim().toLowerCase() === trimmedCorrect.toLowerCase() &&
+                      e.errorText.trim().toLowerCase() === userAns.toLowerCase()
+                  );
+
+                  if (!alreadyExists && !result.some((r) => r.correctAnswer.toLowerCase() === trimmedCorrect.toLowerCase())) {
+                    result.push({
+                      id: `err-${hw.id}-${task.id}-${item.id}`,
+                      testTitle: `${hw.title} (Вопрос #${qIdx + 1})`,
+                      questionPrompt: item.question,
+                      errorText: userAns,
+                      correctAnswer: trimmedCorrect,
+                      explanation: `Вопрос: "${item.question}". Правильный ответ: ${trimmedCorrect}`,
+                      section: task.block === 'grammar_vocabulary' ? 'Грамматика' : 'Лексика',
+                    });
+                  }
+                }
+              });
+            }
           });
         }
       });

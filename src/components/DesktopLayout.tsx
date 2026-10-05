@@ -47,7 +47,7 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
     { id: 'webinars' as NavTab, label: 'База знаний', icon: BookOpen, badge: null },
     { id: 'homeworks' as NavTab, label: 'Домашние задания', icon: FileCheck2, badge: pendingCount > 0 ? pendingCount : null },
     { id: 'simulator' as NavTab, label: 'Тренажер ЕГЭ', icon: Timer, badge: null },
-    ...(isBetaTester ? [{ id: 'diary' as NavTab, label: 'Мой дневник', icon: Book, badge: null }] : []),
+    { id: 'diary' as NavTab, label: 'Мой дневник', icon: Book, badge: null },
     { id: 'profile' as NavTab, label: 'Профиль', icon: User, badge: null },
   ];
 

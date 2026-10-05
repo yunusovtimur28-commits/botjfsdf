@@ -931,6 +931,56 @@ export default function App() {
               }
             });
           }
+
+          // Текст с банком слов (text_bank)
+          if (task.taskType === 'text_bank' && task.gapAnswers && taskAns.gapInputs) {
+            task.gapAnswers.forEach((correctAns, idx) => {
+              const userAns = (taskAns.gapInputs?.[idx] || '').trim();
+              const trimmedCorrect = correctAns.trim();
+              if (userAns && userAns.toLowerCase() !== trimmedCorrect.toLowerCase()) {
+                const alreadyInDiary = diaryEntries.some(
+                  (e) =>
+                    e.studentName === currentUser.name &&
+                    e.correctAnswer.trim().toLowerCase() === trimmedCorrect.toLowerCase()
+                );
+                if (!alreadyInDiary) {
+                  handleAddDiaryEntry({
+                    studentName: currentUser.name,
+                    section: 'Лексика',
+                    errorText: userAns,
+                    correctAnswer: trimmedCorrect,
+                    explanation: `Задание ${task.taskNumber}, пропуск №${idx + 1}. Банк слов: ${task.wordBank || ''}. Верно: ${trimmedCorrect}`,
+                    source: 'auto',
+                  });
+                }
+              }
+            });
+          }
+
+          // Вопрос-Ответ (qna)
+          if (task.taskType === 'qna' && task.qnaItems && taskAns.qnaInputs) {
+            task.qnaItems.forEach((item) => {
+              const userAns = (taskAns.qnaInputs?.[item.id] || '').trim();
+              const trimmedCorrect = item.correctAnswer.trim();
+              if (userAns && userAns.toLowerCase() !== trimmedCorrect.toLowerCase()) {
+                const alreadyInDiary = diaryEntries.some(
+                  (e) =>
+                    e.studentName === currentUser.name &&
+                    e.correctAnswer.trim().toLowerCase() === trimmedCorrect.toLowerCase()
+                );
+                if (!alreadyInDiary) {
+                  handleAddDiaryEntry({
+                    studentName: currentUser.name,
+                    section: task.block === 'grammar_vocabulary' ? 'Грамматика' : 'Лексика',
+                    errorText: userAns,
+                    correctAnswer: trimmedCorrect,
+                    explanation: `Вопрос: "${item.question}". Правильный ответ: ${trimmedCorrect}`,
+                    source: 'auto',
+                  });
+                }
+              }
+            });
+          }
         });
       }
     }
@@ -1057,12 +1107,30 @@ export default function App() {
     }
   }, [readNotifIds]);
 
+  // Находим объект текущего зарегистрированного ученика
+  const currentRegisteredStudent = React.useMemo(() => {
+    if (currentUser.role === 'teacher') return undefined;
+    const normName = currentUser.name.trim().toLowerCase().replace('@', '');
+    const normLogin = currentUser.login ? currentUser.login.trim().toLowerCase().replace('@', '') : '';
+    const normTg = currentUser.telegramHandle ? currentUser.telegramHandle.trim().toLowerCase().replace('@', '') : '';
+
+    return registeredStudents.find((s) => {
+      const sName = (s.name || '').trim().toLowerCase().replace('@', '');
+      const sLogin = (s.login || '').trim().toLowerCase().replace('@', '');
+      const sTg = (s.telegramHandle || '').trim().toLowerCase().replace('@', '');
+      return (
+        (normName && (sName === normName || sLogin === normName || sTg === normName)) ||
+        (normLogin && (sLogin === normLogin || sName === normLogin)) ||
+        (normTg && (sTg === normTg || sLogin === normTg))
+      );
+    });
+  }, [registeredStudents, currentUser]);
+
   // Получаем доступы текущего ученика
   const currentStudentAccess = React.useMemo(() => {
     if (currentUser.role === 'teacher') return ['ALL'];
-    const st = registeredStudents.find(s => s.telegramHandle?.toLowerCase() === currentUser.telegramHandle?.toLowerCase() || s.login === currentUser.name);
-    return st?.accessibleMonths || [];
-  }, [currentUser, registeredStudents]);
+    return currentRegisteredStudent?.accessibleMonths || [];
+  }, [currentUser.role, currentRegisteredStudent]);
 
   const visibleHomeworks = React.useMemo(() => {
     let hwList = homeworks.filter((hw) => !deletedHwIds.includes(hw.id));
@@ -1357,7 +1425,7 @@ export default function App() {
               currentUserName={currentUser.name}
               currentUserLogin={currentUser.login}
               currentUserTelegram={currentUser.telegramHandle}
-              currentUserId={registeredStudents.find(s => s.name === currentUser.name || s.login === currentUser.name)?.id}
+              currentUserId={currentRegisteredStudent?.id}
               targetHomeworkId={targetHomeworkId}
               onClearTargetHomework={() => setTargetHomeworkId(null)}
             />
@@ -1365,15 +1433,15 @@ export default function App() {
           {activeTab === 'simulator' && (
             <SpeakingSimulator isDarkMode={isDarkMode} onFinishSimulatedSpeaking={handleFinishSimulatedSpeaking} />
           )}
-          {activeTab === 'diary' && (currentUser.role === 'teacher' || currentUser.name === 'timur_yunusov' || currentUser.telegramHandle === '@timur_yunusov') && (
+          {activeTab === 'diary' && (
             <StudentDiary
-              entries={diaryEntries.filter((e) => e.studentName === currentUser.name)}
+              entries={diaryEntries.filter((e) => e.studentName === currentUser.name || (currentUser.login && (e as any).studentLogin === currentUser.login))}
               onAddEntry={handleAddDiaryEntry}
               onUpdateEntry={handleUpdateDiaryEntry}
               isDarkMode={isDarkMode}
               currentUserName={currentUser.name}
               homeworks={visibleHomeworks}
-              submissions={visibleSubmissions}
+              submissions={studentScopedSubmissions}
             />
           )}
           {activeTab === 'profile' && (

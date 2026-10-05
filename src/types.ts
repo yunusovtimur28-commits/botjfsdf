@@ -61,10 +61,16 @@ export interface EgeGapFillItem {
   explanation: string;
 }
 
+export interface QnaItem {
+  id: string;
+  question: string;
+  correctAnswer: string;
+}
+
 export interface HomeworkTask {
   id: string;
   block: BlockCategory;
-  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29
+  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ
   taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
   instruction?: string; // Инструкция к заданию
   taskPrompt: string; // Задание / Условие / Заголовок текста
@@ -81,6 +87,10 @@ export interface HomeworkTask {
   sampleAnswer?: string;
   baseWord?: string; // Базовое слово капсом для заданий 19-24 и 25-29
   egeItems?: EgeGapFillItem[]; // Список абзацев с пропусками формата ЕГЭ 19-24 и 25-29
+  wordBank?: string; // Видимый банк слов для текста (Task 1, 2)
+  textWithGaps?: string; // Сплошной текст, пропуски обозначаются как ___
+  gapAnswers?: string[]; // Массив правильных ответов для пропусков по порядку
+  qnaItems?: { id: string; question: string; correctAnswer: string; }[]; // Для списка вопросов (Task 3, 4)
 }
 
 export interface Homework {
@@ -125,6 +135,8 @@ export interface Submission {
   id: string;
   homeworkId: string;
   studentName: string;
+  studentLogin?: string;
+  studentId?: string;
   submittedAt: string;
   status: HomeworkStatus;
   type: HomeworkType;
@@ -136,7 +148,18 @@ export interface Submission {
   speakingAudioUrl?: string;
   speakingDurationSeconds?: number;
   // Multi-task answers
-  taskAnswers?: Record<string, { textAnswer?: string; voiceAudioUrl?: string; imageUrls?: string[]; selectedOptionIndex?: number; egeAnswers?: Record<string, string> }>;
+  taskAnswers?: Record<
+    string,
+    {
+      textAnswer?: string;
+      voiceAudioUrl?: string;
+      imageUrls?: string[];
+      selectedOptionIndex?: number;
+      egeAnswers?: Record<string, string>;
+      gapInputs?: string[];
+      qnaInputs?: Record<string, string>;
+    }
+  >;
   // Written data
   writtenFileUrl?: string;
   writtenFileName?: string;
