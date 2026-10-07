@@ -3,6 +3,28 @@
  * to avoid exceeding the Firestore document size limit (1,048,576 bytes).
  */
 
+export function getSupportedAudioMimeType(): string {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
+    return '';
+  }
+
+  // Detect iOS Safari or Safari on macOS to prefer mp4/aac
+  const isSafariOrIos =
+    /^((?!chrome|android).)*safari/i.test(navigator.userAgent) ||
+    /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  const candidates = isSafariOrIos
+    ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']
+    : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) {
+      return mime;
+    }
+  }
+  return '';
+}
+
 export async function uploadBase64ToServer(base64: string, fileName: string): Promise<string> {
   if (!base64 || !base64.startsWith('data:')) {
     return base64;
@@ -33,6 +55,25 @@ export async function uploadBase64ToServer(base64: string, fileName: string): Pr
   }
 
   return base64;
+}
+
+export async function uploadBlobToServer(blob: Blob, fileName: string): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      if (!base64) return resolve('');
+      try {
+        const url = await uploadBase64ToServer(base64, fileName);
+        resolve(url);
+      } catch (err) {
+        console.warn('Failed to upload blob:', err);
+        resolve(base64);
+      }
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(blob);
+  });
 }
 
 export async function uploadFileToServer(file: File): Promise<{ url: string; size: string; name: string }> {

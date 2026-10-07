@@ -371,13 +371,13 @@ export default function App() {
       needsUpdate = true;
     } else if (dbLastVisit !== todayStr) {
       // Calculate calendar days between last visit and today
-      const [y1, m1, d1] = dbLastVisit.split('T')[0].split('-').map(Number);
-      const [y2, m2, d2] = todayStr.split('-').map(Number);
+      const match1 = dbLastVisit.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      const match2 = todayStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
 
       let daysDiff = 999;
-      if (y1 && m1 && d1 && y2 && m2 && d2) {
-        const utc1 = Date.UTC(y1, m1 - 1, d1);
-        const utc2 = Date.UTC(y2, m2 - 1, d2);
+      if (match1 && match2) {
+        const utc1 = Date.UTC(parseInt(match1[1], 10), parseInt(match1[2], 10) - 1, parseInt(match1[3], 10));
+        const utc2 = Date.UTC(parseInt(match2[1], 10), parseInt(match2[2], 10) - 1, parseInt(match2[3], 10));
         daysDiff = Math.round((utc2 - utc1) / (1000 * 60 * 60 * 24));
       }
 
@@ -385,8 +385,13 @@ export default function App() {
         // Visited yesterday -> consecutive active day, increment streak!
         newStreak = currentStreakVal + 1;
         needsUpdate = true;
-      } else if (daysDiff > 1) {
-        // Skipped at least 1 day -> streak resets to 1
+      } else if (daysDiff === 2) {
+        // Skipped exactly 1 day (e.g. gap between Tue and Thu webinars) -> Streak Freeze / Grace period!
+        // Preserve current streak and mark today as active
+        newStreak = currentStreakVal;
+        needsUpdate = true;
+      } else if (daysDiff > 2) {
+        // Skipped 2 or more days -> streak resets to 1
         newStreak = 1;
         needsUpdate = true;
       }
@@ -854,6 +859,39 @@ export default function App() {
       await dbUpdateSubmission(subId, newSub);
     } else {
       await dbAddSubmission(newSub);
+    }
+
+    // Ensure streak is updated upon homework submission
+    if (currentRegisteredStudent) {
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      if (currentRegisteredStudent.lastVisitDate !== todayStr) {
+        const lastVisit = currentRegisteredStudent.lastVisitDate;
+        let daysDiff = 999;
+        if (lastVisit) {
+          const match1 = lastVisit.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+          const match2 = todayStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+          if (match1 && match2) {
+            const utc1 = Date.UTC(parseInt(match1[1], 10), parseInt(match1[2], 10) - 1, parseInt(match1[3], 10));
+            const utc2 = Date.UTC(parseInt(match2[1], 10), parseInt(match2[2], 10) - 1, parseInt(match2[3], 10));
+            daysDiff = Math.round((utc2 - utc1) / (1000 * 60 * 60 * 24));
+          }
+        }
+        const curStreak = currentRegisteredStudent.streakDays || 1;
+        let newStreak = curStreak;
+        if (!lastVisit) {
+          newStreak = curStreak;
+        } else if (daysDiff === 1) {
+          newStreak = curStreak + 1;
+        } else if (daysDiff === 2) {
+          newStreak = curStreak;
+        } else if (daysDiff > 2) {
+          newStreak = 1;
+        }
+        dbUpdateStudent(currentRegisteredStudent.id, { streakDays: newStreak, lastVisitDate: todayStr });
+        setRegisteredStudents((prev) =>
+          prev.map((s) => (s.id === currentRegisteredStudent.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
+        );
+      }
     }
 
     // Автоматический учет ошибок в личный дневник ученика

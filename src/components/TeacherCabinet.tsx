@@ -4773,11 +4773,14 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           onClick={() => {
                             const cleanLogin = editStudentLoginVal.trim().toLowerCase().replace('@', '');
                             if (cleanLogin) {
+                              const now = new Date();
+                              const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                               const updatedObj = {
                                 login: cleanLogin,
                                 name: editStudentNameVal.trim() || st.name,
                                 telegramHandle: `@${cleanLogin}`,
                                 streakDays: editStudentStreakVal,
+                                lastVisitDate: todayStr,
                               };
                               dbUpdateStudent(st.id, updatedObj);
                               if (onUpdateStudent) {

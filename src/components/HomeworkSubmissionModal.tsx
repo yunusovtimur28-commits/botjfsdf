@@ -24,6 +24,11 @@ import {
   Lock,
 } from 'lucide-react';
 import { formatSeconds } from '../lib/dateUtils';
+import {
+  uploadBlobToServer,
+  uploadFileToServer,
+  getSupportedAudioMimeType,
+} from '../lib/fileUpload';
 
 interface HomeworkSubmissionModalProps {
   homework: Homework;
@@ -84,6 +89,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   );
 
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showMissingAudioConfirm, setShowMissingAudioConfirm] = useState(false);
 
   // Audio Recording state for Speaking
   const [isRecording, setIsRecording] = useState(false);
@@ -347,6 +353,8 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null);
   const [studentTaskMediaRecorder, setStudentTaskMediaRecorder] = useState<MediaRecorder | null>(null);
   const [studentRecordingSeconds, setStudentRecordingSeconds] = useState<number>(0);
+  const [taskAudioErrors, setTaskAudioErrors] = useState<Record<string, string>>({});
+  const [taskAudioUploading, setTaskAudioUploading] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let interval: any;
@@ -361,35 +369,102 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   }, [recordingTaskId]);
 
   const startTaskStudentRecording = async (taskId: string) => {
+    // Clear previous error for this task
+    setTaskAudioErrors((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('NOT_SUPPORTED');
+      }
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+        });
+      } catch (strictErr) {
+        // Fallback for Safari / iOS WebViews where strict constraints throw error
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      const mime = getSupportedAudioMimeType();
+      let recorder: MediaRecorder;
+      try {
+        recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch (recErr) {
+        recorder = new MediaRecorder(stream);
+      }
       const chunks: Blob[] = [];
+
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data && e.data.size > 0) chunks.push(e.data);
       };
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(blob);
+
+      recorder.onstop = async () => {
+        const actualMime = recorder.mimeType || mime || 'audio/mp4';
+        const ext = actualMime.includes('webm') ? 'webm' : actualMime.includes('mp4') || actualMime.includes('aac') ? 'm4a' : 'mp3';
+        const blob = new Blob(chunks, { type: actualMime });
+
+        // Immediate preview URL
+        const tempLocalUrl = URL.createObjectURL(blob);
         setTaskAnswers((prev) => ({
           ...prev,
-          [taskId]: { ...prev[taskId], voiceAudioUrl: audioUrl },
+          [taskId]: { ...prev[taskId], voiceAudioUrl: tempLocalUrl },
         }));
+
         stream.getTracks().forEach((track) => track.stop());
         setRecordingTaskId(null);
+
+        // Upload persistently to server
+        setTaskAudioUploading((prev) => ({ ...prev, [taskId]: true }));
+        try {
+          const serverUrl = await uploadBlobToServer(blob, `student_voice_${taskId}_${Date.now()}.${ext}`);
+          if (serverUrl) {
+            setTaskAnswers((prev) => ({
+              ...prev,
+              [taskId]: { ...prev[taskId], voiceAudioUrl: serverUrl },
+            }));
+          }
+        } catch (uploadErr) {
+          console.warn('Failed to upload task voice recording:', uploadErr);
+        } finally {
+          setTaskAudioUploading((prev) => ({ ...prev, [taskId]: false }));
+        }
       };
-      recorder.start();
+
+      recorder.start(500);
       setStudentTaskMediaRecorder(recorder);
       setRecordingTaskId(taskId);
       setStudentRecordingSeconds(0);
-    } catch (err) {
-      alert('Не удалось получить доступ к микрофону. Пожалуйста, разрешите доступ в браузере.');
+    } catch (err: any) {
+      console.error('Task microphone error:', err);
+      let errorMsg = 'Не удалось получить доступ к микрофону.';
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        errorMsg = 'Доступ к микрофону заблокирован. Если вы открыли платформу через Telegram, нажмите «•••» в правом верхнем углу экрана и выберите «Открыть в браузере (Safari / Chrome)». Либо запишите голосовой ответ на диктофон телефона и прикрепите файл кнопкой «Загрузить фото/аудио».';
+      } else if (err?.message === 'NOT_SUPPORTED') {
+        errorMsg = 'Браузер не поддерживает запись аудио через WebRTC. Пожалуйста, запишите ответ на диктофон телефона и прикрепите файл кнопкой «Загрузить фото/аудио».';
+      } else {
+        errorMsg = `Ошибка микрофона: ${err?.message || 'запрещено'}. Запишите ответ на диктофон телефона и прикрепите файл кнопкой «Загрузить фото/аудио».`;
+      }
+      setTaskAudioErrors((prev) => ({ ...prev, [taskId]: errorMsg }));
+      setRecordingTaskId(null);
     }
   };
 
   const stopTaskStudentRecording = () => {
     if (studentTaskMediaRecorder && studentTaskMediaRecorder.state !== 'inactive') {
-      studentTaskMediaRecorder.stop();
+      try {
+        studentTaskMediaRecorder.stop();
+      } catch (e) {
+        console.warn('Error stopping student task recorder:', e);
+      }
     }
   };
 
@@ -434,8 +509,27 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const startRecording = async () => {
     setAudioError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('NOT_SUPPORTED');
+      }
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+      } catch (e1) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      const mime = getSupportedAudioMimeType();
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch (e2) {
+        mediaRecorder = new MediaRecorder(stream);
+      }
+
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -445,25 +539,41 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
         }
       };
 
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+      mediaRecorder.onstop = async () => {
+        const actualMime = mediaRecorder.mimeType || mime || 'audio/mp4';
+        const ext = actualMime.includes('webm') ? 'webm' : actualMime.includes('mp4') || actualMime.includes('aac') ? 'm4a' : 'mp3';
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualMime });
         const audioUrl = URL.createObjectURL(audioBlob);
         setRecordedAudioUrl(audioUrl);
         stream.getTracks().forEach((track) => track.stop());
+
+        // Upload persistently to server
+        try {
+          const serverUrl = await uploadBlobToServer(audioBlob, `speaking_hw_${Date.now()}.${ext}`);
+          if (serverUrl) {
+            setRecordedAudioUrl(serverUrl);
+          }
+        } catch (upErr) {
+          console.warn('Failed to upload speaking audio:', upErr);
+        }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(500);
       setIsRecording(true);
       setRecordingSeconds(0);
 
       timerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Microphone access error', err);
       setIsRecording(false);
       if (timerRef.current) clearInterval(timerRef.current);
-      setAudioError('Доступ к микрофону запрещен или не поддерживается. Пожалуйста, запишите аудио на телефон и загрузите файл.');
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        setAudioError('Доступ к микрофону заблокирован. Если вы открыли ссылку внутри Telegram, нажмите «•••» в правом верхнем углу и выберите «Открыть в браузере (Safari / Chrome)». Либо разрешите микрофон в настройках сайта.');
+      } else {
+        setAudioError('Доступ к микрофону запрещен или не поддерживается. Пожалуйста, запишите аудио на телефон и загрузите файл.');
+      }
     }
   };
 
@@ -541,7 +651,26 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   };
 
   // Final Submit Homework
-  const handleSubmitHomework = () => {
+  const handleSubmitHomework = (skipAudioCheck = false) => {
+    // If audio is currently uploading, notify user to wait
+    if (Object.values(taskAudioUploading).some(Boolean)) {
+      alert('Пожалуйста, подождите пару секунд: аудиозапись загружается на сервер!');
+      return;
+    }
+
+    // Check if there are speaking tasks in this homework with no recorded audio
+    if (!skipAudioCheck && homework.tasks && homework.tasks.length > 0) {
+      const missingSpeaking = homework.tasks.find(
+        (t) =>
+          (t.taskType === 'speaking' || t.block === 'speaking') &&
+          (!taskAnswers[t.id]?.voiceAudioUrl || !taskAnswers[t.id]?.voiceAudioUrl?.trim())
+      );
+      if (missingSpeaking) {
+        setShowMissingAudioConfirm(true);
+        return;
+      }
+    }
+
     const now = new Date();
     const formattedSubmittedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
 
@@ -2024,17 +2153,32 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             type="file"
                             accept="audio/*,image/*"
                             className="hidden"
-                            onChange={(e) => {
+                            onChange={async (e) => {
                               const file = e.target.files?.[0];
                               if (file) {
-                                const url = URL.createObjectURL(file);
                                 if (file.type.startsWith('image/')) {
-                                  setUploadedPhotos((prev) => [...prev, url]);
+                                  try {
+                                    const res = await uploadFileToServer(file);
+                                    setUploadedPhotos((prev) => [...prev, res.url]);
+                                  } catch {
+                                    const url = URL.createObjectURL(file);
+                                    setUploadedPhotos((prev) => [...prev, url]);
+                                  }
                                 } else {
-                                  setTaskAnswers((prev) => ({
-                                    ...prev,
-                                    [task.id]: { ...prev[task.id], voiceAudioUrl: url },
-                                  }));
+                                  setTaskAudioUploading((prev) => ({ ...prev, [task.id]: true }));
+                                  try {
+                                    const res = await uploadFileToServer(file);
+                                    if (res.url) {
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: { ...prev[task.id], voiceAudioUrl: res.url },
+                                      }));
+                                    }
+                                  } catch (uploadErr) {
+                                    console.error('Audio file upload error', uploadErr);
+                                  } finally {
+                                    setTaskAudioUploading((prev) => ({ ...prev, [task.id]: false }));
+                                  }
                                 }
                               }
                             }}
@@ -2062,9 +2206,30 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         )}
                       </div>
 
+                      {/* Uploading progress indicator */}
+                      {Boolean(taskAudioUploading[task.id]) && (
+                        <div className="mt-2 p-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 text-xs flex items-center space-x-2 animate-pulse">
+                          <div className="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                          <span>Загружаем аудиозапись на сервер...</span>
+                        </div>
+                      )}
+
+                      {/* Microphone error banner with clear instructions */}
+                      {Boolean(taskAudioErrors[task.id]) && (
+                        <div className="mt-2 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs space-y-1.5 animate-in fade-in duration-200">
+                          <div className="flex items-start space-x-2">
+                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                            <p className="font-semibold leading-snug">{taskAudioErrors[task.id]}</p>
+                          </div>
+                          <div className="text-[11px] text-slate-300 bg-black/30 p-2 rounded-lg border border-rose-500/20">
+                            💡 <b>Решение:</b> Если вы открыли ссылку внутри Telegram, нажмите три точки <b>•••</b> в правом верхнем углу и выберите <b>«Открыть в браузере (Safari / Chrome)»</b>. Также вы можете нажать <b>«Загрузить фото/аудио»</b> и прикрепить файл из диктофона телефона!
+                          </div>
+                        </div>
+                      )}
+
                       {/* Preview recorded/uploaded voice answer */}
                       {Boolean(currentAnswer.voiceAudioUrl && currentAnswer.voiceAudioUrl.trim()) && (
-                        <div className="pt-1 flex items-center space-x-2 bg-black/30 p-2 rounded-xl border border-sky-500/30">
+                        <div className="mt-2 flex items-center space-x-2 bg-black/40 p-2.5 rounded-xl border border-emerald-500/30">
                           <audio controls src={currentAnswer.voiceAudioUrl} className="w-full h-7" />
                           <button
                             type="button"
@@ -2074,7 +2239,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                 [task.id]: { ...prev[task.id], voiceAudioUrl: undefined },
                               }));
                             }}
-                            className="text-rose-400 hover:text-rose-300 text-[10px] font-bold shrink-0"
+                            className="text-rose-400 hover:text-rose-300 text-[10px] font-bold shrink-0 px-2 py-1 bg-rose-500/10 rounded-lg border border-rose-500/20"
                           >
                             Удалить
                           </button>
@@ -2154,7 +2319,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                   <Send className="w-4 h-4" />
                   <span>
                     {hasAnyAnswer
-                      ? '🚀 Отправить ДЗ на проверку Ангелине'
+                      ? existingSubmission?.status === 'pending'
+                        ? '🔄 Обновить ДЗ и отправить Ангелине'
+                        : '🚀 Отправить ДЗ на проверку Ангелине'
                       : 'Заполните задания или прикрепите ответ для отправки'}
                   </span>
                 </button>
@@ -2162,6 +2329,38 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             );
           })()}
         </div>
+
+        {/* Missing Audio Warning Modal */}
+        {showMissingAudioConfirm && (
+          <div className="absolute inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 rounded-2xl">
+            <div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl border text-center ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+              <AlertCircle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-slate-200 mb-2">Голосовой ответ не записан!</h3>
+              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+                В задании с устной частью (Speaking) нет прикрепленной аудиозаписи. Вы уверены, что хотите сдать работу без голосового ответа?
+              </p>
+              <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowMissingAudioConfirm(false)}
+                  className="w-full py-2.5 rounded-xl font-bold text-xs bg-sky-600 text-white hover:bg-sky-500 transition-colors"
+                >
+                  🎙 Записать голосовой ответ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMissingAudioConfirm(false);
+                    handleSubmitHomework(true);
+                  }}
+                  className="w-full py-2.5 rounded-xl font-bold text-xs bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors"
+                >
+                  Отправить без аудио
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Exit Confirmation Dialog */}
         {showExitConfirm && (
