@@ -92,10 +92,12 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editStudentLoginVal, setEditStudentLoginVal] = useState('');
   const [editStudentNameVal, setEditStudentNameVal] = useState('');
+  const [editStudentStreakVal, setEditStudentStreakVal] = useState<number>(1);
 
   // Teacher Diary Error Modal State
   const [diaryModalStudent, setDiaryModalStudent] = useState<RegisteredStudent | null>(null);
   const [diarySection, setDiarySection] = useState('Грамматика');
+  const [diaryTaskPrompt, setDiaryTaskPrompt] = useState('');
   const [diaryErrorText, setDiaryErrorText] = useState('');
   const [diaryCorrectAnswer, setDiaryCorrectAnswer] = useState('');
   const [diaryExplanation, setDiaryExplanation] = useState('');
@@ -109,6 +111,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       onAddDiaryEntry({
         studentName: diaryModalStudent.name,
         section: diarySection,
+        taskPrompt: diaryTaskPrompt.trim() || undefined,
         errorText: diaryErrorText.trim(),
         correctAnswer: diaryCorrectAnswer.trim(),
         explanation: diaryExplanation.trim(),
@@ -121,6 +124,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     setTimeout(() => {
       setDiarySuccessToast(null);
       setDiaryModalStudent(null);
+      setDiaryTaskPrompt('');
       setDiaryErrorText('');
       setDiaryCorrectAnswer('');
       setDiaryExplanation('');
@@ -4749,6 +4753,21 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300'
                           }`}
                         />
+                        <div className="flex items-center space-x-1 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20">
+                          <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={editStudentStreakVal}
+                            onChange={(e) => setEditStudentStreakVal(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                            title="Стрик дней (активность)"
+                            className={`w-12 p-0.5 rounded text-xs font-bold text-amber-400 text-center border ${
+                              isDarkMode ? 'bg-[#1e2c3a] border-slate-700' : 'bg-white border-slate-300'
+                            }`}
+                          />
+                          <span className="text-[10px] text-amber-300">дн</span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -4758,6 +4777,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                 login: cleanLogin,
                                 name: editStudentNameVal.trim() || st.name,
                                 telegramHandle: `@${cleanLogin}`,
+                                streakDays: editStudentStreakVal,
                               };
                               dbUpdateStudent(st.id, updatedObj);
                               if (onUpdateStudent) {
@@ -4792,9 +4812,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                 setEditingStudentId(st.id);
                                 setEditStudentNameVal(st.name || '');
                                 setEditStudentLoginVal(st.login || st.telegramHandle?.replace('@', '') || '');
+                                setEditStudentStreakVal(st.streakDays || 1);
                               }}
                               className="text-slate-400 hover:text-sky-400 p-1 transition-colors"
-                              title="Редактировать логин"
+                              title="Редактировать логин и стрик"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
@@ -4815,7 +4836,14 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                               <span>+ Ошибка</span>
                             </button>
                           </div>
-                          <div className="flex items-center space-x-2 text-[10px] text-slate-400">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-400">
+                            <span className="inline-flex items-center space-x-1 font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                              <Flame className="w-3 h-3 fill-amber-400" />
+                              <span>{st.streakDays || 1} дн</span>
+                            </span>
+                            <span>•</span>
+                            <span>Вход: {st.lastVisitDate ? st.lastVisitDate : 'Ещё не входил'}</span>
+                            <span>•</span>
                             <span>Сданных ДЗ: {stSubs.length}</span>
                             <span>•</span>
                             <span className="font-bold text-emerald-400">
@@ -5088,6 +5116,21 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
                 <div className="space-y-1">
                   <label className="font-semibold text-slate-300 block">
+                    Условие задачи / Контекст (необязательно):
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={diaryTaskPrompt}
+                    onChange={(e) => setDiaryTaskPrompt(e.target.value)}
+                    placeholder="Например: She is fond ___ classical music."
+                    className={`w-full p-2.5 rounded-xl border text-xs leading-relaxed resize-y ${
+                      isDarkMode ? 'bg-[#17212b] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-300 block">
                     Слово / фраза с ошибкой: <span className="text-rose-400">*</span>
                   </label>
                   <input
@@ -5134,7 +5177,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 <div className="pt-2 flex items-center space-x-2">
                   <button
                     type="button"
-                    onClick={() => setDiaryModalStudent(null)}
+                    onClick={() => {
+                      setDiaryModalStudent(null);
+                      setDiaryTaskPrompt('');
+                    }}
                     className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-colors"
                   >
                     Отмена

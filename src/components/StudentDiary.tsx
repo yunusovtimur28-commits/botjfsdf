@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { DiaryEntry, Homework, Submission } from '../types';
+import { getAudioContext } from '../lib/audio';
 import {
   Book,
   Mic,
@@ -46,12 +47,33 @@ const COMMON_SECTIONS = [
   'Чтение',
 ];
 
+export const renderSourceBadge = (source?: 'auto' | 'teacher' | 'student') => {
+  if (source === 'teacher') {
+    return (
+      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">
+        От Ангелины
+      </span>
+    );
+  }
+  if (source === 'student') {
+    return (
+      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30">
+        Моя ошибка
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-300 border border-sky-500/30">
+      Из ДЗ
+    </span>
+  );
+};
+
 // Web Audio synthesizer for pleasant level-up chimes
 const playLevelUpSound = (isMax: boolean = false) => {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const freqs = isMax
@@ -81,9 +103,8 @@ const playLevelUpSound = (isMax: boolean = false) => {
 
 const playWrongSound = () => {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -101,9 +122,8 @@ const playWrongSound = () => {
 
 const playFanfareSound = () => {
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getAudioContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
     const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5]; // C5, E5, G5, C6, E6
     notes.forEach((freq, idx) => {
@@ -131,6 +151,22 @@ const speakText = (text: string) => {
     utterance.rate = 0.88;
     window.speechSynthesis.speak(utterance);
   }
+};
+
+const playPronunciation = (text: string) => {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const cleanText = text.replace(/\[.*?\]|\(.*?\)/g, '').trim();
+  const utterance = new SpeechSynthesisUtterance(cleanText || text);
+  utterance.lang = 'en-GB'; // Британский акцент
+  utterance.rate = 0.9; // Чуть медленнее для четкости
+  
+  const voices = window.speechSynthesis.getVoices();
+  // Ищем качественные женские голоса
+  const femaleVoice = voices.find(v => v.name.includes('Google UK English Female') || v.name.includes('Samantha') || v.name.includes('Victoria'));
+  if (femaleVoice) utterance.voice = femaleVoice;
+  
+  window.speechSynthesis.speak(utterance);
 };
 
 export const StudentDiary: React.FC<StudentDiaryProps> = ({
@@ -173,6 +209,7 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
   const [customSection, setCustomSection] = useState('');
   const [formErrorText, setFormErrorText] = useState('');
   const [formCorrectAnswer, setFormCorrectAnswer] = useState('');
+  const [formTaskPrompt, setFormTaskPrompt] = useState('');
   const [formExplanation, setFormExplanation] = useState('');
   const [formValidationMsg, setFormValidationMsg] = useState<string | null>(null);
 
@@ -424,6 +461,7 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
         studentName: currentUserName,
         date: formattedDate,
         section: item.section,
+        taskPrompt: item.questionPrompt,
         errorText: item.errorText,
         correctAnswer: item.correctAnswer,
         explanation: item.explanation,
@@ -669,6 +707,7 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
       studentName: currentUserName,
       date: formattedDate,
       section: finalSection,
+      taskPrompt: formTaskPrompt.trim() || undefined,
       errorText: formErrorText.trim(),
       correctAnswer: formCorrectAnswer.trim(),
       explanation: formExplanation.trim() || undefined,
@@ -679,6 +718,7 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
     setIsAddModalOpen(false);
     setFormErrorText('');
     setFormCorrectAnswer('');
+    setFormTaskPrompt('');
     setFormExplanation('');
     setFormValidationMsg(null);
     playLevelUpSound(false);
@@ -784,9 +824,12 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
           >
             {/* Task Section Header Badge */}
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/25">
-                {currentCard.section}
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                  {currentCard.section}
+                </span>
+                {renderSourceBadge(currentCard.source)}
+              </div>
 
               <div className="flex items-center space-x-1.5 text-xs text-slate-400 font-bold">
                 <span>Уровень:</span>
@@ -799,6 +842,12 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
               {isSpeaking ? (
                 /* ORAL / SPEAKING TASK */
                 <div className="space-y-6 text-center">
+                  {currentCard.taskPrompt && (
+                    <div className="mb-4 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 text-slate-200 text-sm whitespace-pre-wrap leading-relaxed text-left">
+                      {currentCard.taskPrompt}
+                    </div>
+                  )}
+
                   <div className="space-y-1">
                     <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider flex items-center justify-center gap-1.5">
                       <Radio className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
@@ -858,6 +907,12 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
               ) : (
                 /* WRITTEN TASK (GRAMMAR / VOCABULARY) */
                 <form onSubmit={handleCheckWrittenAnswer} className="space-y-5">
+                  {currentCard.taskPrompt && (
+                    <div className="mb-4 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 text-slate-200 text-sm whitespace-pre-wrap leading-relaxed text-left">
+                      {currentCard.taskPrompt}
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-purple-400" />
@@ -1213,6 +1268,7 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
                     <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
                       {entry.section}
                     </span>
+                    {renderSourceBadge(entry.source)}
                     {entry.date && <span className="text-[10px] text-slate-500">{entry.date}</span>}
                   </div>
 
@@ -1272,9 +1328,12 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-purple-400 bg-purple-500/10 px-2.5 py-1 rounded-full border border-purple-500/20">
-                {selectedDetailEntry.section}
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-purple-400 bg-purple-500/10 px-2.5 py-1 rounded-full border border-purple-500/20">
+                  {selectedDetailEntry.section}
+                </span>
+                {renderSourceBadge(selectedDetailEntry.source)}
+              </div>
               <button
                 onClick={() => setSelectedDetailEntry(null)}
                 className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800"
@@ -1284,6 +1343,12 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
             </div>
 
             <div className="space-y-3">
+              {selectedDetailEntry.taskPrompt && (
+                <div className="mb-4 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 text-slate-200 text-sm whitespace-pre-wrap leading-relaxed text-left">
+                  {selectedDetailEntry.taskPrompt}
+                </div>
+              )}
+
               <div>
                 <span className="text-[11px] font-bold text-slate-400 uppercase">Оригинальная ошибка:</span>
                 <p className="text-sm font-bold text-rose-300 line-through decoration-rose-500/60 mt-0.5">
@@ -1424,6 +1489,19 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
               )}
 
               <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400">Условие задачи / Контекст (необязательно):</label>
+                <textarea
+                  value={formTaskPrompt}
+                  onChange={(e) => setFormTaskPrompt(e.target.value)}
+                  placeholder="Например: She is fond ___ classical music."
+                  rows={2}
+                  className={`w-full px-3 py-2 rounded-xl text-xs border resize-y ${
+                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-400">Слово или фраза с ошибкой:</label>
                 <input
                   type="text"
@@ -1465,7 +1543,10 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
               <div className="pt-2 flex items-center justify-end space-x-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddModalOpen(false)}
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    setFormTaskPrompt('');
+                  }}
                   className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
                 >
                   Отмена

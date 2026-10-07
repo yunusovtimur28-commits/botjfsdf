@@ -244,5 +244,6 @@ export interface DiaryEntry {
   counter: number; // Прогресс изучения от 1 до 5
   source: 'auto' | 'teacher' | 'student';
   lastReviewedAt?: string; // Время последнего повторения / тренировки
+  taskPrompt?: string; // Условие задачи или контекст
 }
 

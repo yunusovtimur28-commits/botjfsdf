@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   UserRole,
   Webinar,
@@ -192,24 +192,6 @@ export default function App() {
     }
   }, [deletedHwIds]);
 
-  const [deletedNotifIds, setDeletedNotifIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_deleted_notif_ids');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return [];
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('ege_app_deleted_notif_ids', JSON.stringify(deletedNotifIds));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [deletedNotifIds]);
-
   const [deletedWebinarIds, setDeletedWebinarIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('ege_app_deleted_webinar_ids');
@@ -317,88 +299,112 @@ export default function App() {
     return 90;
   });
 
-  // Dynamic student profile based on logged in user & their actual submissions
-  const currentStudentSubmissions = submissions.filter((s) => s.studentName === currentUser.name);
+  // Dynamic student submissions based on logged in user (matching name, login, or telegram)
+  const currentStudentSubmissions = React.useMemo(() => {
+    if (currentUser.role === 'teacher') return [];
+    const normName = (currentUser.name || '').trim().toLowerCase().replace('@', '');
+    const normLogin = (currentUser.login || '').trim().toLowerCase().replace('@', '');
+    const normTg = (currentUser.telegramHandle || '').trim().toLowerCase().replace('@', '');
 
-  // Server-side + Local streak tracking (Bulletproof with legacy support)
+    return submissions.filter((s) => {
+      if (!s.studentName) return false;
+      const subName = s.studentName.trim().toLowerCase().replace('@', '');
+      return (
+        subName === normName ||
+        (normLogin && subName === normLogin) ||
+        (normTg && subName === normTg)
+      );
+    });
+  }, [submissions, currentUser]);
+
+  // Unified robust matching for the current logged-in student across all student features
+  const currentRegisteredStudent = React.useMemo(() => {
+    if (!isLoggedIn || currentUser.role === 'teacher') return undefined;
+
+    // 1. Direct ID match (highest precision)
+    if (currentUser.id) {
+      const byId = registeredStudents.find((s) => s.id === currentUser.id);
+      if (byId) return byId;
+    }
+
+    const normName = (currentUser.name || '').trim().toLowerCase().replace('@', '');
+    const normLogin = (currentUser.login || '').trim().toLowerCase().replace('@', '');
+    const normTg = (currentUser.telegramHandle || '').trim().toLowerCase().replace('@', '');
+
+    return registeredStudents.find((s) => {
+      if (currentUser.id && s.id === currentUser.id) return true;
+      const sName = (s.name || '').trim().toLowerCase().replace('@', '');
+      const sLogin = (s.login || '').trim().toLowerCase().replace('@', '');
+      const sTg = (s.telegramHandle || '').trim().toLowerCase().replace('@', '');
+
+      if (normLogin && (sLogin === normLogin || sTg === normLogin || sName === normLogin)) return true;
+      if (normTg && (sTg === normTg || sLogin === normTg || sName === normTg)) return true;
+      if (normName && (sName === normName || sLogin === normName || sTg === normName)) return true;
+      return false;
+    });
+  }, [registeredStudents, currentUser, isLoggedIn]);
+
+  // Server-side + Real-time daily visit streak tracking
+  const streakCheckedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isLoggedIn || currentUser.role !== 'student') return;
-    const student = registeredStudents.find(
-      (s) =>
-        s.telegramHandle === currentUser.telegramHandle ||
-        (s.telegramHandle &&
-          currentUser.telegramHandle &&
-          s.telegramHandle.replace('@', '').toLowerCase() === currentUser.telegramHandle.replace('@', '').toLowerCase())
-    );
+
+    const student = currentRegisteredStudent;
     if (!student) return;
 
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
 
-    // Функция-переводчик старых дат (timestamp) в новый формат
-    const normalizeDateStr = (dateVal: string | undefined | null) => {
-      if (!dateVal) return null;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return dateVal;
-      const num = parseInt(dateVal, 10);
-      if (!isNaN(num) && num > 1000000000000) {
-        const d = new Date(num);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // Protect against duplicate checks in the same session for the current student & date
+    const checkKey = `${student.id}_${todayStr}`;
+    if (streakCheckedRef.current === checkKey) return;
+
+    const dbLastVisit = student.lastVisitDate;
+    const currentStreakVal = typeof student.streakDays === 'number' && student.streakDays > 0 ? student.streakDays : 1;
+    let newStreak = currentStreakVal;
+    let needsUpdate = false;
+
+    if (!dbLastVisit) {
+      // First recorded visit: keep existing streak (or 1) and record today's visit
+      newStreak = currentStreakVal;
+      needsUpdate = true;
+    } else if (dbLastVisit !== todayStr) {
+      // Calculate calendar days between last visit and today
+      const [y1, m1, d1] = dbLastVisit.split('T')[0].split('-').map(Number);
+      const [y2, m2, d2] = todayStr.split('-').map(Number);
+
+      let daysDiff = 999;
+      if (y1 && m1 && d1 && y2 && m2 && d2) {
+        const utc1 = Date.UTC(y1, m1 - 1, d1);
+        const utc2 = Date.UTC(y2, m2 - 1, d2);
+        daysDiff = Math.round((utc2 - utc1) / (1000 * 60 * 60 * 24));
       }
-      return null;
-    };
 
-    const localLastVisit = localStorage.getItem(`last_visit_${student.id}`);
-    const localStreak = localStorage.getItem(`streak_${student.id}`);
-    const normalizedDbDate = normalizeDateStr(student.lastVisitDate);
-
-    // 1. Берем самую свежую дату (защита от медленного ответа базы данных)
-    let actualLastVisit = normalizedDbDate;
-    if (!actualLastVisit || (localLastVisit && localLastVisit > actualLastVisit)) {
-      actualLastVisit = localLastVisit;
+      if (daysDiff === 1) {
+        // Visited yesterday -> consecutive active day, increment streak!
+        newStreak = currentStreakVal + 1;
+        needsUpdate = true;
+      } else if (daysDiff > 1) {
+        // Skipped at least 1 day -> streak resets to 1
+        newStreak = 1;
+        needsUpdate = true;
+      }
+      // If daysDiff <= 0 (e.g. clock change), no change needed
     }
 
-    // 2. Берем максимальный стрик, чтобы не откатиться назад из-за лага
-    const dbStreak = student.streakDays || 1;
-    const locStreak = parseInt(localStreak || '0', 10);
-    const currentActualStreak = Math.max(dbStreak, locStreak);
-
-    if (actualLastVisit !== todayStr) {
-      let newStreak = currentActualStreak;
-      if (actualLastVisit === yesterdayStr) {
-        newStreak += 1;
-      } else if (actualLastVisit && actualLastVisit !== todayStr) {
-        newStreak = 1;
-      }
-      
-      // Мгновенно сохраняем локально, чтобы заблокировать повторные триггеры
-      localStorage.setItem(`last_visit_${student.id}`, todayStr);
-      localStorage.setItem(`streak_${student.id}`, newStreak.toString());
-      
+    if (needsUpdate) {
       dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
       setRegisteredStudents((prev) =>
         prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
       );
-    } else {
-      // Если сегодня уже заходили, но в базе почему-то цифра меньше локальной — обновляем базу
-      if (student.streakDays !== currentActualStreak) {
-         dbUpdateStudent(student.id, { streakDays: currentActualStreak, lastVisitDate: todayStr });
-      }
     }
-  }, [currentUser, isLoggedIn, registeredStudents]);
+
+    streakCheckedRef.current = checkKey;
+  }, [currentUser, isLoggedIn, currentRegisteredStudent]);
 
   const activeStudentProfile: StudentProfileType = React.useMemo(() => {
-    const currentStudent = registeredStudents.find(
-      (s) =>
-        s.telegramHandle === currentUser.telegramHandle ||
-        (s.telegramHandle &&
-          currentUser.telegramHandle &&
-          s.telegramHandle.replace('@', '').toLowerCase() === currentUser.telegramHandle.replace('@', '').toLowerCase())
-    );
-    const currentStreak = currentStudent?.streakDays || 1;
+    const currentStreak = Math.max(1, currentRegisteredStudent?.streakDays || 1);
 
     const isNinjaUnlocked = currentStudentSubmissions.some((s) => s.type === 'test' && s.status === 'graded');
     const isSpeakingUnlocked = currentStudentSubmissions.some((s) => s.type === 'speaking' && s.status === 'graded');
@@ -465,7 +471,15 @@ export default function App() {
       telegramHandle: currentUser.telegramHandle,
       avatarUrl: currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534188753412-3e26d0d618d6?auto=format&fit=crop&w=300&q=80',
       streakDays: currentStreak,
-      streakHistory: [false, false, false, false, false, false, true],
+      streakHistory: (() => {
+        const todayDayIndex = (new Date().getDay() + 6) % 7;
+        const history = [false, false, false, false, false, false, false];
+        for (let i = 0; i < Math.min(currentStreak, 7); i++) {
+          const idx = (todayDayIndex - i + 7) % 7;
+          history[idx] = true;
+        }
+        return history;
+      })(),
       totalHwSubmitted: currentStudentSubmissions.length,
       averageScorePercent: gradedUserSubs.length > 0
         ? Math.round(
@@ -484,7 +498,7 @@ export default function App() {
           description: 'Успешная авторизация в платформе «Делай и Точка»',
           iconName: 'Flame',
           unlocked: true,
-          unlockedAt: currentStudent?.addedAt ? formatRegDate(currentStudent.addedAt) : 'Недавно',
+          unlockedAt: currentRegisteredStudent?.addedAt ? formatRegDate(currentRegisteredStudent.addedAt) : 'Недавно',
         },
         {
           id: 'b1',
@@ -521,7 +535,7 @@ export default function App() {
       ],
       examProgress: dynamicExamProgress,
     };
-  }, [currentUser, currentStudentSubmissions, customTargetScore, homeworks, registeredStudents]);
+  }, [currentUser, currentStudentSubmissions, customTargetScore, homeworks, registeredStudents, currentRegisteredStudent]);
 
   // Save Auth User to LocalStorage
   useEffect(() => {
@@ -588,10 +602,44 @@ export default function App() {
     };
   }, []);
 
+  // One-time cleanup for legacy unscoped/leaked draft keys from previous versions
+  const cleanLegacyDraftKeys = () => {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        // Matches unscoped keys like hw_draft_hw-1 or shared ones like _guest, _undefined, _ученик
+        if (
+          (k.startsWith('hw_draft_') ||
+            k.startsWith('hw_tasks_draft_') ||
+            k.startsWith('hw_ege_draft_') ||
+            k.startsWith('hw_ege_checked_')) &&
+          (!k.includes('_') ||
+            k.endsWith('_guest') ||
+            k.endsWith('_undefined') ||
+            k.endsWith('_null') ||
+            k.endsWith('_ученик') ||
+            /^(hw_draft|hw_tasks_draft|hw_ege_draft|hw_ege_checked)_[a-zA-Z0-9-]+$/.test(k))
+        ) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    cleanLegacyDraftKeys();
+  }, []);
+
   // Handle Login / Switch Account
   const handleLogin = (user: AuthUser) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
+    cleanLegacyDraftKeys();
     try {
       localStorage.setItem('ege_app_is_logged_in', 'true');
       localStorage.setItem('ege_app_user_auth', JSON.stringify(user));
@@ -636,11 +684,6 @@ export default function App() {
   const handleDeleteWebinar = async (webinarId: string) => {
     const updated = Array.from(new Set([...deletedWebinarIds, webinarId]));
     setDeletedWebinarIds(updated);
-    try {
-      localStorage.setItem('ege_app_deleted_webinar_ids', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
     setWebinars((prev) => prev.filter((w) => w.id !== webinarId));
     await dbDeleteWebinar(webinarId);
   };
@@ -690,22 +733,12 @@ export default function App() {
     // 1. Mark Homework as deleted
     const updatedDeletedHw = Array.from(new Set([...deletedHwIds, hwId]));
     setDeletedHwIds(updatedDeletedHw);
-    try {
-      localStorage.setItem('ege_app_deleted_hw_ids', JSON.stringify(updatedDeletedHw));
-    } catch (e) {
-      console.error(e);
-    }
     setHomeworks((prev) => prev.filter((h) => h.id !== hwId));
 
     // 2. Mark related Submissions as deleted
     const subIdsToDelete = submissions.filter((s) => s.homeworkId === hwId).map((s) => s.id);
     const updatedDeletedSub = Array.from(new Set([...deletedSubIds, ...subIdsToDelete]));
     setDeletedSubIds(updatedDeletedSub);
-    try {
-      localStorage.setItem('ege_app_deleted_sub_ids', JSON.stringify(updatedDeletedSub));
-    } catch (e) {
-      console.error(e);
-    }
     setSubmissions((prev) => prev.filter((s) => s.homeworkId !== hwId));
 
     // 3. Delete from Firestore
@@ -718,11 +751,6 @@ export default function App() {
     // 1. Mark Submission as deleted
     const updatedDeletedSub = Array.from(new Set([...deletedSubIds, submissionId]));
     setDeletedSubIds(updatedDeletedSub);
-    try {
-      localStorage.setItem('ege_app_deleted_sub_ids', JSON.stringify(updatedDeletedSub));
-    } catch (e) {
-      console.error(e);
-    }
 
     // 2. Filter local state
     setSubmissions((prev) => prev.filter((s) => s.id !== submissionId));
@@ -733,13 +761,6 @@ export default function App() {
 
   // Delete Individual Notification
   const handleDeleteNotification = async (notifId: string) => {
-    const updated = Array.from(new Set([...deletedNotifIds, notifId]));
-    setDeletedNotifIds(updated);
-    try {
-      localStorage.setItem('ege_app_deleted_notif_ids', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
     await dbDeleteNotification(notifId);
   };
@@ -747,13 +768,6 @@ export default function App() {
   // Clear All Notifications
   const handleClearAllNotifications = async () => {
     const idsToClear = visibleNotifications.map((n) => n.id);
-    const updated = Array.from(new Set([...deletedNotifIds, ...idsToClear]));
-    setDeletedNotifIds(updated);
-    try {
-      localStorage.setItem('ege_app_deleted_notif_ids', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
     setNotifications([]);
     for (const id of idsToClear) {
       await dbDeleteNotification(id);
@@ -1090,41 +1104,6 @@ export default function App() {
     }
   };
 
-  const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('ege_app_read_notif_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('ege_app_read_notif_ids', JSON.stringify(readNotifIds));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [readNotifIds]);
-
-  // Находим объект текущего зарегистрированного ученика
-  const currentRegisteredStudent = React.useMemo(() => {
-    if (currentUser.role === 'teacher') return undefined;
-    const normName = currentUser.name.trim().toLowerCase().replace('@', '');
-    const normLogin = currentUser.login ? currentUser.login.trim().toLowerCase().replace('@', '') : '';
-    const normTg = currentUser.telegramHandle ? currentUser.telegramHandle.trim().toLowerCase().replace('@', '') : '';
-
-    return registeredStudents.find((s) => {
-      const sName = (s.name || '').trim().toLowerCase().replace('@', '');
-      const sLogin = (s.login || '').trim().toLowerCase().replace('@', '');
-      const sTg = (s.telegramHandle || '').trim().toLowerCase().replace('@', '');
-      return (
-        (normName && (sName === normName || sLogin === normName || sTg === normName)) ||
-        (normLogin && (sLogin === normLogin || sName === normLogin)) ||
-        (normTg && (sTg === normTg || sLogin === normTg))
-      );
-    });
-  }, [registeredStudents, currentUser]);
 
   // Получаем доступы текущего ученика
   const currentStudentAccess = React.useMemo(() => {
@@ -1234,9 +1213,7 @@ export default function App() {
         });
       }
 
-      return list
-        .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
-        .filter((n) => !deletedNotifIds.includes(n.id));
+      return list;
     }
 
     const isDefaultStudent = currentUser.name === initialStudentProfile.name;
@@ -1336,10 +1313,14 @@ export default function App() {
         (n) => n.id !== 'n1' && n.id !== 'n2' && n.id !== 'n3' && !n.id.startsWith('welcome-') && !n.id.startsWith('streak-')
       );
 
+      // Deduplicate notifications by id to prevent duplicate React keys
       const combined = [...list, ...sessionNewNotifs];
-      return combined
-        .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
-        .filter((n) => !deletedNotifIds.includes(n.id));
+      const seenIds = new Set<string>();
+      return combined.filter((n) => {
+        if (seenIds.has(n.id)) return false;
+        seenIds.add(n.id);
+        return true;
+      });
     }
 
     // Default student (Александр Ковалев) - update streak notification text to match actual streakDays
@@ -1358,14 +1339,16 @@ export default function App() {
       result.unshift(diaryReminderNotif);
     }
 
-    return result
-      .map((n) => (readNotifIds.includes(n.id) ? { ...n, isRead: true } : n))
-      .filter((n) => !deletedNotifIds.includes(n.id));
-  }, [currentUser.name, currentUser.role, registeredStudents, activeStudentProfile.streakDays, currentStudentSubmissions, visibleHomeworks, notifications, readNotifIds, deletedNotifIds, diaryEntries]);
+    const seenIds = new Set<string>();
+    return result.filter((n) => {
+      if (seenIds.has(n.id)) return false;
+      seenIds.add(n.id);
+      return true;
+    });
+  }, [currentUser.name, currentUser.role, registeredStudents, activeStudentProfile.streakDays, currentStudentSubmissions, visibleHomeworks, notifications, diaryEntries]);
 
   // Mark notification read
   const handleNotificationRead = async (id: string) => {
-    setReadNotifIds((prev) => [...prev, id]);
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );

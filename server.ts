@@ -188,12 +188,16 @@ app.post("/api/ai-teacher-assistant", async (req, res) => {
   }
 });
 
-// YouTube duration info parser
-app.post("/api/yt-info", async (req, res) => {
+// Helper to extract duration and raw HTML from YouTube
+async function getYouTubeDuration(url: string): Promise<{ durationStr: string; totalSeconds: number; html: string } | null> {
+  if (!url || !url.includes('youtu')) return null;
   try {
-    const { url } = req.body;
-    if (!url || !url.includes('youtu')) return res.json({ success: false });
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+      }
+    });
     const html = await response.text();
     const match = html.match(/"lengthSeconds":"(\d+)"/);
     if (match && match[1]) {
@@ -201,10 +205,24 @@ app.post("/api/yt-info", async (req, res) => {
       const h = Math.floor(totalSeconds / 3600);
       const m = Math.floor((totalSeconds % 3600) / 60);
       const s = totalSeconds % 60;
-      let durationStr = h > 0 
+      const durationStr = h > 0 
         ? `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`
         : `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-      return res.json({ success: true, duration: durationStr, seconds: totalSeconds });
+      return { durationStr, totalSeconds, html };
+    }
+    return { durationStr: '', totalSeconds: 0, html };
+  } catch {
+    return null;
+  }
+}
+
+// YouTube duration info parser
+app.post("/api/yt-info", async (req, res) => {
+  try {
+    const { url } = req.body;
+    const info = await getYouTubeDuration(url);
+    if (info && info.durationStr) {
+      return res.json({ success: true, duration: info.durationStr, seconds: info.totalSeconds });
     }
     res.json({ success: false });
   } catch (err) {
@@ -226,50 +244,36 @@ app.post("/api/ai-timecodes", async (req, res) => {
     // 1. Попытка вытянуть данные напрямую с YouTube
     if (videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'))) {
       try {
-        // Добавляем заголовки реального браузера Chrome, чтобы обойти блокировку ботов
-        const ytRes = await fetch(videoUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        const ytData = await getYouTubeDuration(videoUrl);
+        if (ytData) {
+          if (ytData.durationStr) {
+            exactDuration = ytData.durationStr;
           }
-        });
-        const html = await ytRes.text();
-        
-        // Вытягиваем точный хронометраж из кода страницы
-        const matchLen = html.match(/"lengthSeconds":"(\d+)"/);
-        if (matchLen && matchLen[1]) {
-           const totalSeconds = parseInt(matchLen[1], 10);
-           const h = Math.floor(totalSeconds / 3600);
-           const m = Math.floor((totalSeconds % 3600) / 60);
-           const s = totalSeconds % 60;
-           exactDuration = h > 0
-             ? `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`
-             : `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-        }
-        
-        // Ищем скрытый JSON с треками субтитров
-        const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
-        if (captionMatch) {
-          const tracks = JSON.parse(captionMatch[1]);
-          // Ищем русскую дорожку (автоматическую или загруженную)
-          const track = tracks.find((t: any) => t.languageCode === 'ru' || t.vssId === 'a.ru') || tracks[0];
-          
-          if (track && track.baseUrl) {
-            const xmlRes = await fetch(track.baseUrl);
-            const xml = await xmlRes.text();
+          const html = ytData.html;
+          // Ищем скрытый JSON с треками субтитров
+          const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+          if (captionMatch) {
+            const tracks = JSON.parse(captionMatch[1]);
+            // Ищем русскую дорожку (автоматическую или загруженную)
+            const track = tracks.find((t: any) => t.languageCode === 'ru' || t.vssId === 'a.ru') || tracks[0];
             
-            const regex = /<text start="([\d.]+)"[^>]*>(.*?)<\/text>/g;
-            let match;
-            let lines = [];
-            while ((match = regex.exec(xml)) !== null) {
-              const startSeconds = parseFloat(match[1]);
-              const mm = Math.floor(startSeconds / 60).toString().padStart(2, '0');
-              const ss = Math.floor(startSeconds % 60).toString().padStart(2, '0');
-              const text = match[2].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-              lines.push(`[${mm}:${ss}] ${text}`);
+            if (track && track.baseUrl) {
+              const xmlRes = await fetch(track.baseUrl);
+              const xml = await xmlRes.text();
+              
+              const regex = /<text start="([\d.]+)"[^>]*>(.*?)<\/text>/g;
+              let match;
+              let lines = [];
+              while ((match = regex.exec(xml)) !== null) {
+                const startSeconds = parseFloat(match[1]);
+                const mm = Math.floor(startSeconds / 60).toString().padStart(2, '0');
+                const ss = Math.floor(startSeconds % 60).toString().padStart(2, '0');
+                const text = match[2].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                lines.push(`[${mm}:${ss}] ${text}`);
+              }
+              // Увеличили объем забираемого текста для часовых вебинаров
+              transcriptContext = lines.join(' ').substring(0, 70000);
             }
-            // Увеличили объем забираемого текста для часовых вебинаров
-            transcriptContext = lines.join(' ').substring(0, 70000);
           }
         }
       } catch (e) {

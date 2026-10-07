@@ -14,3 +14,9 @@ export function getFormattedDateTime(date = new Date()): string {
   const time = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   return `${dayMonth}, ${time}`;
 }
+
+export const formatSeconds = (sec: number): string => {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};

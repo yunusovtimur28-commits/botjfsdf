@@ -15,6 +15,8 @@ import {
   UploadCloud,
   Trash2,
 } from 'lucide-react';
+import { getAudioContext } from '../lib/audio';
+import { formatSeconds } from '../lib/dateUtils';
 
 interface SpeakingSimulatorProps {
   isDarkMode: boolean;
@@ -100,7 +102,8 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
   // Sound effects beep
   const playBeep = () => {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gainNode = ctx.createGain(); // Регулятор громкости
       
@@ -280,12 +283,6 @@ export const SpeakingSimulator: React.FC<SpeakingSimulatorProps> = ({
     setAudioError(null);
     setIsPlayingRecorded(false);
     setAudioProgress(0);
-  };
-
-  const formatSeconds = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   return (

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Homework, Submission, HomeworkStatus } from '../types';
 import {
   X,
@@ -21,7 +21,9 @@ import {
   Plus,
   Check,
   Paperclip,
+  Lock,
 } from 'lucide-react';
+import { formatSeconds } from '../lib/dateUtils';
 
 interface HomeworkSubmissionModalProps {
   homework: Homework;
@@ -38,7 +40,7 @@ interface HomeworkSubmissionModalProps {
 
 // Умный счетчик слов по правилам ФИПИ (ЕГЭ)
 const countEgeWords = (text: string): number => {
-  if (!text.trim()) return 0;
+  if (!text || typeof text !== 'string' || !text.trim()) return 0;
   
   // 1. Убираем пробел между цифрой и знаком процента (например, "50 %" -> "50%")
   let cleanText = text.replace(/(\d+)\s+%/g, '$1%');
@@ -69,26 +71,6 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const tasksDraftKey = `hw_tasks_draft_${homework.id}_${currentUserName}`;
   const egeDraftKey = `hw_ege_draft_${homework.id}_${currentUserName}`;
   const egeCheckedKey = `hw_ege_checked_${homework.id}_${currentUserName}`;
-
-  // Clean up legacy un-scoped or shared keys on mount to prevent cross-account draft leakage
-  useEffect(() => {
-    try {
-      localStorage.removeItem(`hw_draft_${homework.id}`);
-      localStorage.removeItem(`hw_tasks_draft_${homework.id}`);
-      localStorage.removeItem(`hw_ege_draft_${homework.id}`);
-      localStorage.removeItem(`hw_ege_checked_${homework.id}`);
-      localStorage.removeItem(`hw_draft_${homework.id}_guest`);
-      localStorage.removeItem(`hw_tasks_draft_${homework.id}_guest`);
-      localStorage.removeItem(`hw_ege_draft_${homework.id}_guest`);
-      localStorage.removeItem(`hw_ege_checked_${homework.id}_guest`);
-      localStorage.removeItem(`hw_draft_${homework.id}_ученик`);
-      localStorage.removeItem(`hw_tasks_draft_${homework.id}_ученик`);
-      localStorage.removeItem(`hw_ege_draft_${homework.id}_ученик`);
-      localStorage.removeItem(`hw_ege_checked_${homework.id}_ученик`);
-    } catch {
-      // ignore
-    }
-  }, [homework.id]);
 
   // Test state
   const [testAnswers, setTestAnswers] = useState<Record<string, string>>(
@@ -132,12 +114,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   );
   const [isUploading, setIsUploading] = useState(false);
 
-  // Autosave essay draft
+  // Autosave essay draft (Debounced)
   useEffect(() => {
-    if (isSubmissionBlocked) return;
-    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+    if (isSubmissionBlocked || existingSubmission?.status === 'graded' || existingSubmission?.status === 'pending') return;
+    const timeoutId = setTimeout(() => {
       localStorage.setItem(draftKey, essayText);
-    }
+    }, 1000);
+    return () => clearTimeout(timeoutId);
   }, [essayText, draftKey, existingSubmission, isSubmissionBlocked]);
 
   // AI Pre-check state
@@ -153,7 +136,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const absoluteMin = Math.ceil(minW * 0.9); // Нижний порог (-10%)
   const absoluteMax = Math.floor(maxW * 1.1); // Верхний порог (+10%)
   
-  const currentWordCount = countEgeWords(essayText);
+  const currentWordCount = useMemo(() => countEgeWords(essayText), [essayText]);
   const isTooShort = currentWordCount > 0 && currentWordCount < absoluteMin;
   const isTooLong = currentWordCount > absoluteMax;
 
@@ -175,7 +158,8 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     try {
       const saved = localStorage.getItem(tasksDraftKey);
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed) return parsed;
       }
     } catch (e) {
       console.error('Error parsing tasks draft', e);
@@ -262,7 +246,10 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     if (!isSubmissionBlocked) {
       try {
         const saved = localStorage.getItem(egeDraftKey);
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed) return parsed;
+        }
       } catch (e) {
         console.error('Error loading ege draft', e);
       }
@@ -282,7 +269,10 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     if (!isSubmissionBlocked) {
       try {
         const saved = localStorage.getItem(egeCheckedKey);
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed) return parsed;
+        }
       } catch (e) {
         console.error('Error loading egeChecked draft', e);
       }
@@ -304,45 +294,55 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     return initial;
   });
 
-  // Autosave ege draft & checked state
+  // Autosave ege draft & checked state (Debounced)
   useEffect(() => {
-    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+    if (isSubmissionBlocked || existingSubmission?.status === 'graded' || existingSubmission?.status === 'pending') return;
+    const timeoutId = setTimeout(() => {
       try {
         localStorage.setItem(egeDraftKey, JSON.stringify(egeAnswers));
       } catch (e) {
         console.error('Error saving ege draft', e);
       }
-    }
-  }, [egeAnswers, egeDraftKey, existingSubmission]);
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [egeAnswers, egeDraftKey, existingSubmission, isSubmissionBlocked]);
 
   useEffect(() => {
-    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
+    if (isSubmissionBlocked || existingSubmission?.status === 'graded' || existingSubmission?.status === 'pending') return;
+    const timeoutId = setTimeout(() => {
       try {
         localStorage.setItem(egeCheckedKey, JSON.stringify(egeChecked));
       } catch (e) {
         console.error('Error saving egeChecked draft', e);
       }
-    }
-  }, [egeChecked, egeCheckedKey, existingSubmission]);
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [egeChecked, egeCheckedKey, existingSubmission, isSubmissionBlocked]);
 
-  // Autosave multi-task answers draft (excluding temporary Blob URLs)
+  // Autosave multi-task answers draft (excluding temporary Blob URLs) (Debounced)
   useEffect(() => {
-    if (existingSubmission?.status !== 'graded' && existingSubmission?.status !== 'pending') {
-      const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string>; gapInputs?: string[]; qnaInputs?: Record<string, string> }> = {};
-      Object.entries(taskAnswers).forEach(([taskId, ans]: [string, any]) => {
-        if (ans) {
-          cleanAnswers[taskId] = {
-            textAnswer: ans.textAnswer,
-            selectedOptionIndex: ans.selectedOptionIndex,
-            egeAnswers: ans.egeAnswers,
-            gapInputs: ans.gapInputs,
-            qnaInputs: ans.qnaInputs,
-          };
-        }
-      });
-      localStorage.setItem(tasksDraftKey, JSON.stringify(cleanAnswers));
-    }
-  }, [taskAnswers, tasksDraftKey, existingSubmission]);
+    if (isSubmissionBlocked || existingSubmission?.status === 'graded' || existingSubmission?.status === 'pending') return;
+    const timeoutId = setTimeout(() => {
+      try {
+        const cleanAnswers: Record<string, { textAnswer?: string; selectedOptionIndex?: number; egeAnswers?: Record<string, string>; gapInputs?: string[]; qnaInputs?: Record<string, string> }> = {};
+        Object.entries(taskAnswers || {}).forEach(([taskId, ans]: [string, any]) => {
+          if (ans) {
+            cleanAnswers[taskId] = {
+              textAnswer: ans.textAnswer,
+              selectedOptionIndex: ans.selectedOptionIndex,
+              egeAnswers: ans.egeAnswers,
+              gapInputs: ans.gapInputs,
+              qnaInputs: ans.qnaInputs,
+            };
+          }
+        });
+        localStorage.setItem(tasksDraftKey, JSON.stringify(cleanAnswers));
+      } catch (e) {
+        console.error('Error saving tasks draft', e);
+      }
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [taskAnswers, tasksDraftKey, existingSubmission, isSubmissionBlocked]);
 
   const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null);
   const [studentTaskMediaRecorder, setStudentTaskMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -621,12 +621,6 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     } else {
       onClose();
     }
-  };
-
-  const formatSeconds = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   return (
