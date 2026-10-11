@@ -4,6 +4,8 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { initializeApp, getApps } from "firebase/app";
+import { initializeFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
 dotenv.config();
 
@@ -18,10 +20,207 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Serve uploaded files statically
-app.use("/uploads", express.static(uploadsDir));
+// Initialize Firestore for persistent media storage and auto-recovery across container restarts
+let dbFirestore: any = null;
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    const fbConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const fbApp = !getApps().length
+      ? initializeApp({
+          apiKey: fbConfig.apiKey,
+          authDomain: fbConfig.authDomain,
+          projectId: fbConfig.projectId,
+          storageBucket: fbConfig.storageBucket,
+          messagingSenderId: fbConfig.messagingSenderId,
+          appId: fbConfig.appId,
+        })
+      : getApps()[0];
 
-// File Upload Endpoint: Saves large files locally to avoid Firestore 1MB document limit
+    dbFirestore = initializeFirestore(
+      fbApp,
+      {
+        experimentalAutoDetectLongPolling: true,
+        ignoreUndefinedProperties: true,
+      },
+      fbConfig.firestoreDatabaseId || "(default)"
+    );
+    console.log("[Storage] Firestore initialized for permanent media backup.");
+  }
+} catch (fbInitErr) {
+  console.warn("[Storage] Could not initialize Firestore for backup:", fbInitErr);
+}
+
+// Helper to get MIME type from file extension
+function getMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const map: Record<string, string> = {
+    ".mp3": "audio/mp3",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".webm": "audio/webm",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+  };
+  return map[ext] || "application/octet-stream";
+}
+
+// Stream local file with HTTP 206 Partial Content (Range header) for audio seeking and fast playback
+function serveLocalFile(filePath: string, req: express.Request, res: express.Response) {
+  try {
+    const stat = fs.statSync(filePath);
+    const total = stat.size;
+    const contentType = getMimeType(filePath);
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const partialStart = parts[0];
+      const partialEnd = parts[1];
+
+      const start = parseInt(partialStart, 10);
+      const end = partialEnd ? parseInt(partialEnd, 10) : total - 1;
+      const chunkSize = end - start + 1;
+
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${total}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunkSize,
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=31536000, immutable",
+      });
+
+      const fileStream = fs.createReadStream(filePath, { start, end });
+      fileStream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": total,
+        "Content-Type": contentType,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=31536000, immutable",
+      });
+      fs.createReadStream(filePath).pipe(res);
+    }
+  } catch (err: any) {
+    console.error("Error serving local file:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Ошибка отдачи файла" });
+    }
+  }
+}
+
+// Persist uploaded file to Firestore (single doc or chunked if > 700KB)
+async function persistFileToFirestore(uniqueFileName: string, originalName: string, base64Data: string, bufferLength: number) {
+  if (!dbFirestore) return;
+  try {
+    const sanitizedId = uniqueFileName.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const mimeType = getMimeType(uniqueFileName);
+    const CHUNK_SIZE = 500000; // ~375 KB chunk
+
+    if (base64Data.length <= CHUNK_SIZE) {
+      // Single document
+      await setDoc(doc(dbFirestore, "uploaded_files", sanitizedId), {
+        fileName: uniqueFileName,
+        originalName,
+        mimeType,
+        sizeBytes: bufferLength,
+        isChunked: false,
+        base64: base64Data,
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      // Chunked documents
+      const totalChunks = Math.ceil(base64Data.length / CHUNK_SIZE);
+      await setDoc(doc(dbFirestore, "uploaded_files", sanitizedId), {
+        fileName: uniqueFileName,
+        originalName,
+        mimeType,
+        sizeBytes: bufferLength,
+        isChunked: true,
+        totalChunks,
+        createdAt: new Date().toISOString(),
+      });
+
+      const chunkPromises = [];
+      for (let i = 0; i < totalChunks; i++) {
+        const slice = base64Data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        chunkPromises.push(
+          setDoc(doc(dbFirestore, "uploaded_files", `${sanitizedId}_chk_${i}`), {
+            chunkIndex: i,
+            data: slice,
+          })
+        );
+      }
+      await Promise.all(chunkPromises);
+    }
+    console.log(`[Storage] Persisted ${uniqueFileName} (${bufferLength} bytes) to Firestore successfully.`);
+  } catch (persistErr) {
+    console.warn(`[Storage] Failed to persist ${uniqueFileName} to Firestore:`, persistErr);
+  }
+}
+
+// Auto-recover file from Firestore if missing from disk
+async function recoverFileFromFirestore(uniqueFileName: string, targetPath: string): Promise<boolean> {
+  if (!dbFirestore) return false;
+  try {
+    const sanitizedId = uniqueFileName.replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const docSnap = await getDoc(doc(dbFirestore, "uploaded_files", sanitizedId));
+    if (!docSnap.exists()) {
+      return false;
+    }
+
+    const fileData = docSnap.data();
+    let fullBase64 = "";
+
+    if (fileData.isChunked && fileData.totalChunks) {
+      const chunkPromises = [];
+      for (let i = 0; i < fileData.totalChunks; i++) {
+        chunkPromises.push(getDoc(doc(dbFirestore, "uploaded_files", `${sanitizedId}_chk_${i}`)));
+      }
+      const chunkDocs = await Promise.all(chunkPromises);
+      fullBase64 = chunkDocs.map((c) => (c.exists() ? c.data().data : "")).join("");
+    } else {
+      fullBase64 = fileData.base64 || "";
+    }
+
+    if (!fullBase64) return false;
+
+    const buffer = Buffer.from(fullBase64, "base64");
+    await fs.promises.writeFile(targetPath, buffer);
+    console.log(`[Auto-Recovery] Successfully restored missing file ${uniqueFileName} (${buffer.length} bytes) from Firestore to disk!`);
+    return true;
+  } catch (recErr) {
+    console.warn(`[Auto-Recovery] Error recovering ${uniqueFileName} from Firestore:`, recErr);
+    return false;
+  }
+}
+
+// Serve uploaded files with auto-recovery from Firestore & audio Range streaming
+app.get("/uploads/:fileName", async (req, res, next) => {
+  const fileName = decodeURIComponent(req.params.fileName);
+  const filePath = path.join(uploadsDir, fileName);
+
+  if (fs.existsSync(filePath)) {
+    return serveLocalFile(filePath, req, res);
+  }
+
+  // Attempt auto-recovery from Firestore
+  const recovered = await recoverFileFromFirestore(fileName, filePath);
+  if (recovered && fs.existsSync(filePath)) {
+    return serveLocalFile(filePath, req, res);
+  }
+
+  // File not found in uploads nor Firestore - return 404 JSON (NOT HTML fallback)
+  return res.status(404).json({ error: "File not found", fileName });
+});
+
+// File Upload Endpoint: Saves locally AND permanently into Firestore
 app.post("/api/upload-file", async (req, res) => {
   try {
     const { fileName, base64 } = req.body;
@@ -38,7 +237,11 @@ app.post("/api/upload-file", async (req, res) => {
     const base64Data = base64.includes("base64,") ? base64.split("base64,")[1] : base64;
     const buffer = Buffer.from(base64Data, "base64");
 
+    // 1. Write to local disk cache
     await fs.promises.writeFile(filePath, buffer);
+
+    // 2. Persist to Firestore for 100% durability across restarts
+    persistFileToFirestore(uniqueFileName, fileName || uniqueFileName, base64Data, buffer.length);
 
     const publicUrl = `/uploads/${encodeURIComponent(uniqueFileName)}`;
     return res.json({
@@ -54,15 +257,20 @@ app.post("/api/upload-file", async (req, res) => {
   }
 });
 
-// Explicit download endpoint
-app.get("/api/download/:fileName", (req, res) => {
+// Explicit download endpoint with auto-recovery
+app.get("/api/download/:fileName", async (req, res) => {
   const decodedFileName = decodeURIComponent(req.params.fileName);
   const filePath = path.join(uploadsDir, decodedFileName);
+
+  if (!fs.existsSync(filePath)) {
+    await recoverFileFromFirestore(decodedFileName, filePath);
+  }
+
   if (fs.existsSync(filePath)) {
     const downloadName = (req.query.name as string) || decodedFileName;
     res.download(filePath, downloadName);
   } else {
-    res.status(404).send("Файл не найден");
+    res.status(404).json({ error: "Файл не найден" });
   }
 });
 

@@ -26,6 +26,7 @@ import {
 import { formatSeconds } from '../lib/dateUtils';
 import {
   uploadBlobToServer,
+  uploadBlobWithBase64,
   uploadFileToServer,
   getSupportedAudioMimeType,
 } from '../lib/fileUpload';
@@ -96,6 +97,9 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(
     existingSubmission?.speakingAudioUrl || null
+  );
+  const [recordedAudioBase64, setRecordedAudioBase64] = useState<string | null>(
+    existingSubmission?.speakingAudioBase64 || null
   );
   const [audioError, setAudioError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -422,14 +426,18 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
         stream.getTracks().forEach((track) => track.stop());
         setRecordingTaskId(null);
 
-        // Upload persistently to server
+        // Upload persistently to server & save base64 backup
         setTaskAudioUploading((prev) => ({ ...prev, [taskId]: true }));
         try {
-          const serverUrl = await uploadBlobToServer(blob, `student_voice_${taskId}_${Date.now()}.${ext}`);
-          if (serverUrl) {
+          const res = await uploadBlobWithBase64(blob, `student_voice_${taskId}_${Date.now()}.${ext}`);
+          if (res.url) {
             setTaskAnswers((prev) => ({
               ...prev,
-              [taskId]: { ...prev[taskId], voiceAudioUrl: serverUrl },
+              [taskId]: {
+                ...prev[taskId],
+                voiceAudioUrl: res.url,
+                voiceAudioBase64: res.base64 && res.base64.length < 800000 ? res.base64 : undefined,
+              },
             }));
           }
         } catch (uploadErr) {
@@ -547,11 +555,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
         setRecordedAudioUrl(audioUrl);
         stream.getTracks().forEach((track) => track.stop());
 
-        // Upload persistently to server
+        // Upload persistently to server & store base64 backup
         try {
-          const serverUrl = await uploadBlobToServer(audioBlob, `speaking_hw_${Date.now()}.${ext}`);
-          if (serverUrl) {
-            setRecordedAudioUrl(serverUrl);
+          const res = await uploadBlobWithBase64(audioBlob, `speaking_hw_${Date.now()}.${ext}`);
+          if (res.url) {
+            setRecordedAudioUrl(res.url);
+            if (res.base64 && res.base64.length < 800000) {
+              setRecordedAudioBase64(res.base64);
+            }
           }
         } catch (upErr) {
           console.warn('Failed to upload speaking audio:', upErr);
@@ -587,6 +598,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
   const resetRecording = () => {
     setRecordedAudioUrl(null);
+    setRecordedAudioBase64(null);
     setRecordingSeconds(0);
     setAudioError(null);
   };
@@ -713,6 +725,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       status: 'pending',
       type: homework.type,
       speakingAudioUrl: recordedAudioUrl || undefined,
+      speakingAudioBase64: recordedAudioBase64 || undefined,
       essayText: essayText || undefined,
       writtenFileName:
         uploadedFileName ||
@@ -2227,16 +2240,38 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         </div>
                       )}
 
+                      {/* Re-record request banner from teacher */}
+                      {Boolean(existingSubmission?.reRecordRequestedTaskIds?.includes(task.id)) && (
+                        <div className="mt-2 p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center space-x-2 animate-pulse">
+                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <div>
+                            <p className="font-bold">🎙 Ангелина просит перезаписать голосовой ответ к этому заданию</p>
+                            <p className="text-[11px] text-amber-300/80">Предыдущая запись не открылась из-за сбоя сервера. Запишите ответ заново кнопкой ниже или прикрепите аудиофайл!</p>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Preview recorded/uploaded voice answer */}
-                      {Boolean(currentAnswer.voiceAudioUrl && currentAnswer.voiceAudioUrl.trim()) && (
+                      {Boolean(
+                        (currentAnswer.voiceAudioUrl && currentAnswer.voiceAudioUrl.trim()) ||
+                        (currentAnswer.voiceAudioBase64 && currentAnswer.voiceAudioBase64.trim())
+                      ) && (
                         <div className="mt-2 flex items-center space-x-2 bg-black/40 p-2.5 rounded-xl border border-emerald-500/30">
-                          <audio controls src={currentAnswer.voiceAudioUrl} className="w-full h-7" />
+                          <audio
+                            controls
+                            src={currentAnswer.voiceAudioBase64 || currentAnswer.voiceAudioUrl}
+                            className="w-full h-7"
+                          />
                           <button
                             type="button"
                             onClick={() => {
                               setTaskAnswers((prev) => ({
                                 ...prev,
-                                [task.id]: { ...prev[task.id], voiceAudioUrl: undefined },
+                                [task.id]: {
+                                  ...prev[task.id],
+                                  voiceAudioUrl: undefined,
+                                  voiceAudioBase64: undefined,
+                                },
                               }));
                             }}
                             className="text-rose-400 hover:text-rose-300 text-[10px] font-bold shrink-0 px-2 py-1 bg-rose-500/10 rounded-lg border border-rose-500/20"

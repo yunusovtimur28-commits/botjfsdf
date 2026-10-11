@@ -16,6 +16,14 @@ service cloud.firestore {
 
     // Личный дневник для отработки ошибок
     match /diary/{entryId} { allow write: if true; }
+
+    // Постоянное облачное хранение аудиозаписей и материалов
+    match /uploaded_files/{fileId} {
+      allow read, write: if true;
+      match /chunks/{chunkId} {
+        allow read, write: if true;
+      }
+    }
   }
 }
 

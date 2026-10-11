@@ -57,23 +57,28 @@ export async function uploadBase64ToServer(base64: string, fileName: string): Pr
   return base64;
 }
 
-export async function uploadBlobToServer(blob: Blob, fileName: string): Promise<string> {
+export async function uploadBlobWithBase64(blob: Blob, fileName: string): Promise<{ url: string; base64: string }> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = reader.result as string;
-      if (!base64) return resolve('');
+      const base64 = (reader.result as string) || '';
+      if (!base64) return resolve({ url: '', base64: '' });
       try {
         const url = await uploadBase64ToServer(base64, fileName);
-        resolve(url);
+        resolve({ url: url || base64, base64 });
       } catch (err) {
-        console.warn('Failed to upload blob:', err);
-        resolve(base64);
+        console.warn('Failed to upload blob with base64:', err);
+        resolve({ url: base64, base64 });
       }
     };
-    reader.onerror = () => resolve('');
+    reader.onerror = () => resolve({ url: '', base64: '' });
     reader.readAsDataURL(blob);
   });
+}
+
+export async function uploadBlobToServer(blob: Blob, fileName: string): Promise<string> {
+  const res = await uploadBlobWithBase64(blob, fileName);
+  return res.url || res.base64;
 }
 
 export async function uploadFileToServer(file: File): Promise<{ url: string; size: string; name: string }> {

@@ -146,13 +146,16 @@ export interface Submission {
   testScore?: number;
   // Speaking data
   speakingAudioUrl?: string;
+  speakingAudioBase64?: string;
   speakingDurationSeconds?: number;
+  reRecordRequestedTaskIds?: string[]; // IDs of tasks teacher requested re-recording for
   // Multi-task answers
   taskAnswers?: Record<
     string,
     {
       textAnswer?: string;
       voiceAudioUrl?: string;
+      voiceAudioBase64?: string;
       imageUrls?: string[];
       selectedOptionIndex?: number;
       egeAnswers?: Record<string, string>;

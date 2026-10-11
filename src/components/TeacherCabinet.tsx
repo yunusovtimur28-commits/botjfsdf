@@ -3,6 +3,7 @@ import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, Mater
 import { getCurrentMonthLabel, getFormattedDateTime, formatRussianDate, getTodayDateString } from '../lib/dateUtils';
 import { dbUpdateStudent } from '../lib/firebase';
 import { uploadFileToServer, uploadBase64ToServer } from '../lib/fileUpload';
+import { TaskVoiceAudioPlayer } from './TaskVoiceAudioPlayer';
 import {
   GraduationCap,
   Mic,
@@ -2173,7 +2174,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     <div className="flex items-center space-x-3 bg-black/30 p-2.5 rounded-xl">
                       <audio
                         ref={studentAudioRef}
-                        src={selectedSubmission.speakingAudioUrl}
+                        src={selectedSubmission.speakingAudioBase64 || selectedSubmission.speakingAudioUrl}
                         controls
                         className="w-full h-8 accent-sky-500"
                       />
@@ -2196,6 +2197,32 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           </button>
                         ))}
                       </div>
+
+                      <label
+                        className="cursor-pointer p-1.5 text-slate-400 hover:text-sky-300 rounded-lg hover:bg-sky-500/10 transition-colors shrink-0"
+                        title="Прикрепить или обновить аудиозапись от ученика"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const res = await uploadFileToServer(file);
+                              if (res.url) {
+                                onGradeSubmission(selectedSubmission.id, {
+                                  speakingAudioUrl: res.url,
+                                });
+                              }
+                            } catch (err) {
+                              console.error('Failed to attach speaking audio:', err);
+                            }
+                          }}
+                        />
+                      </label>
                     </div>
                   ) : (
                     <p className="text-xs text-slate-400 italic">Аудиозапись не прикреплена</p>
@@ -2457,10 +2484,27 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                         </div>
                                       </div>
                                     )}
-                                    {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
+                                    {Boolean(
+                                      (ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) ||
+                                      (ans.voiceAudioBase64 && ans.voiceAudioBase64.trim()) ||
+                                      task.taskType === 'speaking'
+                                    ) && (
                                       <div>
-                                        <span className="text-[10px] text-slate-400 font-semibold block mb-1">Голосовой ответ:</span>
-                                        <audio controls src={ans.voiceAudioUrl} className="w-full h-8" />
+                                        <span className="text-[10px] text-slate-400 font-semibold block mb-1">Голосовой ответ ученика:</span>
+                                        <TaskVoiceAudioPlayer
+                                          voiceAudioUrl={ans.voiceAudioUrl}
+                                          voiceAudioBase64={ans.voiceAudioBase64}
+                                          taskId={task.id}
+                                          submission={selectedSubmission}
+                                          onGradeSubmission={onGradeSubmission}
+                                          onAutoScoreTask={(tId, score, comment) => {
+                                            setTaskFeedbacks((prev) => ({
+                                              ...prev,
+                                              [tId]: { score, comment },
+                                            }));
+                                          }}
+                                          isDarkMode={isDarkMode}
+                                        />
                                       </div>
                                     )}
                                     {ans.imageUrls && ans.imageUrls.length > 0 && (
@@ -2559,8 +2603,24 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             >
                               <span className="font-bold text-purple-400">Задание #{aIdx + 1}:</span>
                               {ans.textAnswer && <p className="text-slate-200">{ans.textAnswer}</p>}
-                              {Boolean(ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) && (
-                                <audio controls src={ans.voiceAudioUrl} className="w-full h-7 mt-1" />
+                              {Boolean(
+                                (ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) ||
+                                (ans.voiceAudioBase64 && ans.voiceAudioBase64.trim())
+                              ) && (
+                                <TaskVoiceAudioPlayer
+                                  voiceAudioUrl={ans.voiceAudioUrl}
+                                  voiceAudioBase64={ans.voiceAudioBase64}
+                                  taskId={taskId}
+                                  submission={selectedSubmission}
+                                  onGradeSubmission={onGradeSubmission}
+                                  onAutoScoreTask={(tId, score, comment) => {
+                                    setTaskFeedbacks((prev) => ({
+                                      ...prev,
+                                      [tId]: { score, comment },
+                                    }));
+                                  }}
+                                  isDarkMode={isDarkMode}
+                                />
                               )}
                               {ans.imageUrls && ans.imageUrls.length > 0 && (
                                 <div className="grid grid-cols-2 gap-2 mt-1">

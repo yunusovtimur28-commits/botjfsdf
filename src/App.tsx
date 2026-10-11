@@ -905,6 +905,8 @@ export default function App() {
       testAnswers: submissionData.testAnswers,
       testScore: submissionData.testScore,
       speakingAudioUrl: submissionData.speakingAudioUrl,
+      speakingAudioBase64: submissionData.speakingAudioBase64,
+      reRecordRequestedTaskIds: submissionData.reRecordRequestedTaskIds,
       essayText: submissionData.essayText,
       writtenFileName: submissionData.writtenFileName,
       writtenImageUrls: submissionData.writtenImageUrls,
