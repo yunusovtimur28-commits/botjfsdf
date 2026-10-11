@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StudentProfile as StudentProfileType, RegisteredStudent, Submission, Homework } from '../types';
+import { formatRussianDate } from '../lib/dateUtils';
 import {
   Flame,
   Crown,
@@ -470,10 +471,16 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               <h2 className="font-bold text-base leading-tight flex items-center gap-2">
                 <span>{profile.name}</span>
               </h2>
-              <div className="mt-1 flex items-center space-x-2 text-[11px] text-slate-400">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
                 <span>Цель: <strong className="text-amber-400">{profile.targetExamScore}+ баллов</strong></span>
                 <span>•</span>
                 <span>Сдано ДЗ: <strong className="text-slate-200">{profile.totalHwSubmitted}</strong></span>
+                {profile.firstLoginDate && formatRussianDate(profile.firstLoginDate) && (
+                  <>
+                    <span>•</span>
+                    <span>На платформе с: <strong className="text-sky-400">{formatRussianDate(profile.firstLoginDate)}</strong></span>
+                  </>
+                )}
               </div>
               <div className="mt-2.5 space-y-1">
                 <div className="flex items-center justify-between text-[10px] font-bold">
@@ -507,7 +514,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
         {/* STREAK SECTION (Киллер-фича «Стрики» как в Duolingo) */}
         <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="flex items-center space-x-1.5">
               <Flame className="w-5 h-5 text-amber-400 fill-amber-400 animate-pulse" />
               <span className="font-bold text-xs">Серия активности (Стрик):</span>
@@ -519,6 +526,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   : `${profile.streakDays} ДНЕЙ`} ПОДРЯД
               </span>
             </div>
+            {profile.firstLoginDate && formatRussianDate(profile.firstLoginDate) && (
+              <span className="text-[11px] text-slate-400">
+                Первый вход: <strong className="text-amber-300 font-semibold">{formatRussianDate(profile.firstLoginDate)}</strong>
+              </span>
+            )}
           </div>
 
           {/* 7-Day Visual Tracker */}

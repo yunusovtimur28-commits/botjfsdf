@@ -209,6 +209,7 @@ export interface StudentProfile {
   targetExamScore: number;
   badges: Badge[];
   examProgress: ExamBlockScore[];
+  firstLoginDate?: string;
 }
 
 export interface RegisteredStudent {
@@ -221,6 +222,7 @@ export interface RegisteredStudent {
   isFirstLogin: boolean;
   streakDays?: number;
   lastVisitDate?: string;
+  firstLoginDate?: string;
   accessibleMonths?: string[];
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent, DiaryEntry, EgeGapFillItem } from '../types';
-import { getCurrentMonthLabel, getFormattedDateTime } from '../lib/dateUtils';
+import { getCurrentMonthLabel, getFormattedDateTime, formatRussianDate, getTodayDateString } from '../lib/dateUtils';
 import { dbUpdateStudent } from '../lib/firebase';
 import { uploadFileToServer, uploadBase64ToServer } from '../lib/fileUpload';
 import {
@@ -4773,14 +4773,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           onClick={() => {
                             const cleanLogin = editStudentLoginVal.trim().toLowerCase().replace('@', '');
                             if (cleanLogin) {
-                              const now = new Date();
-                              const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-                              const updatedObj = {
+                              const updatedObj: Partial<RegisteredStudent> = {
                                 login: cleanLogin,
                                 name: editStudentNameVal.trim() || st.name,
                                 telegramHandle: `@${cleanLogin}`,
                                 streakDays: editStudentStreakVal,
-                                lastVisitDate: todayStr,
+                                lastVisitDate: st.lastVisitDate || getTodayDateString(),
+                                firstLoginDate: st.firstLoginDate,
                               };
                               dbUpdateStudent(st.id, updatedObj);
                               if (onUpdateStudent) {
@@ -4845,7 +4844,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                               <span>{st.streakDays || 1} дн</span>
                             </span>
                             <span>•</span>
-                            <span>Вход: {st.lastVisitDate ? st.lastVisitDate : 'Ещё не входил'}</span>
+                            <span>Первый вход: {st.firstLoginDate ? (formatRussianDate(st.firstLoginDate) || st.firstLoginDate) : (st.lastVisitDate ? (formatRussianDate(st.lastVisitDate) || st.lastVisitDate) : 'Ещё не заходил')}</span>
+                            {st.lastVisitDate && st.lastVisitDate !== st.firstLoginDate && (
+                              <>
+                                <span>•</span>
+                                <span>Посл. визит: {formatRussianDate(st.lastVisitDate) || st.lastVisitDate}</span>
+                              </>
+                            )}
                             <span>•</span>
                             <span>Сданных ДЗ: {stSubs.length}</span>
                             <span>•</span>

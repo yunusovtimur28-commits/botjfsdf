@@ -8,7 +8,7 @@ import {
   TGNotification,
   ExamBlockScore,
 } from './types';
-import { getFormattedDateTime, getCurrentMonthLabel } from './lib/dateUtils';
+import { getFormattedDateTime, getCurrentMonthLabel, formatRussianDate, getTodayDateString } from './lib/dateUtils';
 import {
   initialWebinars,
   initialHomeworks,
@@ -210,15 +210,51 @@ export default function App() {
     }
   }, [deletedWebinarIds]);
 
+  // Per-user dismissed & read notification IDs
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>(() => {
+    try {
+      const key = `${currentUser.role}_${currentUser.login || currentUser.name}`;
+      const saved = localStorage.getItem(`ege_app_dismissed_notifs_${key}`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(() => {
+    try {
+      const key = `${currentUser.role}_${currentUser.login || currentUser.name}`;
+      const saved = localStorage.getItem(`ege_app_read_notifs_${key}`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      const key = `${currentUser.role}_${currentUser.login || currentUser.name}`;
+      const savedDismissed = localStorage.getItem(`ege_app_dismissed_notifs_${key}`);
+      setDismissedNotificationIds(savedDismissed ? JSON.parse(savedDismissed) : []);
+      const savedRead = localStorage.getItem(`ege_app_read_notifs_${key}`);
+      setReadNotificationIds(savedRead ? JSON.parse(savedRead) : []);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [currentUser.role, currentUser.login, currentUser.name]);
+
   const handleAddStudent = (login: string, name?: string) => {
     const cleanLogin = login.trim().toLowerCase().replace('@', '');
+    const todayStr = getTodayDateString();
     const newStudent: RegisteredStudent = {
       id: `st-${Date.now()}`,
       login: cleanLogin,
       name: name?.trim() || '',
       telegramHandle: `@${cleanLogin}`,
       password: '',
-      addedAt: 'Сегодня',
+      addedAt: todayStr,
       isFirstLogin: true,
       accessibleMonths: [],
     };
@@ -271,13 +307,15 @@ export default function App() {
       });
 
       if (!matched) {
+        const todayStr = getTodayDateString();
         const newStudent: RegisteredStudent = {
           id: `st-${Date.now()}`,
           login: cleanLogin,
           name: studentName?.trim() || cleanLogin,
           telegramHandle: `@${cleanLogin}`,
           password: newPassword,
-          addedAt: 'Сегодня',
+          addedAt: todayStr,
+          firstLoginDate: todayStr,
           isFirstLogin: false,
           accessibleMonths: [],
         };
@@ -353,17 +391,24 @@ export default function App() {
     const student = currentRegisteredStudent;
     if (!student) return;
 
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayStr = getTodayDateString();
+
+    // Check and set firstLoginDate if missing or equals 'Сегодня'
+    let firstDate = student.firstLoginDate;
+    let needsFirstDateUpdate = false;
+    if (!firstDate || firstDate === 'Сегодня' || firstDate.trim() === '') {
+      firstDate = todayStr;
+      needsFirstDateUpdate = true;
+    }
 
     // Protect against duplicate checks in the same session for the current student & date
     const checkKey = `${student.id}_${todayStr}`;
-    if (streakCheckedRef.current === checkKey) return;
+    if (streakCheckedRef.current === checkKey && !needsFirstDateUpdate) return;
 
     const dbLastVisit = student.lastVisitDate;
     const currentStreakVal = typeof student.streakDays === 'number' && student.streakDays > 0 ? student.streakDays : 1;
     let newStreak = currentStreakVal;
-    let needsUpdate = false;
+    let needsUpdate = needsFirstDateUpdate;
 
     if (!dbLastVisit) {
       // First recorded visit: keep existing streak (or 1) and record today's visit
@@ -387,7 +432,6 @@ export default function App() {
         needsUpdate = true;
       } else if (daysDiff === 2) {
         // Skipped exactly 1 day (e.g. gap between Tue and Thu webinars) -> Streak Freeze / Grace period!
-        // Preserve current streak and mark today as active
         newStreak = currentStreakVal;
         needsUpdate = true;
       } else if (daysDiff > 2) {
@@ -395,13 +439,22 @@ export default function App() {
         newStreak = 1;
         needsUpdate = true;
       }
-      // If daysDiff <= 0 (e.g. clock change), no change needed
     }
 
     if (needsUpdate) {
-      dbUpdateStudent(student.id, { streakDays: newStreak, lastVisitDate: todayStr });
+      const updatePayload: Partial<RegisteredStudent> = {
+        streakDays: newStreak,
+        lastVisitDate: todayStr,
+      };
+      if (needsFirstDateUpdate) {
+        updatePayload.firstLoginDate = firstDate;
+        if (!student.addedAt || student.addedAt === 'Сегодня') {
+          updatePayload.addedAt = firstDate;
+        }
+      }
+      dbUpdateStudent(student.id, updatePayload);
       setRegisteredStudents((prev) =>
-        prev.map((s) => (s.id === student.id ? { ...s, streakDays: newStreak, lastVisitDate: todayStr } : s))
+        prev.map((s) => (s.id === student.id ? { ...s, ...updatePayload } : s))
       );
     }
 
@@ -454,28 +507,16 @@ export default function App() {
       });
     }
 
-    const formatRegDate = (dateStr?: string) => {
-      if (!dateStr) return 'Недавно';
-      // Если дата уже в формате "03 Мар 2026", делаем её красивее
-      const months: Record<string, string> = {
-        'Янв': 'января', 'Фев': 'февраля', 'Мар': 'марта', 'Апр': 'апреля',
-        'Май': 'мая', 'Июн': 'июня', 'Июл': 'июля', 'Авг': 'августа',
-        'Сен': 'сентября', 'Окт': 'октября', 'Ноя': 'ноября', 'Дек': 'декабря'
-      };
-      const parts = dateStr.split(' ');
-      if (parts.length === 3) {
-        const [day, mon, year] = parts;
-        const fullMonth = months[mon] || mon;
-        return `${parseInt(day, 10)} ${fullMonth} ${year} года`;
-      }
-      return dateStr;
-    };
+    const firstLoginFormatted = formatRussianDate(
+      currentRegisteredStudent?.firstLoginDate || (currentRegisteredStudent?.addedAt !== 'Сегодня' ? currentRegisteredStudent?.addedAt : undefined)
+    );
 
     return {
       name: currentUser.name,
       telegramHandle: currentUser.telegramHandle,
       avatarUrl: currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534188753412-3e26d0d618d6?auto=format&fit=crop&w=300&q=80',
       streakDays: currentStreak,
+      firstLoginDate: currentRegisteredStudent?.firstLoginDate || (currentRegisteredStudent?.addedAt !== 'Сегодня' ? currentRegisteredStudent?.addedAt : undefined),
       streakHistory: (() => {
         const todayDayIndex = (new Date().getDay() + 6) % 7;
         const history = [false, false, false, false, false, false, false];
@@ -500,10 +541,10 @@ export default function App() {
         {
           id: 'b-welcome',
           title: '🚀 Старт обучения',
-          description: 'Успешная авторизация в платформе «Делай и Точка»',
+          description: 'Первый вход и начало подготовки в платформе «Делай и Точка»',
           iconName: 'Flame',
           unlocked: true,
-          unlockedAt: currentRegisteredStudent?.addedAt ? formatRegDate(currentRegisteredStudent.addedAt) : 'Недавно',
+          unlockedAt: firstLoginFormatted || 'Недавно',
         },
         {
           id: 'b1',
@@ -766,13 +807,33 @@ export default function App() {
 
   // Delete Individual Notification
   const handleDeleteNotification = async (notifId: string) => {
+    const key = `${currentUser.role}_${currentUser.login || currentUser.name}`;
+    setDismissedNotificationIds((prev) => {
+      const updated = Array.from(new Set([...prev, notifId]));
+      try {
+        localStorage.setItem(`ege_app_dismissed_notifs_${key}`, JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
     await dbDeleteNotification(notifId);
   };
 
   // Clear All Notifications
   const handleClearAllNotifications = async () => {
+    const key = `${currentUser.role}_${currentUser.login || currentUser.name}`;
     const idsToClear = visibleNotifications.map((n) => n.id);
+    setDismissedNotificationIds((prev) => {
+      const updated = Array.from(new Set([...prev, ...idsToClear]));
+      try {
+        localStorage.setItem(`ege_app_dismissed_notifs_${key}`, JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
     setNotifications([]);
     for (const id of idsToClear) {
       await dbDeleteNotification(id);
@@ -1193,200 +1254,114 @@ export default function App() {
   const visibleNotifications = React.useMemo(() => {
     if (!isLoggedIn) return [];
 
+    const candidates: TGNotification[] = [];
+
     if (currentUser.role === 'teacher') {
-      const list: TGNotification[] = [];
-
-      // 1. Уведомление о реальном входе ученика на платформу
-      registeredStudents.forEach((st) => {
-        // Пока ученик ни разу не заходил (нет lastVisitDate), уведомление не показываем
-        if (st.lastVisitDate) {
-          list.push({
-            id: `notif-joined-${st.id}`,
-            title: `Ученик начал обучение: ${st.name || st.login}`,
-            text: `Ученик вошел на платформу и приступил к занятиям (${st.telegramHandle || `@${st.login}`}).`,
-            time: st.lastVisitDate,
-            isRead: false,
-            type: 'webinar',
-          });
-        }
-      });
-
-      // 2. Submissions submitted by real students
-      const realStudentSubmissions = visibleSubmissions.filter((s) =>
-        registeredStudents.some((st) => st.name === s.studentName)
-      );
-      realStudentSubmissions.forEach((sub) => {
+      // 1. Real student submissions awaiting teacher check or recent submissions
+      visibleSubmissions.forEach((sub) => {
         const hw = homeworks.find((h) => h.id === sub.homeworkId);
-        list.push({
+        candidates.push({
           id: `notif-sub-${sub.id}`,
           title: `📝 Ученик ${sub.studentName} сдал ДЗ!`,
-          text: `Задание "${hw?.title || 'Практическое ДЗ'}" ожидает вашей проверки в кабинете.`,
+          text: `Задание «${hw?.title || 'Практическое ДЗ'}» ожидает вашей проверки в кабинете.`,
           time: sub.submittedAt || 'Недавно',
           isRead: sub.status === 'graded',
           type: 'check',
         });
       });
 
-      // 3. Streak record notifications for students with streaks
-      registeredStudents.forEach((st) => {
-        list.push({
-          id: `notif-streak-${st.id}`,
-          title: `🔥 Рекорд по стрику дней: ${st.name}`,
-          text: `Ученик успешно заходит в систему и поддерживает ежедневную активность!`,
-          time: 'Сегодня',
-          isRead: true,
-          type: 'streak',
-        });
+      // 2. Real broadcast notifications stored in Firestore
+      notifications.forEach((n) => {
+        if (
+          !n.id.startsWith('welcome-') &&
+          !n.id.startsWith('streak-') &&
+          !n.id.startsWith('notif-streak-') &&
+          !n.id.startsWith('notif-achievement-') &&
+          !n.id.startsWith('notif-joined-') &&
+          !n.id.startsWith('hw-notice-') &&
+          n.id !== 'n1' &&
+          n.id !== 'n2' &&
+          n.id !== 'n3'
+        ) {
+          candidates.push(n);
+        }
       });
-
-      // 4. Achievement notification
-      if (registeredStudents.length > 0) {
-        list.push({
-          id: `notif-achievement-active`,
-          title: `🏆 Достижение: Активная группа 2026`,
-          text: `Все ученики успешно приступили к подготовке к ЕГЭ!`,
-          time: 'Сегодня',
-          isRead: false,
-          type: 'streak',
-        });
-      }
-
-      return list;
-    }
-
-    const isDefaultStudent = currentUser.name === initialStudentProfile.name;
-    const streakDays = activeStudentProfile.streakDays;
-    const streakDaysStr =
-      streakDays % 10 === 1 && streakDays % 100 !== 11
-        ? `${streakDays} день`
-        : streakDays % 10 >= 2 && streakDays % 10 <= 4 && (streakDays % 100 < 10 || streakDays % 100 >= 20)
-        ? `${streakDays} дня`
-        : `${streakDays} дней`;
-
-    // 5. Diary cards repetition reminder (cards with low level 1 or 2 that need review)
-    const userDiaryEntries = diaryEntries.filter((d) => d.studentName === currentUser.name);
-    const lowLevelCards = userDiaryEntries.filter((d) => (d.counter || 1) <= 2);
-
-    const isBetaTester =
-      currentUser.role === 'teacher' ||
-      currentUser.name === 'timur_yunusov' ||
-      currentUser.telegramHandle === '@timur_yunusov';
-
-    let diaryReminderNotif: TGNotification | null = null;
-    if (isBetaTester && lowLevelCards.length > 0) {
-      const cardWord =
-        lowLevelCards.length % 10 === 1 && lowLevelCards.length % 100 !== 11
-          ? 'карточка'
-          : lowLevelCards.length % 10 >= 2 &&
-            lowLevelCards.length % 10 <= 4 &&
-            (lowLevelCards.length % 100 < 10 || lowLevelCards.length % 100 >= 20)
-          ? 'карточки'
-          : 'карточек';
-
-      diaryReminderNotif = {
-        id: `diary-reminder-${currentUser.name}`,
-        title: `📖 Пора повторить карточки в Дневнике!`,
-        text: `У вас ${lowLevelCards.length} ${cardWord} с начальным уровнем (1–2). Повторите их сегодня, чтобы закрепить материал!`,
-        time: 'Сегодня',
-        isRead: false,
-        type: 'diary',
-      };
-    }
-
-    if (!isDefaultStudent) {
-      // New or custom student (e.g. Тимур)
-      const list: TGNotification[] = [];
-
-      // 1. Welcome Notification
-      list.push({
-        id: `welcome-${currentUser.name}`,
-        title: `👋 Добро пожаловать, ${currentUser.name}!`,
-        text: `Вы успешно авторизовались в платформе «Делай и Точка». Смотрите видеоуроки, сдавайте ДЗ и развивайте свой ударный счёт!`,
-        time: getFormattedDateTime(),
-        isRead: false,
-        type: 'webinar',
-      });
-
-      // 2. Dynamic Streak Notification (1st day or current streak)
-      list.push({
-        id: `streak-${currentUser.name}`,
-        title: `🔥 Твой ударный счёт: ${streakDaysStr}!`,
-        text: `Так держать, ${currentUser.name}! Твоя серия активности составляет ${streakDaysStr}. Выполняй задания ежедневно!`,
-        time: getFormattedDateTime(),
-        isRead: false,
-        type: 'streak',
-      });
-
-      // 3. Homework Available Notification
-      list.push({
-        id: `hw-notice-${currentUser.name}`,
-        title: '⏳ Доступны практические ДЗ к ЕГЭ 2026',
-        text: 'Перейдите во вкладку «ДЗ», чтобы сдать первое домашнее задание преподавателю Ангелине.',
-        time: getFormattedDateTime(),
-        isRead: true,
-        type: 'deadline',
-      });
-
-      // 4. Any real checked HW notifications for THIS student specifically
+    } else {
+      // Student view:
+      // 1. Real graded homeworks for THIS student specifically
       const userGradedHWs = currentStudentSubmissions.filter((s) => s.status === 'graded');
       userGradedHWs.forEach((sub) => {
         const hw = visibleHomeworks.find((h) => h.id === sub.homeworkId);
-        list.push({
+        candidates.push({
           id: `graded-${sub.id}`,
-          title: `🎧 Ангелина проверила твой ${hw?.title || 'ответ'}!`,
-          text: `Оценка: ${sub.totalScore}/${sub.maxScore || 14} баллов. Заходи посмотреть комментарий и аудиоразбор!`,
-          time: sub.teacherCheckedAt || sub.submittedAt || getFormattedDateTime(),
+          title: `🎧 Ангелина проверила твой ответ!`,
+          text: `Задание «${hw?.title || 'ДЗ'}»: оценка ${sub.totalScore}/${sub.maxScore || 14} баллов. Заходи посмотреть комментарий и аудиоразбор!`,
+          time: sub.teacherCheckedAt || sub.submittedAt || 'Недавно',
           isRead: false,
           type: 'check',
         });
       });
 
-      // 5. Diary reminder if any
-      if (diaryReminderNotif) {
-        list.push(diaryReminderNotif);
-      }
-
-      // Append any new notifications created during session (excluding n1/n2/n3 defaults)
-      const sessionNewNotifs = notifications.filter(
-        (n) => n.id !== 'n1' && n.id !== 'n2' && n.id !== 'n3' && !n.id.startsWith('welcome-') && !n.id.startsWith('streak-')
-      );
-
-      // Deduplicate notifications by id to prevent duplicate React keys
-      const combined = [...list, ...sessionNewNotifs];
-      const seenIds = new Set<string>();
-      return combined.filter((n) => {
-        if (seenIds.has(n.id)) return false;
-        seenIds.add(n.id);
-        return true;
+      // 2. Real announcements from teacher in Firestore (new webinar, new HW, etc.)
+      notifications.forEach((n) => {
+        if (
+          !n.id.startsWith('welcome-') &&
+          !n.id.startsWith('streak-') &&
+          !n.id.startsWith('notif-streak-') &&
+          !n.id.startsWith('notif-achievement-') &&
+          !n.id.startsWith('notif-joined-') &&
+          !n.id.startsWith('hw-notice-') &&
+          n.id !== 'n1' &&
+          n.id !== 'n2' &&
+          n.id !== 'n3'
+        ) {
+          candidates.push(n);
+        }
       });
     }
 
-    // Default student (Александр Ковалев) - update streak notification text to match actual streakDays
-    const result = notifications.map((n) => {
-      if (n.type === 'streak') {
-        return {
-          ...n,
-          title: `🔥 Твой ударный счёт: ${streakDaysStr}!`,
-          text: `Так держать! Твоя серия активности составляет ${streakDaysStr}.`,
-        };
-      }
-      return n;
-    });
-
-    if (diaryReminderNotif && !result.some((n) => n.id === diaryReminderNotif?.id)) {
-      result.unshift(diaryReminderNotif);
-    }
+    // Filter out dismissed notifications
+    const dismissedSet = new Set(dismissedNotificationIds);
+    const readSet = new Set(readNotificationIds);
 
     const seenIds = new Set<string>();
-    return result.filter((n) => {
-      if (seenIds.has(n.id)) return false;
-      seenIds.add(n.id);
-      return true;
-    });
-  }, [currentUser.name, currentUser.role, registeredStudents, activeStudentProfile.streakDays, currentStudentSubmissions, visibleHomeworks, notifications, diaryEntries]);
+    const result: TGNotification[] = [];
+
+    for (const item of candidates) {
+      if (dismissedSet.has(item.id)) continue;
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      result.push({
+        ...item,
+        isRead: item.isRead || readSet.has(item.id),
+      });
+    }
+
+    return result;
+  }, [
+    isLoggedIn,
+    currentUser.role,
+    visibleSubmissions,
+    homeworks,
+    currentStudentSubmissions,
+    visibleHomeworks,
+    notifications,
+    dismissedNotificationIds,
+    readNotificationIds,
+  ]);
 
   // Mark notification read
   const handleNotificationRead = async (id: string) => {
+    const key = `${currentUser.role}_${currentUser.login || currentUser.name}`;
+    setReadNotificationIds((prev) => {
+      const updated = Array.from(new Set([...prev, id]));
+      try {
+        localStorage.setItem(`ege_app_read_notifs_${key}`, JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
