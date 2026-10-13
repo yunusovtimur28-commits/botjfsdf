@@ -381,6 +381,25 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     submissions.find((s) => s.status === 'pending') || submissions[0] || null
   );
 
+  // Keep selectedSubmission always in sync with submissions prop from Firestore / App
+  useEffect(() => {
+    if (selectedSubmission) {
+      const fresh = submissions.find((s) => s.id === selectedSubmission.id);
+      if (fresh && fresh !== selectedSubmission) {
+        setSelectedSubmission(fresh);
+      }
+    } else if (submissions.length > 0) {
+      const firstPending = submissions.find((s) => s.status === 'pending') || submissions[0];
+      setSelectedSubmission(firstPending);
+    }
+  }, [submissions]);
+
+  // Teacher grade/re-record handler that updates both local state and parent state
+  const handleTeacherGradeSubmission = (submissionId: string, updatedData: Partial<Submission>) => {
+    setSelectedSubmission((prev) => (prev && prev.id === submissionId ? { ...prev, ...updatedData } : prev));
+    onGradeSubmission(submissionId, updatedData);
+  };
+
   // Grading form state
   const [criteria, setCriteria] = useState<FipiCriteriaScores>({
     k1_taskSolution: selectedSubmission?.criteriaScores?.k1_taskSolution ?? 3,
@@ -2230,7 +2249,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 </div>
               )}
 
-              {/* Written Essay Review */}
+              {/* Written Essay Review (Photos shown here ONLY if there are no separate individual tasks) */}
               {selectedSubmission.type === 'written' && (
                 <div className="space-y-3">
                   {selectedSubmission.essayText && (
@@ -2242,34 +2261,36 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     </div>
                   )}
 
-                  {/* Photos submitted by student */}
-                  {selectedSubmission.writtenImageUrls && selectedSubmission.writtenImageUrls.length > 0 && (
-                    <div className="space-y-1.5">
-                      <h4 className="text-xs font-bold text-sky-400">
-                        📷 Прикрепленные фото работы ({selectedSubmission.writtenImageUrls.length}):
-                      </h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {selectedSubmission.writtenImageUrls.map((imgUrl, imgIdx) => (
-                          <a
-                            key={imgIdx}
-                            href={imgUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block rounded-xl overflow-hidden border border-slate-700 aspect-square group relative"
-                          >
-                            <img
-                              src={imgUrl}
-                              alt={`Страница ${imgIdx + 1}`}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                            />
-                            <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 text-[9px] text-white rounded">
-                              Стр. {imgIdx + 1}
-                            </span>
-                          </a>
-                        ))}
+                  {/* Photos submitted by student for assignments without separate tasks */}
+                  {selectedSubmission.writtenImageUrls &&
+                    selectedSubmission.writtenImageUrls.length > 0 &&
+                    !Boolean(getHomeworkForSubmission(selectedSubmission.homeworkId)?.tasks?.length) && (
+                      <div className="space-y-1.5">
+                        <h4 className="text-xs font-bold text-sky-400">
+                          📷 Прикрепленные фото работы ({selectedSubmission.writtenImageUrls.length}):
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {selectedSubmission.writtenImageUrls.map((imgUrl, imgIdx) => (
+                            <a
+                              key={imgIdx}
+                              href={imgUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block rounded-xl overflow-hidden border border-slate-700 aspect-square group relative"
+                            >
+                              <img
+                                src={imgUrl}
+                                alt={`Страница ${imgIdx + 1}`}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                              <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 text-[9px] text-white rounded">
+                                Стр. {imgIdx + 1}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
               )}
 
@@ -2291,7 +2312,28 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     <div className="space-y-2.5">
                       {hasTasks
                         ? targetHw!.tasks!.map((task, idx) => {
-                            const ans: any = selectedSubmission.taskAnswers?.[task.id];
+                            const ans: any = selectedSubmission.taskAnswers?.[task.id] || {};
+                            const explicitTaskImages = (ans?.imageUrls && Array.isArray(ans.imageUrls)) ? ans.imageUrls : [];
+                            const fallbackTaskImages = (!explicitTaskImages.length && selectedSubmission.writtenImageUrls && selectedSubmission.writtenImageUrls[idx])
+                              ? [selectedSubmission.writtenImageUrls[idx]]
+                              : [];
+                            const taskImages: string[] = explicitTaskImages.length > 0 ? explicitTaskImages : fallbackTaskImages;
+                            const hasTaskVoice = Boolean(
+                              (ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) ||
+                              (ans.voiceAudioBase64 && ans.voiceAudioBase64.trim()) ||
+                              task.taskType === 'speaking' ||
+                              task.block === 'speaking' ||
+                              selectedSubmission.reRecordRequestedTaskIds?.includes(task.id)
+                            );
+                            const hasAnyStudentInput = Boolean(
+                              (ans.textAnswer && ans.textAnswer.trim()) ||
+                              taskImages.length > 0 ||
+                              hasTaskVoice ||
+                              (ans.gapInputs && ans.gapInputs.length > 0) ||
+                              (ans.qnaInputs && Object.keys(ans.qnaInputs).length > 0) ||
+                              ans.selectedOptionIndex !== undefined
+                            );
+
                             return (
                               <div
                                 key={task.id || idx}
@@ -2324,7 +2366,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   </p>
                                 )}
 
-                                {ans ? (
+                                {hasAnyStudentInput ? (
                                   <div className="space-y-1.5 pt-0.5">
                                     {ans.textAnswer && (
                                       <div>
@@ -2484,11 +2526,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                         </div>
                                       </div>
                                     )}
-                                    {Boolean(
-                                      (ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) ||
-                                      (ans.voiceAudioBase64 && ans.voiceAudioBase64.trim()) ||
-                                      task.taskType === 'speaking'
-                                    ) && (
+                                    {/* Voice Answer */}
+                                    {hasTaskVoice && (
                                       <div>
                                         <span className="text-[10px] text-slate-400 font-semibold block mb-1">Голосовой ответ ученика:</span>
                                         <TaskVoiceAudioPlayer
@@ -2496,7 +2535,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                           voiceAudioBase64={ans.voiceAudioBase64}
                                           taskId={task.id}
                                           submission={selectedSubmission}
-                                          onGradeSubmission={onGradeSubmission}
+                                          onGradeSubmission={handleTeacherGradeSubmission}
                                           onAutoScoreTask={(tId, score, comment) => {
                                             setTaskFeedbacks((prev) => ({
                                               ...prev,
@@ -2507,25 +2546,41 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                         />
                                       </div>
                                     )}
-                                    {ans.imageUrls && ans.imageUrls.length > 0 && (
-                                      <div className="space-y-1">
-                                        <span className="text-[10px] text-slate-400 font-semibold block">
-                                          Фото ответа ({ans.imageUrls.length}):
-                                        </span>
+
+                                    {/* Solution Photos for this task */}
+                                    {taskImages.length > 0 && (
+                                      <div className="space-y-1.5 pt-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[11px] font-bold text-sky-400 flex items-center space-x-1.5">
+                                            <ImageIcon className="w-3.5 h-3.5" />
+                                            <span>📷 Фото решения к заданию #{idx + 1} ({taskImages.length}):</span>
+                                          </span>
+                                          <span className="text-[10px] text-slate-400">Нажмите для просмотра</span>
+                                        </div>
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                          {ans.imageUrls.map((imgUrl: string, imgIdx: number) => (
+                                          {taskImages.map((imgUrl: string, imgIdx: number) => (
                                             <a
                                               key={imgIdx}
                                               href={imgUrl}
                                               target="_blank"
                                               rel="noopener noreferrer"
-                                              className="block rounded-lg overflow-hidden border border-slate-700 aspect-square group relative"
+                                              className="group relative block rounded-xl overflow-hidden border border-sky-500/30 bg-black/40 aspect-square hover:border-sky-400 transition-all shadow-md"
+                                              title="Открыть фото решения в полном размере"
                                             >
                                               <img
                                                 src={imgUrl}
-                                                alt={`Фото ответа ${imgIdx + 1}`}
-                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                alt={`Решение задания #${idx + 1}`}
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                                               />
+                                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-between p-2">
+                                                <span className="text-[10px] text-white font-bold flex items-center space-x-1">
+                                                  <ExternalLink className="w-3 h-3" />
+                                                  <span>Открыть ↗</span>
+                                                </span>
+                                              </div>
+                                              <span className="absolute top-1.5 left-1.5 px-2 py-0.5 bg-black/75 backdrop-blur-sm text-[10px] text-sky-300 rounded-md font-mono border border-sky-500/20 font-semibold">
+                                                {taskImages.length > 1 ? `Стр. ${imgIdx + 1}` : `Фото #${idx + 1}`}
+                                              </span>
                                             </a>
                                           ))}
                                         </div>

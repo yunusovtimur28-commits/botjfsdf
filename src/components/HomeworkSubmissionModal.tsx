@@ -20,6 +20,7 @@ import {
   Trash2,
   Plus,
   Check,
+  CheckCircle2,
   Paperclip,
   Lock,
 } from 'lucide-react';
@@ -157,6 +158,8 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       {
         textAnswer?: string;
         voiceAudioUrl?: string;
+        voiceAudioBase64?: string;
+        imageUrls?: string[];
         selectedOptionIndex?: number;
         egeAnswers?: Record<string, string>;
         gapInputs?: string[];
@@ -476,9 +479,21 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     }
   };
 
-  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>(
-    existingSubmission?.writtenImageUrls || []
-  );
+  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>(() => {
+    const list: string[] = [...(existingSubmission?.writtenImageUrls || [])];
+    if (existingSubmission?.taskAnswers) {
+      Object.values(existingSubmission.taskAnswers).forEach((ans: any) => {
+        if (ans?.imageUrls && Array.isArray(ans.imageUrls)) {
+          ans.imageUrls.forEach((img: string) => {
+            if (!list.includes(img)) list.push(img);
+          });
+        }
+      });
+    }
+    return list;
+  });
+
+  const [reRecordSuccessToast, setReRecordSuccessToast] = useState<string | null>(null);
 
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -662,6 +677,62 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
     }
   };
 
+  // Dedicated Handler: Send single re-recorded task directly to teacher
+  const handleSendReRecordedTask = (taskId: string) => {
+    if (taskAudioUploading[taskId]) {
+      alert('Пожалуйста, подождите завершения загрузки аудиозаписи на сервер!');
+      return;
+    }
+    const currentAudio = taskAnswers[taskId]?.voiceAudioUrl || taskAnswers[taskId]?.voiceAudioBase64;
+    if (!currentAudio) {
+      alert('Сначала запишите или прикрепите аудиозапись голосового ответа!');
+      return;
+    }
+
+    const updatedReRecords = (existingSubmission?.reRecordRequestedTaskIds || []).filter(
+      (id) => id !== taskId
+    );
+
+    const now = new Date();
+    const formattedSubmittedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+
+    const mergedTaskAnswers = { ...taskAnswers };
+
+    // Aggregate all images across task answers & uploadedPhotos
+    const allImages: string[] = [];
+    Object.values(mergedTaskAnswers).forEach((ans: any) => {
+      if (ans?.imageUrls && Array.isArray(ans.imageUrls)) {
+        ans.imageUrls.forEach((img: string) => {
+          if (!allImages.includes(img)) allImages.push(img);
+        });
+      }
+    });
+    uploadedPhotos.forEach((p) => {
+      if (!allImages.includes(p)) allImages.push(p);
+    });
+
+    onSubmit({
+      homeworkId: homework.id,
+      status: 'pending',
+      type: homework.type,
+      reRecordRequestedTaskIds: updatedReRecords,
+      taskAnswers: mergedTaskAnswers,
+      speakingAudioUrl: recordedAudioUrl || undefined,
+      speakingAudioBase64: recordedAudioBase64 || undefined,
+      essayText: essayText || undefined,
+      writtenFileName:
+        uploadedFileName ||
+        (allImages.length > 0 ? `Прикреплено_фото_${allImages.length}.png` : undefined),
+      writtenImageUrls: allImages.length > 0 ? allImages : undefined,
+      submittedAt: formattedSubmittedAt,
+    });
+
+    setReRecordSuccessToast('Перезаписанный ответ успешно отправлен Ангелине!');
+    setTimeout(() => {
+      onClose();
+    }, 1500);
+  };
+
   // Final Submit Homework
   const handleSubmitHomework = (skipAudioCheck = false) => {
     // If audio is currently uploading, notify user to wait
@@ -720,17 +791,36 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       });
     }
 
+    // Auto-remove any tasks that have answers from reRecordRequestedTaskIds
+    const remainingReRecords = (existingSubmission?.reRecordRequestedTaskIds || []).filter(
+      (tId) => !mergedTaskAnswers[tId]?.voiceAudioUrl && !mergedTaskAnswers[tId]?.voiceAudioBase64
+    );
+
+    // Aggregate all images across all task answers & uploadedPhotos
+    const allImages: string[] = [];
+    Object.values(mergedTaskAnswers).forEach((ans: any) => {
+      if (ans?.imageUrls && Array.isArray(ans.imageUrls)) {
+        ans.imageUrls.forEach((img: string) => {
+          if (!allImages.includes(img)) allImages.push(img);
+        });
+      }
+    });
+    uploadedPhotos.forEach((p) => {
+      if (!allImages.includes(p)) allImages.push(p);
+    });
+
     onSubmit({
       homeworkId: homework.id,
       status: 'pending',
       type: homework.type,
+      reRecordRequestedTaskIds: remainingReRecords,
       speakingAudioUrl: recordedAudioUrl || undefined,
       speakingAudioBase64: recordedAudioBase64 || undefined,
       essayText: essayText || undefined,
       writtenFileName:
         uploadedFileName ||
-        (uploadedPhotos.length > 0 ? `Прикреплено_фото_${uploadedPhotos.length}.png` : undefined),
-      writtenImageUrls: uploadedPhotos.length > 0 ? uploadedPhotos : undefined,
+        (allImages.length > 0 ? `Прикреплено_фото_${allImages.length}.png` : undefined),
+      writtenImageUrls: allImages.length > 0 ? allImages : undefined,
       taskAnswers: Object.keys(mergedTaskAnswers).length > 0 ? mergedTaskAnswers : undefined,
       aiPreviewFeedback: aiFeedback || undefined,
       submittedAt: formattedSubmittedAt,
@@ -2154,30 +2244,69 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         />
                       )}
 
-                      {/* TASK ATTACHMENT TOOLS FOR STUDENT (VOICE RECORD & FILE UPLOAD) */}
-                      <div className="pt-2 border-t border-slate-700/40 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-bold text-slate-400">Прикрепить к заданию:</span>
+                      {/* TASK ATTACHMENT TOOLS FOR STUDENT (VOICE RECORD & FILE UPLOADS) */}
+                      <div className="pt-2 border-t border-slate-700/40 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-bold text-slate-400">Прикрепить к заданию:</span>
 
-                        {/* File upload */}
-                        <label className="cursor-pointer px-2.5 py-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-[10px] border border-sky-500/30 rounded-lg flex items-center space-x-1 transition-all">
-                          <Paperclip className="w-3 h-3" />
-                          <span>Загрузить фото/аудио</span>
-                          <input
-                            type="file"
-                            accept="audio/*,image/*"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                if (file.type.startsWith('image/')) {
+                          {/* 1. Solution Photo upload (supports phone camera & gallery, multiple) */}
+                          <label className="cursor-pointer px-2.5 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold text-[10px] border border-sky-500/30 rounded-lg flex items-center space-x-1.5 transition-all shadow-sm">
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>📷 Фото решения</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files || []);
+                                if (files.length === 0) return;
+                                for (const file of files) {
                                   try {
                                     const res = await uploadFileToServer(file);
-                                    setUploadedPhotos((prev) => [...prev, res.url]);
+                                    if (res.url) {
+                                      setTaskAnswers((prev) => {
+                                        const prevImages = prev[task.id]?.imageUrls || [];
+                                        return {
+                                          ...prev,
+                                          [task.id]: {
+                                            ...prev[task.id],
+                                            imageUrls: [...prevImages, res.url],
+                                          },
+                                        };
+                                      });
+                                      setUploadedPhotos((prev) => [...prev, res.url]);
+                                    }
                                   } catch {
                                     const url = URL.createObjectURL(file);
+                                    setTaskAnswers((prev) => {
+                                      const prevImages = prev[task.id]?.imageUrls || [];
+                                      return {
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          imageUrls: [...prevImages, url],
+                                        },
+                                      };
+                                    });
                                     setUploadedPhotos((prev) => [...prev, url]);
                                   }
-                                } else {
+                                }
+                              }}
+                            />
+                          </label>
+
+                          {/* 2. Audio file upload (dictaphone from phone / telegram) */}
+                          <label className="cursor-pointer px-2.5 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 font-bold text-[10px] border border-purple-500/30 rounded-lg flex items-center space-x-1.5 transition-all shadow-sm">
+                            <Paperclip className="w-3.5 h-3.5" />
+                            <span>📎 Аудиофайл (диктофон)</span>
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
                                   setTaskAudioUploading((prev) => ({ ...prev, [task.id]: true }));
                                   try {
                                     const res = await uploadFileToServer(file);
@@ -2193,93 +2322,158 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     setTaskAudioUploading((prev) => ({ ...prev, [task.id]: false }));
                                   }
                                 }
-                              }
-                            }}
-                          />
-                        </label>
+                              }}
+                            />
+                          </label>
 
-                        {/* Record Voice Button */}
-                        {recordingTaskId === task.id ? (
-                          <button
-                            type="button"
-                            onClick={stopTaskStudentRecording}
-                            className="px-2.5 py-1 bg-rose-600 text-white font-bold text-[10px] rounded-lg animate-pulse"
-                          >
-                            ⏹ Стоп ({studentRecordingSeconds}с)
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => startTaskStudentRecording(task.id)}
-                            className="px-2.5 py-1 bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] rounded-lg flex items-center space-x-1 hover:bg-emerald-600/40 transition-all"
-                          >
-                            <Mic className="w-3 h-3" />
-                            <span>🎙 Записать голосовой ответ</span>
-                          </button>
+                          {/* 3. Record Voice Button */}
+                          {recordingTaskId === task.id ? (
+                            <button
+                              type="button"
+                              onClick={stopTaskStudentRecording}
+                              className="px-2.5 py-1.5 bg-rose-600 text-white font-bold text-[10px] rounded-lg animate-pulse flex items-center space-x-1"
+                            >
+                              <span>⏹ Стоп ({studentRecordingSeconds}с)</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startTaskStudentRecording(task.id)}
+                              className="px-2.5 py-1.5 bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] rounded-lg flex items-center space-x-1.5 hover:bg-emerald-600/40 transition-all shadow-sm"
+                            >
+                              <Mic className="w-3.5 h-3.5" />
+                              <span>🎙 Записать голос</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Uploading progress indicator */}
+                        {Boolean(taskAudioUploading[task.id]) && (
+                          <div className="p-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 text-xs flex items-center space-x-2 animate-pulse">
+                            <div className="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                            <span>Загружаем файл на сервер...</span>
+                          </div>
+                        )}
+
+                        {/* Microphone error banner with clear instructions */}
+                        {Boolean(taskAudioErrors[task.id]) && (
+                          <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs space-y-1.5 animate-in fade-in duration-200">
+                            <div className="flex items-start space-x-2">
+                              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                              <p className="font-semibold leading-snug">{taskAudioErrors[task.id]}</p>
+                            </div>
+                            <div className="text-[11px] text-slate-300 bg-black/30 p-2 rounded-lg border border-rose-500/20">
+                              💡 <b>Решение:</b> Если вы открыли ссылку внутри Telegram, нажмите три точки <b>•••</b> в правом верхнем углу и выберите <b>«Открыть в браузере (Safari / Chrome)»</b>. Также вы можете прикрепить аудиофайл из диктофона кнопкой <b>«📎 Аудиофайл (диктофон)»</b>!
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Attached Solution Photos for this task */}
+                        {Boolean(currentAnswer.imageUrls && currentAnswer.imageUrls.length > 0) && (
+                          <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/25 space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-sky-300">
+                              <span>📷 Фото решения к заданию ({currentAnswer.imageUrls!.length}):</span>
+                              <span className="text-[10px] text-slate-400 font-normal">Прикреплено к заданию</span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {currentAnswer.imageUrls!.map((imgUrl, imgIdx) => (
+                                <div
+                                  key={imgIdx}
+                                  className="relative group rounded-lg overflow-hidden border border-slate-700 aspect-square bg-black/40"
+                                >
+                                  <img src={imgUrl} alt={`Фото решения ${imgIdx + 1}`} className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          imageUrls: (prev[task.id]?.imageUrls || []).filter((_, i) => i !== imgIdx),
+                                        },
+                                      }));
+                                      setUploadedPhotos((prev) => prev.filter((u) => u !== imgUrl));
+                                    }}
+                                    className="absolute top-1 right-1 p-1 bg-rose-600/90 hover:bg-rose-600 text-white rounded-md transition-all shadow"
+                                    title="Удалить фото"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                  <a
+                                    href={imgUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/75 hover:bg-sky-600 text-[9px] text-white rounded font-mono transition-colors"
+                                  >
+                                    #{imgIdx + 1} ↗
+                                  </a>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Re-record request banner from teacher */}
+                        {Boolean(existingSubmission?.reRecordRequestedTaskIds?.includes(task.id)) && (
+                          <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center space-x-2 animate-pulse">
+                            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                            <div>
+                              <p className="font-bold">🎙 Ангелина просит перезаписать голосовой ответ к этому заданию</p>
+                              <p className="text-[11px] text-amber-300/80">Запишите ответ заново кнопкой «🎙 Записать голос» или прикрепите аудиофайл из диктофона, затем отправьте ответ Ангелине!</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Preview recorded/uploaded voice answer */}
+                        {Boolean(
+                          (currentAnswer.voiceAudioUrl && currentAnswer.voiceAudioUrl.trim()) ||
+                          (currentAnswer.voiceAudioBase64 && currentAnswer.voiceAudioBase64.trim())
+                        ) && (
+                          <div className="flex items-center space-x-2 bg-black/40 p-2.5 rounded-xl border border-emerald-500/30">
+                            <audio
+                              controls
+                              src={currentAnswer.voiceAudioBase64 || currentAnswer.voiceAudioUrl}
+                              className="w-full h-7"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTaskAnswers((prev) => ({
+                                  ...prev,
+                                  [task.id]: {
+                                    ...prev[task.id],
+                                    voiceAudioUrl: undefined,
+                                    voiceAudioBase64: undefined,
+                                  },
+                                }));
+                              }}
+                              className="text-rose-400 hover:text-rose-300 text-[10px] font-bold shrink-0 px-2 py-1 bg-rose-500/10 rounded-lg border border-rose-500/20"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Direct Re-record Submission Action Button */}
+                        {Boolean(existingSubmission?.reRecordRequestedTaskIds?.includes(task.id)) &&
+                          Boolean(currentAnswer.voiceAudioUrl || currentAnswer.voiceAudioBase64) && (
+                            <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 space-y-2 animate-in fade-in">
+                              <div className="flex items-center space-x-2 text-emerald-300 text-xs font-bold">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                <span>Новая аудиозапись готова к отправке!</span>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={Boolean(taskAudioUploading[task.id])}
+                                onClick={() => handleSendReRecordedTask(task.id)}
+                                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Отправить перезаписанный ответ Ангелине</span>
+                              </button>
+                            </div>
                         )}
                       </div>
-
-                      {/* Uploading progress indicator */}
-                      {Boolean(taskAudioUploading[task.id]) && (
-                        <div className="mt-2 p-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 text-xs flex items-center space-x-2 animate-pulse">
-                          <div className="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0" />
-                          <span>Загружаем аудиозапись на сервер...</span>
-                        </div>
-                      )}
-
-                      {/* Microphone error banner with clear instructions */}
-                      {Boolean(taskAudioErrors[task.id]) && (
-                        <div className="mt-2 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs space-y-1.5 animate-in fade-in duration-200">
-                          <div className="flex items-start space-x-2">
-                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                            <p className="font-semibold leading-snug">{taskAudioErrors[task.id]}</p>
-                          </div>
-                          <div className="text-[11px] text-slate-300 bg-black/30 p-2 rounded-lg border border-rose-500/20">
-                            💡 <b>Решение:</b> Если вы открыли ссылку внутри Telegram, нажмите три точки <b>•••</b> в правом верхнем углу и выберите <b>«Открыть в браузере (Safari / Chrome)»</b>. Также вы можете нажать <b>«Загрузить фото/аудио»</b> и прикрепить файл из диктофона телефона!
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Re-record request banner from teacher */}
-                      {Boolean(existingSubmission?.reRecordRequestedTaskIds?.includes(task.id)) && (
-                        <div className="mt-2 p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center space-x-2 animate-pulse">
-                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                          <div>
-                            <p className="font-bold">🎙 Ангелина просит перезаписать голосовой ответ к этому заданию</p>
-                            <p className="text-[11px] text-amber-300/80">Предыдущая запись не открылась из-за сбоя сервера. Запишите ответ заново кнопкой ниже или прикрепите аудиофайл!</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Preview recorded/uploaded voice answer */}
-                      {Boolean(
-                        (currentAnswer.voiceAudioUrl && currentAnswer.voiceAudioUrl.trim()) ||
-                        (currentAnswer.voiceAudioBase64 && currentAnswer.voiceAudioBase64.trim())
-                      ) && (
-                        <div className="mt-2 flex items-center space-x-2 bg-black/40 p-2.5 rounded-xl border border-emerald-500/30">
-                          <audio
-                            controls
-                            src={currentAnswer.voiceAudioBase64 || currentAnswer.voiceAudioUrl}
-                            className="w-full h-7"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTaskAnswers((prev) => ({
-                                ...prev,
-                                [task.id]: {
-                                  ...prev[task.id],
-                                  voiceAudioUrl: undefined,
-                                  voiceAudioBase64: undefined,
-                                },
-                              }));
-                            }}
-                            className="text-rose-400 hover:text-rose-300 text-[10px] font-bold shrink-0 px-2 py-1 bg-rose-500/10 rounded-lg border border-rose-500/20"
-                          >
-                            Удалить
-                          </button>
-                        </div>
-                      )}
                     </div>
 
                     {/* Teacher Feedback for this Task */}
@@ -2313,7 +2507,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
           )}
 
           {/* Main Submit Button for Student or Locked State */}
-          {isSubmissionBlocked ? (
+          {isSubmissionBlocked && !existingSubmission?.reRecordRequestedTaskIds?.length ? (
             <div className="pt-3 sticky bottom-0 bg-inherit border-t border-slate-700/80 -mx-4 -mb-4 p-4 shadow-2xl z-10">
               <div className="w-full py-3.5 px-4 bg-slate-800/90 border border-slate-700 text-slate-300 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center space-x-2 shadow-inner">
                 <Lock className="w-4 h-4 text-amber-400 shrink-0" />
@@ -2409,6 +2603,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                 <button onClick={onClose} className="flex-1 py-2.5 rounded-xl font-bold text-xs bg-rose-600 text-white hover:bg-rose-700">Выйти</button>
               </div>
             </div>
+          </div>
+        )}
+        {/* Re-record submission toast */}
+        {reRecordSuccessToast && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center space-x-2 text-xs font-bold border border-emerald-400 animate-in fade-in slide-in-from-bottom-2">
+            <CheckCircle2 className="w-4 h-4 text-white" />
+            <span>{reRecordSuccessToast}</span>
           </div>
         )}
       </div>

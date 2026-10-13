@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { AlertCircle, Paperclip, CheckCircle2, RotateCcw, Volume2, Play, Square } from 'lucide-react';
+import { AlertCircle, Paperclip, CheckCircle2, RotateCcw, Volume2, X, ExternalLink, Download, RefreshCw } from 'lucide-react';
 import { Submission } from '../types';
 import { uploadFileToServer } from '../lib/fileUpload';
 
@@ -24,33 +24,27 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
 }) => {
   const [hasError, setHasError] = useState(false);
   const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-  const [isReRecordRequested, setIsReRecordRequested] = useState(
-    Boolean(submission.reRecordRequestedTaskIds?.includes(taskId))
-  );
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const effectiveAudioSrc = voiceAudioBase64 || voiceAudioUrl || '';
+  const isReRecordRequested = Boolean(submission.reRecordRequestedTaskIds?.includes(taskId));
 
-  // If there is no URL and no base64, immediately treat as error/missing
+  // Reset error when src changes
   useEffect(() => {
-    if (!effectiveAudioSrc) {
-      setHasError(true);
-    }
+    setHasError(false);
   }, [effectiveAudioSrc]);
 
   const handleAudioError = () => {
-    setHasError(true);
+    if (effectiveAudioSrc) {
+      setHasError(true);
+    }
   };
 
-  const handleLoadedMetadata = () => {
+  const handleRetryAudio = () => {
+    setHasError(false);
     if (audioRef.current) {
-      const dur = audioRef.current.duration;
-      if (dur === 0 || isNaN(dur)) {
-        setHasError(true);
-      } else {
-        setHasError(false);
-      }
+      audioRef.current.load();
     }
   };
 
@@ -92,37 +86,171 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
     if (onAutoScoreTask) {
       onAutoScoreTask(taskId, 5, 'Голосовой ответ зачтен преподавателем (без перезаписи).');
     }
+    // Also remove from reRecordRequested if accepted
+    const filteredReRecords = (submission.reRecordRequestedTaskIds || []).filter(
+      (id) => id !== taskId
+    );
+    onGradeSubmission(submission.id, {
+      reRecordRequestedTaskIds: filteredReRecords,
+    });
   };
 
-  const handleRequestReRecord = () => {
+  const handleToggleRequestReRecord = () => {
     const prev = submission.reRecordRequestedTaskIds || [];
-    if (!prev.includes(taskId)) {
-      const next = [...prev, taskId];
-      onGradeSubmission(submission.id, {
-        reRecordRequestedTaskIds: next,
-      });
-      setIsReRecordRequested(true);
+    let next: string[];
+    if (prev.includes(taskId)) {
+      // Cancel request
+      next = prev.filter((id) => id !== taskId);
+    } else {
+      // Add request
+      next = [...prev, taskId];
     }
+    onGradeSubmission(submission.id, {
+      reRecordRequestedTaskIds: next,
+    });
+  };
+
+  const handleCancelReRecordRequest = () => {
+    const prev = submission.reRecordRequestedTaskIds || [];
+    const next = prev.filter((id) => id !== taskId);
+    onGradeSubmission(submission.id, {
+      reRecordRequestedTaskIds: next,
+    });
   };
 
   return (
     <div className="space-y-2 mt-1">
-      {hasError ? (
+      {/* 1. Main Audio Player (renders if effectiveAudioSrc exists) */}
+      {effectiveAudioSrc && (
+        <div className="space-y-1.5">
+          <div className="flex items-center space-x-2 bg-black/40 p-2 rounded-xl border border-emerald-500/30 shadow-sm">
+            <audio
+              ref={audioRef}
+              controls
+              src={effectiveAudioSrc}
+              onError={handleAudioError}
+              className="w-full h-8 accent-purple-500"
+            />
+
+            {/* Speed control buttons */}
+            <div className="flex items-center space-x-0.5 shrink-0">
+              {[1.0, 1.25, 1.5].map((sp) => (
+                <button
+                  key={sp}
+                  type="button"
+                  onClick={() => {
+                    setPlaybackSpeed(sp);
+                    if (audioRef.current) {
+                      audioRef.current.playbackRate = sp;
+                    }
+                  }}
+                  className={`text-[9px] px-1.5 py-0.5 rounded font-bold transition-all ${
+                    playbackSpeed === sp
+                      ? 'bg-purple-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {sp}x
+                </button>
+              ))}
+            </div>
+
+            {/* Open / Download in new tab */}
+            <a
+              href={effectiveAudioSrc}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              className="p-1.5 text-slate-400 hover:text-emerald-300 rounded-lg hover:bg-emerald-500/10 transition-colors shrink-0"
+              title="Открыть или скачать аудиофайл напрямую"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </a>
+
+            {/* Replace file button if teacher wants to attach audio directly */}
+            <label
+              className="cursor-pointer p-1.5 text-slate-400 hover:text-sky-300 rounded-lg hover:bg-sky-500/10 transition-colors shrink-0"
+              title="Заменить или обновить аудиозапись из Telegram/диктофона"
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+              <input
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                disabled={isUploadingAudio}
+                onChange={handleAttachAudioFile}
+              />
+            </label>
+          </div>
+
+          {/* If audio failed to load in browser audio tag, offer retry */}
+          {hasError && (
+            <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-200">
+              <span className="text-[11px]">Файл восстанавливается или поддерживается через скачивание</span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleRetryAudio}
+                  className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded font-bold text-[10px] flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Обновить плеер</span>
+                </button>
+                <a
+                  href={effectiveAudioSrc}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2 py-0.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 rounded font-bold text-[10px] flex items-center space-x-1"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  <span>Слушать напрямую</span>
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. Banner if re-record was requested */}
+      {isReRecordRequested && (
+        <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-2">
+          <div className="flex items-center space-x-2 min-w-0">
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="font-semibold text-[11px] truncate">
+              {effectiveAudioSrc
+                ? '🎙 Ученица прикрепила аудио (нажмите «Снять запрос»)'
+                : 'Запрошена перезапись ответа у ученицы'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelReRecordRequest}
+            className="px-2.5 py-1 bg-emerald-600/80 hover:bg-emerald-600 text-white rounded-lg text-[10px] font-bold border border-emerald-500 shrink-0 flex items-center space-x-1 transition-all shadow-sm"
+            title="Снять статус запроса перезаписи"
+          >
+            <CheckCircle2 className="w-3 h-3" />
+            <span>Снять запрос</span>
+          </button>
+        </div>
+      )}
+
+      {/* 3. Recovery Card ONLY if no audio is attached yet */}
+      {!effectiveAudioSrc && (
         <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-200 text-xs space-y-2.5 animate-in fade-in duration-200">
           <div className="flex items-start space-x-2">
             <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-amber-300">
-                Запись ответа недоступна (0 сек / серверная перезагрузка)
+                Запись ответа еще не прикреплена ученицей
               </p>
-              <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">
-                Файл аудиозаписи был очищен при перезапуске сервера. Выберите действие, чтобы ученице не пришлось заново всё записывать:
+              <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                Вы можете зачесть задание без перезаписи, прикрепить аудиофайл из Telegram или запросить перезапись у ученицы:
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-amber-500/20">
-            {/* 1. Прикрепить аудиозапись из Telegram */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-500/20">
+            {/* Прикрепить аудиозапись из Telegram */}
             <label className="cursor-pointer px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] rounded-lg flex items-center space-x-1.5 transition-all shadow-sm">
               <Paperclip className="w-3.5 h-3.5" />
               <span>{isUploadingAudio ? 'Загрузка...' : 'Прикрепить аудио из Telegram'}</span>
@@ -135,7 +263,7 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
               />
             </label>
 
-            {/* 2. Зачесть без перезаписи */}
+            {/* Зачесть без перезаписи */}
             <button
               type="button"
               onClick={handleAcceptWithoutReRecord}
@@ -145,73 +273,22 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
               <span>Зачесть без перезаписи</span>
             </button>
 
-            {/* 3. Запросить перезапись у ученицы */}
+            {/* Запросить / Снять перезапись */}
             <button
               type="button"
-              onClick={handleRequestReRecord}
+              onClick={handleToggleRequestReRecord}
               className={`px-2.5 py-1.5 font-bold text-[11px] rounded-lg flex items-center space-x-1.5 transition-all ${
-                isReRecordRequested || submission.reRecordRequestedTaskIds?.includes(taskId)
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                isReRecordRequested
+                  ? 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
                   : 'bg-slate-700/60 hover:bg-slate-700 text-slate-300 border border-slate-600'
               }`}
             >
               <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
               <span>
-                {isReRecordRequested || submission.reRecordRequestedTaskIds?.includes(taskId)
-                  ? '✓ Перезапись запрошена'
-                  : 'Запросить перезапись'}
+                {isReRecordRequested ? '✓ Запрошено (нажмите для отмены)' : 'Запросить перезапись'}
               </span>
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="flex items-center space-x-2 bg-black/40 p-2 rounded-xl border border-slate-700/60">
-          <audio
-            ref={audioRef}
-            controls
-            src={effectiveAudioSrc}
-            onError={handleAudioError}
-            onLoadedMetadata={handleLoadedMetadata}
-            className="w-full h-8 accent-purple-500"
-          />
-
-          {/* Speed control buttons */}
-          <div className="flex items-center space-x-0.5 shrink-0">
-            {[1.0, 1.25, 1.5].map((sp) => (
-              <button
-                key={sp}
-                type="button"
-                onClick={() => {
-                  setPlaybackSpeed(sp);
-                  if (audioRef.current) {
-                    audioRef.current.playbackRate = sp;
-                  }
-                }}
-                className={`text-[9px] px-1.5 py-0.5 rounded font-bold transition-all ${
-                  playbackSpeed === sp
-                    ? 'bg-purple-600 text-white'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {sp}x
-              </button>
-            ))}
-          </div>
-
-          {/* Replace file button if teacher wants to update */}
-          <label
-            className="cursor-pointer p-1.5 text-slate-400 hover:text-sky-300 rounded-lg hover:bg-sky-500/10 transition-colors shrink-0"
-            title="Заменить или обновить аудиозапись"
-          >
-            <Paperclip className="w-3.5 h-3.5" />
-            <input
-              type="file"
-              accept="audio/*"
-              className="hidden"
-              disabled={isUploadingAudio}
-              onChange={handleAttachAudioFile}
-            />
-          </label>
         </div>
       )}
     </div>

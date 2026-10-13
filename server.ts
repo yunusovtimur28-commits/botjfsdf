@@ -237,19 +237,40 @@ app.post("/api/upload-file", async (req, res) => {
     const base64Data = base64.includes("base64,") ? base64.split("base64,")[1] : base64;
     const buffer = Buffer.from(base64Data, "base64");
 
+    let finalBuffer = buffer;
+    let finalBase64 = base64Data;
+
     // 1. Write to local disk cache
-    await fs.promises.writeFile(filePath, buffer);
+    await fs.promises.writeFile(filePath, finalBuffer);
+
+    // If webm audio, fix missing Duration metadata via ffmpeg remux
+    if (ext.toLowerCase() === ".webm") {
+      try {
+        const tmpPath = `${filePath}_fixed.webm`;
+        const { execSync } = await import("child_process");
+        execSync(`ffmpeg -y -i "${filePath}" -c copy "${tmpPath}" 2>/dev/null`);
+        if (fs.existsSync(tmpPath)) {
+          finalBuffer = await fs.promises.readFile(tmpPath);
+          await fs.promises.writeFile(filePath, finalBuffer);
+          fs.unlinkSync(tmpPath);
+          finalBase64 = finalBuffer.toString("base64");
+          console.log(`[Upload] Remuxed webm audio ${uniqueFileName} with proper duration metadata.`);
+        }
+      } catch (remuxErr) {
+        console.warn("[Upload] Could not remux webm file:", remuxErr);
+      }
+    }
 
     // 2. Persist to Firestore for 100% durability across restarts
-    persistFileToFirestore(uniqueFileName, fileName || uniqueFileName, base64Data, buffer.length);
+    persistFileToFirestore(uniqueFileName, fileName || uniqueFileName, finalBase64, finalBuffer.length);
 
     const publicUrl = `/uploads/${encodeURIComponent(uniqueFileName)}`;
     return res.json({
       success: true,
       url: publicUrl,
       fileName: fileName || uniqueFileName,
-      sizeBytes: buffer.length,
-      size: (buffer.length / (1024 * 1024)).toFixed(1) + " МБ",
+      sizeBytes: finalBuffer.length,
+      size: (finalBuffer.length / (1024 * 1024)).toFixed(1) + " МБ",
     });
   } catch (err: any) {
     console.error("Upload file error:", err);

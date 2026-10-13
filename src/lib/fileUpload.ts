@@ -81,28 +81,72 @@ export async function uploadBlobToServer(blob: Blob, fileName: string): Promise<
   return res.url || res.base64;
 }
 
-export async function uploadFileToServer(file: File): Promise<{ url: string; size: string; name: string }> {
+async function compressImageIfNeeded(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target?.result as string;
-      if (!base64) {
-        return reject(new Error('Failed to read file'));
-      }
+    if (!file.type.startsWith('image/') || file.type.includes('svg')) {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
 
-      try {
-        const url = await uploadBase64ToServer(base64, file.name);
-        const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + ' МБ';
-        resolve({
-          url,
-          size: sizeMb,
-          name: file.name,
-        });
-      } catch (err) {
-        reject(err);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX_DIM = 1920;
+      let { width, height } = img;
+      if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > height) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
       }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      resolve(dataUrl);
     };
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    };
+    img.src = url;
   });
+}
+
+export async function uploadFileToServer(file: File): Promise<{ url: string; size: string; name: string }> {
+  try {
+    const base64 = await compressImageIfNeeded(file);
+    if (!base64) {
+      throw new Error('Failed to read file');
+    }
+
+    const url = await uploadBase64ToServer(base64, file.name);
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + ' МБ';
+    return {
+      url,
+      size: sizeMb,
+      name: file.name,
+    };
+  } catch (err: any) {
+    throw err;
+  }
 }

@@ -889,32 +889,57 @@ export default function App() {
     const isLate = targetHw?.deadlineDate ? Date.now() > new Date(targetHw.deadlineDate).getTime() : false;
 
     const existingStudentSub = submissions.find(
-      (s) => s.homeworkId === submissionData.homeworkId && s.studentName === currentUser.name
+      (s) =>
+        s.homeworkId === submissionData.homeworkId &&
+        s.studentName &&
+        currentUser.name &&
+        s.studentName.trim().toLowerCase() === currentUser.name.trim().toLowerCase()
     );
 
     const subId = existingStudentSub ? existingStudentSub.id : `sub-${Date.now()}`;
 
+    // Determine final reRecordRequestedTaskIds
+    let finalReRecordIds: string[] =
+      submissionData.reRecordRequestedTaskIds !== undefined
+        ? submissionData.reRecordRequestedTaskIds
+        : (existingStudentSub?.reRecordRequestedTaskIds || []);
+
+    // Auto-remove any tasks that now have voice audio answers
+    if (submissionData.taskAnswers) {
+      finalReRecordIds = finalReRecordIds.filter((tId) => {
+        const ans = submissionData.taskAnswers?.[tId];
+        return !ans?.voiceAudioUrl && !ans?.voiceAudioBase64;
+      });
+    }
+
+    const mergedTaskAnswers = submissionData.taskAnswers
+      ? {
+          ...(existingStudentSub?.taskAnswers || {}),
+          ...submissionData.taskAnswers,
+        }
+      : existingStudentSub?.taskAnswers;
+
     const newSub: Submission = {
       id: subId,
       homeworkId: submissionData.homeworkId,
-      studentName: currentUser.name,
+      studentName: existingStudentSub?.studentName || currentUser.name,
       submittedAt: submissionData.submittedAt && submissionData.submittedAt !== 'Только что' ? submissionData.submittedAt : formattedDateTime,
       status: submissionData.status || 'pending',
       type: submissionData.type || 'written',
       isLate,
-      testAnswers: submissionData.testAnswers,
-      testScore: submissionData.testScore,
-      speakingAudioUrl: submissionData.speakingAudioUrl,
-      speakingAudioBase64: submissionData.speakingAudioBase64,
-      reRecordRequestedTaskIds: submissionData.reRecordRequestedTaskIds,
-      essayText: submissionData.essayText,
-      writtenFileName: submissionData.writtenFileName,
-      writtenImageUrls: submissionData.writtenImageUrls,
-      taskAnswers: submissionData.taskAnswers,
-      aiPreviewFeedback: submissionData.aiPreviewFeedback,
-      totalScore: submissionData.totalScore,
-      maxScore: submissionData.maxScore,
-      teacherFeedbackText: submissionData.teacherFeedbackText,
+      testAnswers: submissionData.testAnswers || existingStudentSub?.testAnswers,
+      testScore: submissionData.testScore !== undefined ? submissionData.testScore : existingStudentSub?.testScore,
+      speakingAudioUrl: submissionData.speakingAudioUrl || existingStudentSub?.speakingAudioUrl,
+      speakingAudioBase64: submissionData.speakingAudioBase64 || existingStudentSub?.speakingAudioBase64,
+      reRecordRequestedTaskIds: finalReRecordIds,
+      essayText: submissionData.essayText !== undefined ? submissionData.essayText : existingStudentSub?.essayText,
+      writtenFileName: submissionData.writtenFileName || existingStudentSub?.writtenFileName,
+      writtenImageUrls: submissionData.writtenImageUrls || existingStudentSub?.writtenImageUrls,
+      taskAnswers: mergedTaskAnswers,
+      aiPreviewFeedback: submissionData.aiPreviewFeedback || existingStudentSub?.aiPreviewFeedback,
+      totalScore: submissionData.totalScore !== undefined ? submissionData.totalScore : existingStudentSub?.totalScore,
+      maxScore: submissionData.maxScore !== undefined ? submissionData.maxScore : existingStudentSub?.maxScore,
+      teacherFeedbackText: submissionData.teacherFeedbackText || existingStudentSub?.teacherFeedbackText,
     };
 
     setSubmissions((prev) => [newSub, ...prev.filter((s) => s.id !== subId)]);
