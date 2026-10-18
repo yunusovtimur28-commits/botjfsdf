@@ -181,11 +181,17 @@ export async function sanitizeHomework(hw: Homework): Promise<Homework> {
         );
       }
 
+      let taskAudioUrl = task.taskAudioUrl;
+      if (taskAudioUrl && taskAudioUrl.startsWith('data:')) {
+        taskAudioUrl = await sanitizeLargeDataUrls(taskAudioUrl, 'task_audio.webm');
+      }
+
       return {
         ...task,
         taskFileLink,
         taskVideoUrl,
         taskImageUrls,
+        taskAudioUrl,
       };
     })
   );

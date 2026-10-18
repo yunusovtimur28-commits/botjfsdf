@@ -35,6 +35,16 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
     setHasError(false);
   }, [effectiveAudioSrc]);
 
+  // Auto-clear reRecordRequested when effectiveAudioSrc is present!
+  useEffect(() => {
+    if (effectiveAudioSrc && submission.reRecordRequestedTaskIds?.includes(taskId)) {
+      const next = (submission.reRecordRequestedTaskIds || []).filter((id) => id !== taskId);
+      onGradeSubmission(submission.id, {
+        reRecordRequestedTaskIds: next,
+      });
+    }
+  }, [effectiveAudioSrc, submission.reRecordRequestedTaskIds, taskId, submission.id, onGradeSubmission]);
+
   const handleAudioError = () => {
     if (effectiveAudioSrc) {
       setHasError(true);
@@ -170,7 +180,7 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
             {/* Replace file button if teacher wants to attach audio directly */}
             <label
               className="cursor-pointer p-1.5 text-slate-400 hover:text-sky-300 rounded-lg hover:bg-sky-500/10 transition-colors shrink-0"
-              title="Заменить или обновить аудиозапись из Telegram/диктофона"
+              title="Заменить аудиозапись из Telegram/диктофона"
             >
               <Paperclip className="w-3.5 h-3.5" />
               <input
@@ -183,10 +193,26 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
             </label>
           </div>
 
-          {/* If audio failed to load in browser audio tag, offer retry */}
+          {/* Action to request re-recording if needed */}
+          <div className="flex items-center justify-between text-[11px] px-1 text-slate-400">
+            <span className="flex items-center space-x-1 text-emerald-400">
+              <CheckCircle2 className="w-3 h-3" />
+              <span>Голосовой ответ прикреплен</span>
+            </span>
+            <button
+              type="button"
+              onClick={handleToggleRequestReRecord}
+              className="hover:text-amber-300 transition-colors text-[10px] flex items-center space-x-1 cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Запросить перезаписать</span>
+            </button>
+          </div>
+
+          {/* If audio failed to load in browser audio tag, offer retry & direct download */}
           {hasError && (
             <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-200">
-              <span className="text-[11px]">Файл восстанавливается или поддерживается через скачивание</span>
+              <span className="text-[11px]">Файл восстанавливается или поддерживается через прямое прослушивание</span>
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
@@ -211,15 +237,13 @@ export const TaskVoiceAudioPlayer: React.FC<TaskVoiceAudioPlayerProps> = ({
         </div>
       )}
 
-      {/* 2. Banner if re-record was requested */}
-      {isReRecordRequested && (
+      {/* 2. Banner if re-record was requested AND no audio has been provided yet */}
+      {!effectiveAudioSrc && isReRecordRequested && (
         <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2 min-w-0">
             <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="font-semibold text-[11px] truncate">
-              {effectiveAudioSrc
-                ? '🎙 Ученица прикрепила аудио (нажмите «Снять запрос»)'
-                : 'Запрошена перезапись ответа у ученицы'}
+              Запрошена перезапись ответа у ученицы
             </span>
           </div>
           <button

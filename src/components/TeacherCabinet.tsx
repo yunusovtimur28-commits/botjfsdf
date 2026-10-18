@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Submission, Homework, Webinar, FipiCriteriaScores, BlockCategory, MaterialFile, Timecode, RegisteredStudent, DiaryEntry, EgeGapFillItem } from '../types';
 import { getCurrentMonthLabel, getFormattedDateTime, formatRussianDate, getTodayDateString } from '../lib/dateUtils';
 import { dbUpdateStudent } from '../lib/firebase';
-import { uploadFileToServer, uploadBase64ToServer } from '../lib/fileUpload';
+import { uploadFileToServer, uploadBase64ToServer, uploadBlobWithBase64 } from '../lib/fileUpload';
 import { TaskVoiceAudioPlayer } from './TaskVoiceAudioPlayer';
 import {
   GraduationCap,
@@ -631,14 +631,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(blob);
-        setHwTasks((prev) =>
-          prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: audioUrl } : t))
-        );
         stream.getTracks().forEach((track) => track.stop());
         setRecordingTaskIdx(null);
+        try {
+          const res = await uploadBlobWithBase64(blob, `teacher_voice_task_${idx + 1}_${Date.now()}.webm`);
+          if (res.url) {
+            setHwTasks((prev) =>
+              prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: res.url } : t))
+            );
+          }
+        } catch (uploadErr) {
+          console.error('Failed to upload teacher voice recording:', uploadErr);
+        }
       };
       recorder.start();
       setTeacherMediaRecorder(recorder);
@@ -674,16 +680,21 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   };
 
   const handleAddTask = () => {
-    const defaultBlock: BlockCategory = 'speaking';
+    const defaultBlock: BlockCategory = hwBlock || 'speaking';
     const options = getTaskNumberOptions(defaultBlock);
+    const isSp = defaultBlock === 'speaking';
     setHwTasks((prev) => [
       ...prev,
       {
         id: `task-${Date.now()}-${prev.length + 1}`,
         block: defaultBlock,
-        taskNumber: options[0],
-        instruction: 'Инструкция к выполнению задания...',
-        taskPrompt: 'Задание / Условие...',
+        taskType: isSp ? 'speaking' : 'test',
+        taskNumber: options[0] || `Задание #${prev.length + 1}`,
+        instruction: isSp
+          ? 'Прослушайте голосовое условие от преподавателя и запишите свой голосовой ответ.'
+          : 'Инструкция к выполнению задания...',
+        taskPrompt: isSp ? 'Голосовое задание' : 'Задание / Условие...',
+        taskAudioUrl: '',
       },
     ]);
   };
@@ -2318,16 +2329,22 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                               ? [selectedSubmission.writtenImageUrls[idx]]
                               : [];
                             const taskImages: string[] = explicitTaskImages.length > 0 ? explicitTaskImages : fallbackTaskImages;
+                            const isSpeakingTask = task.taskType === 'speaking' || task.block === 'speaking';
+                            const isSingleSpeakingTask = Boolean(
+                              targetHw?.tasks?.length === 1 ||
+                              targetHw?.tasks?.filter(t => t.taskType === 'speaking' || t.block === 'speaking').length === 1
+                            );
+                            const taskVoiceUrl = (ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) || (isSingleSpeakingTask && selectedSubmission.speakingAudioUrl ? selectedSubmission.speakingAudioUrl : undefined);
+                            const taskVoiceBase64 = (ans.voiceAudioBase64 && ans.voiceAudioBase64.trim()) || (isSingleSpeakingTask && selectedSubmission.speakingAudioBase64 ? selectedSubmission.speakingAudioBase64 : undefined);
                             const hasTaskVoice = Boolean(
-                              (ans.voiceAudioUrl && ans.voiceAudioUrl.trim()) ||
-                              (ans.voiceAudioBase64 && ans.voiceAudioBase64.trim()) ||
-                              task.taskType === 'speaking' ||
-                              task.block === 'speaking' ||
+                              taskVoiceUrl ||
+                              taskVoiceBase64 ||
+                              isSpeakingTask ||
                               selectedSubmission.reRecordRequestedTaskIds?.includes(task.id)
                             );
                             const hasAnyStudentInput = Boolean(
-                              (ans.textAnswer && ans.textAnswer.trim()) ||
-                              taskImages.length > 0 ||
+                              (!isSpeakingTask && ans.textAnswer && ans.textAnswer.trim()) ||
+                              (!isSpeakingTask && taskImages.length > 0) ||
                               hasTaskVoice ||
                               (ans.gapInputs && ans.gapInputs.length > 0) ||
                               (ans.qnaInputs && Object.keys(ans.qnaInputs).length > 0) ||
@@ -2366,9 +2383,47 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   </p>
                                 )}
 
+                                {/* Teacher condition images */}
+                                {Boolean(task.taskImageUrls && task.taskImageUrls.length > 0) && (
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                                    {task.taskImageUrls.map((imgUrl, imgIdx) => (
+                                      <a key={imgIdx} href={imgUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg overflow-hidden border border-slate-700 aspect-video block bg-black/40">
+                                        <img src={imgUrl} alt={`Условие ${imgIdx + 1}`} className="w-full h-full object-cover" />
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                                {task.taskFileLink && (
+                                  <div className="text-[11px] text-indigo-300">
+                                    <a href={task.taskFileLink} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
+                                      <Paperclip className="w-3.5 h-3.5" />
+                                      <span>Файл к заданию: {task.taskFileName || 'Открыть документ'}</span>
+                                    </a>
+                                  </div>
+                                )}
+
+                                {/* Teacher Voice condition player: ALWAYS shown under each task if present */}
+                                {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) ? (
+                                  <div className="p-2.5 rounded-xl bg-sky-950/50 border border-sky-500/40 space-y-1.5 my-1.5">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-sky-400">
+                                      <span className="flex items-center space-x-1.5">
+                                        <Volume2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                        <span>🎙 Голосовое от вас (условие задачи):</span>
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-normal">Условие к номеру</span>
+                                    </div>
+                                    <audio controls src={task.taskAudioUrl} className="w-full h-8 accent-sky-500" />
+                                  </div>
+                                ) : isSpeakingTask ? (
+                                  <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-center space-x-1.5 my-1">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                                    <span>Голосовое условие от преподавателя не было прикреплено к этому номеру</span>
+                                  </div>
+                                ) : null}
+
                                 {hasAnyStudentInput ? (
                                   <div className="space-y-1.5 pt-0.5">
-                                    {ans.textAnswer && (
+                                    {ans.textAnswer && !isSpeakingTask && (
                                       <div>
                                         <span className="text-[10px] text-slate-400 font-semibold block">Ответ ученика:</span>
                                         <p className="text-slate-200 bg-slate-800/40 p-2 rounded-lg border border-slate-700/40 leading-relaxed whitespace-pre-line">
@@ -2528,27 +2583,37 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                     )}
                                     {/* Voice Answer */}
                                     {hasTaskVoice && (
-                                      <div>
-                                        <span className="text-[10px] text-slate-400 font-semibold block mb-1">Голосовой ответ ученика:</span>
-                                        <TaskVoiceAudioPlayer
-                                          voiceAudioUrl={ans.voiceAudioUrl}
-                                          voiceAudioBase64={ans.voiceAudioBase64}
-                                          taskId={task.id}
-                                          submission={selectedSubmission}
-                                          onGradeSubmission={handleTeacherGradeSubmission}
-                                          onAutoScoreTask={(tId, score, comment) => {
-                                            setTaskFeedbacks((prev) => ({
-                                              ...prev,
-                                              [tId]: { score, comment },
-                                            }));
-                                          }}
-                                          isDarkMode={isDarkMode}
-                                        />
+                                      <div className="p-2.5 rounded-xl bg-slate-900/60 border border-emerald-500/30 space-y-2 mt-2">
+                                        <span className="text-[11px] text-emerald-400 font-bold block flex items-center space-x-1.5">
+                                          <Mic className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                          <span>🗣 Голосовой ответ ученика на {task.taskNumber && task.taskNumber !== 'Без номера' ? task.taskNumber : `Задание #${idx + 1}`}:</span>
+                                        </span>
+                                        {Boolean(taskVoiceUrl || taskVoiceBase64) ? (
+                                          <TaskVoiceAudioPlayer
+                                            voiceAudioUrl={taskVoiceUrl}
+                                            voiceAudioBase64={taskVoiceBase64}
+                                            taskId={task.id}
+                                            submission={selectedSubmission}
+                                            onGradeSubmission={handleTeacherGradeSubmission}
+                                            onAutoScoreTask={(tId, score, comment) => {
+                                              setTaskFeedbacks((prev) => ({
+                                                ...prev,
+                                                [tId]: { score, comment },
+                                              }));
+                                            }}
+                                            isDarkMode={isDarkMode}
+                                          />
+                                        ) : (
+                                          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center space-x-2">
+                                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                                            <span>Ученик ещё не сдал голосовой ответ на это задание</span>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
 
                                     {/* Solution Photos for this task */}
-                                    {taskImages.length > 0 && (
+                                    {taskImages.length > 0 && !isSpeakingTask && (
                                       <div className="space-y-1.5 pt-1">
                                         <div className="flex items-center justify-between">
                                           <span className="text-[11px] font-bold text-sky-400 flex items-center space-x-1.5">
@@ -2667,7 +2732,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   voiceAudioBase64={ans.voiceAudioBase64}
                                   taskId={taskId}
                                   submission={selectedSubmission}
-                                  onGradeSubmission={onGradeSubmission}
+                                  onGradeSubmission={handleTeacherGradeSubmission}
                                   onAutoScoreTask={(tId, score, comment) => {
                                     setTaskFeedbacks((prev) => ({
                                       ...prev,
@@ -2745,6 +2810,52 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             </div>
                           ))}
                     </div>
+
+                    {/* Additional Solution Photos uploaded for this homework if not already mapped to an individual task */}
+                    {(() => {
+                      const allShownImages = new Set<string>();
+                      if (targetHw?.tasks) {
+                        targetHw.tasks.forEach((t, i) => {
+                          const ans: any = selectedSubmission.taskAnswers?.[t.id] || {};
+                          const explicit = (ans?.imageUrls && Array.isArray(ans.imageUrls)) ? ans.imageUrls : [];
+                          const fallback = (!explicit.length && selectedSubmission.writtenImageUrls && selectedSubmission.writtenImageUrls[i])
+                            ? [selectedSubmission.writtenImageUrls[i]]
+                            : [];
+                          (explicit.length > 0 ? explicit : fallback).forEach((img: string) => allShownImages.add(img));
+                        });
+                      }
+                      const extraPhotos = (selectedSubmission.writtenImageUrls || []).filter((img) => !allShownImages.has(img));
+                      if (!extraPhotos.length) return null;
+
+                      return (
+                        <div className="mt-3 p-3 rounded-xl bg-sky-950/30 border border-sky-500/30 space-y-2">
+                          <div className="flex items-center justify-between text-sky-300 text-xs font-bold">
+                            <span>📷 Дополнительные фото решений ({extraPhotos.length}):</span>
+                            <span className="text-[10px] text-slate-400 font-normal">Прикреплены ученицей ко всей работе</span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {extraPhotos.map((imgUrl, rIdx) => (
+                              <a
+                                key={rIdx}
+                                href={imgUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block rounded-xl overflow-hidden border border-sky-500/40 aspect-square group relative shadow-md bg-black/40"
+                              >
+                                <img
+                                  src={imgUrl}
+                                  alt={`Доп. фото ${rIdx + 1}`}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                />
+                                <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/75 text-[9px] text-sky-200 rounded font-mono">
+                                  Доп. фото {rIdx + 1}
+                                </span>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -3382,6 +3493,42 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
               </div>
 
               <div className="space-y-1 sm:col-span-3">
+                <label className="font-semibold text-slate-400">Основной раздел / блок домашнего задания:</label>
+                <select
+                  value={hwBlock}
+                  onChange={(e) => {
+                    const newBlock = e.target.value as BlockCategory;
+                    setHwBlock(newBlock);
+                    if (newBlock === 'speaking') {
+                      setHwType('speaking');
+                      setHwTasks((prev) =>
+                        prev.map((t) => ({
+                          ...t,
+                          block: 'speaking',
+                          taskType: 'speaking',
+                          taskAudioUrl: t.taskAudioUrl ?? '',
+                        }))
+                      );
+                    }
+                  }}
+                  className={`w-full p-2.5 rounded-xl border font-bold ${
+                    isDarkMode ? 'bg-[#17212b] border-slate-700 text-sky-400' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                >
+                  <option value="speaking">🗣 Говорение (Speaking / Спикинг - только аудиоответы)</option>
+                  <option value="listening">🎧 Аудирование (Listening)</option>
+                  <option value="reading">📖 Чтение (Reading)</option>
+                  <option value="grammar_vocabulary">📚 Грамматика и лексика</option>
+                  <option value="writing">✍️ Письмо (Writing)</option>
+                </select>
+                {hwBlock === 'speaking' && (
+                  <p className="text-[11px] text-purple-300 font-medium bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
+                    ✨ <b>Выбран блок «Говорение»:</b> ученики слушают ваше голосовое условие и сдают <u>только голосовой ответ</u>. Ввод текста и прикрепление фото полностью отключены.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1 sm:col-span-3">
                 <label className="font-semibold text-slate-400">Дата публикации (для архива):</label>
                 <input
                   type="datetime-local"
@@ -3453,6 +3600,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   ? {
                                       ...t,
                                       taskType: val,
+                                      block: val === 'speaking' ? 'speaking' : t.block,
+                                      taskAudioUrl: val === 'speaking' ? (t.taskAudioUrl || '') : t.taskAudioUrl,
                                       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
                                       correctOptionIndex: t.correctOptionIndex ?? 0,
                                       gapAnswers: val === 'text_bank' ? (t.gapAnswers && t.gapAnswers.length > 0 ? t.gapAnswers : ['']) : t.gapAnswers,
@@ -3509,7 +3658,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             const newOpts = getTaskNumberOptions(newBlock);
                             setHwTasks((prev) =>
                               prev.map((t, i) =>
-                                i === idx ? { ...t, block: newBlock, taskNumber: newOpts[0] } : t
+                                i === idx ? {
+                                  ...t,
+                                  block: newBlock,
+                                  taskNumber: newOpts[0],
+                                  taskType: newBlock === 'speaking' ? 'speaking' : t.taskType,
+                                  taskAudioUrl: newBlock === 'speaking' ? (t.taskAudioUrl || '') : t.taskAudioUrl,
+                                } : t
                               )
                             );
                           }}
@@ -4295,7 +4450,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           <span>+ Файл (Ссылка)</span>
                         </button>
                       )}
-                      {task.taskAudioUrl === undefined && (
+                      {task.taskAudioUrl === undefined && task.block !== 'speaking' && task.taskType !== 'speaking' && (
                         <button
                           type="button"
                           onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: '' } : t))}
@@ -4447,21 +4602,32 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         )}
 
                         {/* ROW 2: AUDIO / VOICE ATTACHMENT + RECORD BUTTON */}
-                        {task.taskAudioUrl !== undefined && (
-                          <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 space-y-2">
+                        {(task.taskAudioUrl !== undefined || task.block === 'speaking' || task.taskType === 'speaking') && (
+                          <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/25 space-y-2">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-sky-300 flex items-center space-x-1.5">
-                                <Mic className="w-3.5 h-3.5" />
-                                <span>🎙 Строка 2: Голосовое / Аудио от учителя</span>
+                                <Mic className="w-3.5 h-3.5 text-sky-400" />
+                                <span>🎙 Голосовое от преподавателя (условие задачи)</span>
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: undefined } : t))}
-                                className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
+                              {task.block !== 'speaking' && task.taskType !== 'speaking' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: undefined } : t))}
+                                  className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
+                                  title="Удалить аудио условие"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
+
+                            {(task.block === 'speaking' || task.taskType === 'speaking') && (
+                              <div className="p-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[11px] flex items-center space-x-2">
+                                <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                <span><b>Режим «Говорение (аудио)»:</b> ученик слушает ваше голосовое условие и сдает <u>только голосовой ответ</u>. Ввод текста и прикрепление фото полностью отключены.</span>
+                              </div>
+                            )}
+
                             <div className="flex flex-wrap items-center gap-2">
                               <input
                                 type="text"
@@ -4479,18 +4645,24 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                               />
                               <label className="cursor-pointer px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
                                 <Paperclip className="w-3.5 h-3.5" />
-                                <span>Файл</span>
+                                <span>Загрузить аудио / Telegram</span>
                                 <input
                                   type="file"
                                   accept="audio/*"
                                   className="hidden"
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     const file = e.target.files?.[0];
                                     if (file) {
-                                      const url = URL.createObjectURL(file);
-                                      setHwTasks((prev) =>
-                                        prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: url } : t))
-                                      );
+                                      try {
+                                        const res = await uploadFileToServer(file);
+                                        if (res.url) {
+                                          setHwTasks((prev) =>
+                                            prev.map((t, i) => (i === idx ? { ...t, taskAudioUrl: res.url } : t))
+                                          );
+                                        }
+                                      } catch (err) {
+                                        console.error('Failed to upload audio file:', err);
+                                      }
                                     }
                                   }}
                                 />
@@ -4504,7 +4676,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl animate-pulse flex items-center space-x-1.5 shadow-lg"
                                 >
                                   <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
-                                  <span>Стоп ({teacherRecordingSeconds}с)</span>
+                                  <span>⏹ Завершить ({teacherRecordingSeconds}с)</span>
                                 </button>
                               ) : (
                                 <button
@@ -4513,12 +4685,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1 shadow-sm shrink-0"
                                 >
                                   <Mic className="w-3.5 h-3.5" />
-                                  <span>🎙 Записать голосовое</span>
+                                  <span>{task.taskAudioUrl ? '🎙 Перезаписать голосовое' : '🎙 Записать голосовое'}</span>
                                 </button>
                               )}
                             </div>
                             {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) && (
-                              <div className="pt-1">
+                              <div className="pt-1 bg-black/30 p-2 rounded-xl border border-sky-500/20 space-y-1">
+                                <span className="text-[10px] text-sky-400 font-semibold block">Прослушать условие задачи:</span>
                                 <audio controls src={task.taskAudioUrl} className="w-full h-8" />
                               </div>
                             )}

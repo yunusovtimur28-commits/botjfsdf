@@ -5,7 +5,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { initializeApp, getApps } from "firebase/app";
-import { initializeFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+import { initializeFirestore, doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
 
 dotenv.config();
 
@@ -198,6 +198,27 @@ async function recoverFileFromFirestore(uniqueFileName: string, targetPath: stri
   } catch (recErr) {
     console.warn(`[Auto-Recovery] Error recovering ${uniqueFileName} from Firestore:`, recErr);
     return false;
+  }
+}
+
+// Pre-warm local uploads cache from Firestore on boot
+async function restoreAllFilesOnBoot() {
+  if (!dbFirestore) return;
+  try {
+    const snap = await getDocs(collection(dbFirestore, "uploaded_files"));
+    for (const docSnap of snap.docs) {
+      if (docSnap.id.includes("_chk_")) continue;
+      const data = docSnap.data();
+      const fileName = data.fileName;
+      if (!fileName) continue;
+      const filePath = path.join(uploadsDir, fileName);
+      if (!fs.existsSync(filePath)) {
+        await recoverFileFromFirestore(fileName, filePath);
+      }
+    }
+    console.log("[Storage] Pre-warmed uploads cache from Firestore.");
+  } catch (e) {
+    console.warn("[Storage] Pre-warm uploads error:", e);
   }
 }
 
@@ -582,6 +603,7 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
+    restoreAllFilesOnBoot();
   });
 }
 
