@@ -404,12 +404,33 @@ export const HomeworkList: React.FC<HomeworkListProps> = ({
 
                   {/* Status outcome */}
                   <div>
-                    {status === 'graded' && sub?.totalScore !== undefined && (
+                    {status === 'graded' && sub?.totalScore != null && (
                       <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
                         <Award className="w-3.5 h-3.5" />
                         <span>
                           {sub.totalScore} / {hw.maxPoints} баллов
                         </span>
+                      </span>
+                    )}
+
+                    {status === 'graded' && sub?.totalScore == null && sub?.testScore == null && sub?.schoolGrade == null && (
+                      <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                        <CheckCircle2 className="w-3.5 h-3.5"/>
+                        <span>Проверено</span>
+                      </span>
+                    )}
+
+                    {status === 'graded' && sub?.totalScore == null && sub?.schoolGrade != null && (
+                      <span className="text-xs font-bold text-indigo-400 bg-indigo-500/20 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                        <Award className="w-3.5 h-3.5" />
+                        <span>Оценка: {sub.schoolGrade}</span>
+                      </span>
+                    )}
+
+                    {status === 'graded' && sub?.totalScore == null && sub?.testScore != null && sub?.schoolGrade == null && (
+                      <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                        <Award className="w-3.5 h-3.5" />
+                        <span>{sub.testScore} / {sub.maxScore || hw.maxPoints} баллов</span>
                       </span>
                     )}
 

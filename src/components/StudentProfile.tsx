@@ -168,9 +168,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     return submissions.filter((s) => s.studentName === profile.name);
   }, [submissions, profile.name]);
 
-  const studentSubmissions = React.useMemo(() => {
-    return studentAllSubmissions.filter((s) => s.status === 'graded');
+  const gradedUserSubs = React.useMemo(() => {
+    return studentAllSubmissions.filter(
+      (s) => s.status === 'graded' && (s.totalScore != null || s.testScore != null)
+    );
   }, [studentAllSubmissions]);
+
+  const studentSubmissions = gradedUserSubs;
 
   // Count completed/submitted homeworks per block strictly
   const blockCounts = React.useMemo(() => {
@@ -236,9 +240,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     // Add graded student submissions
     studentSubmissions.forEach((sub) => {
+      if (sub.totalScore == null && sub.testScore == null) return;
       const hw = homeworks.find((h) => h.id === sub.homeworkId);
       const parsed = parseMonthAndLabel(sub.teacherCheckedAt || sub.submittedAt);
-      const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+      const score = sub.totalScore != null ? sub.totalScore : (sub.testScore || 0);
       const max = sub.maxScore || hw?.maxPoints || 14;
       const totalPct = Math.round(Math.min(100, Math.max(0, (score / max) * 100)));
       const block20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
@@ -296,9 +301,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     const counts = { listening: 0, reading: 0, grammarVocabulary: 0, writing: 0, speaking: 0 };
 
     studentSubmissions.forEach((sub) => {
+      if (sub.totalScore == null && sub.testScore == null) return;
       const hw = homeworks.find((h) => h.id === sub.homeworkId);
       const block = hw?.block || (sub.type === 'speaking' ? 'speaking' : sub.type === 'written' ? 'writing' : 'grammar_vocabulary');
-      const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+      const score = sub.totalScore != null ? sub.totalScore : (sub.testScore || 0);
       const max = sub.maxScore || hw?.maxPoints || 14;
       const scoreOutof20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
 
@@ -966,7 +972,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <p className="text-xs text-slate-400 italic">Ученики еще не зарегистрированы.</p>
               ) : (
                 registeredStudents.map((st) => {
-                  const stSubs = submissions.filter((s) => s.studentName === st.name && s.status === 'graded');
+                  const stSubs = submissions.filter(
+                    (s) => s.studentName === st.name && s.status === 'graded' && (s.totalScore !== undefined || s.testScore !== undefined)
+                  );
                   let avgScoreDisplay = '—';
                   if (stSubs.length > 0) {
                     const totalPct = stSubs.reduce((acc, sub) => {

@@ -143,7 +143,7 @@ export interface Submission {
   isLate?: boolean;
   // Test data
   testAnswers?: Record<string, string>;
-  testScore?: number;
+  testScore?: number | null;
   // Speaking data
   speakingAudioUrl?: string;
   speakingAudioBase64?: string;
@@ -170,10 +170,10 @@ export interface Submission {
   essayText?: string;
   // Feedback from Angelina
   criteriaScores?: FipiCriteriaScores;
-  totalScore?: number;
-  maxScore?: number;
-  schoolGrade?: number;
-  taskFeedbacks?: Record<string, { comment?: string; score?: number }>;
+  totalScore?: number | null;
+  maxScore?: number | null;
+  schoolGrade?: number | null;
+  taskFeedbacks?: Record<string, { comment?: string; score?: number | null }>;
   teacherFeedbackText?: string;
   teacherVoiceAudioUrl?: string;
   teacherCheckedAt?: string;

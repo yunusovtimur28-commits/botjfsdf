@@ -237,7 +237,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       report += `${i + 1}. Ученик: ${sub.studentName}\n`;
       report += `   Задание: ${hw?.title || 'Домашнее задание'} (${hw?.month || 'Май 2026'})\n`;
       report += `   Формат: ${hw?.type || sub.type} | Блок: ${hw?.block || 'writing'}\n`;
-      report += `   Итоговый балл: ${sub.totalScore ?? 0} / ${sub.maxScore ?? 14}\n`;
+      report += `   Итоговый балл: ${sub.totalScore !== undefined ? `${sub.totalScore} / ${sub.maxScore ?? 14}` : 'Зачет (без баллов)'}\n`;
       if (sub.criteriaScores) {
         report += `   Критерии ФИПИ: К1=${sub.criteriaScores.k1_taskSolution}, К2=${sub.criteriaScores.k2_organization}, К3=${sub.criteriaScores.k3_vocabulary}, К4=${sub.criteriaScores.k4_grammar}\n`;
       }
@@ -308,7 +308,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
   // Dynamic calculations strictly from active students & submissions
   const averageScorePercent = React.useMemo(() => {
-    const graded = activeSubmissions.filter((s) => s.status === 'graded');
+    const graded = activeSubmissions.filter(
+      (s) => s.status === 'graded' && (s.totalScore !== undefined || s.testScore !== undefined)
+    );
     if (graded.length === 0) return null;
     const sum = graded.reduce((acc, sub) => {
       const hw = homeworks.find((h) => h.id === sub.homeworkId);
@@ -413,30 +415,37 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   );
 
   // Per-task feedbacks (score and comment per individual task)
-  const [taskFeedbacks, setTaskFeedbacks] = useState<Record<string, { comment?: string; score?: number }>>(
+  const [taskFeedbacks, setTaskFeedbacks] = useState<Record<string, { comment?: string; score?: number | null }>>(
     selectedSubmission?.taskFeedbacks || {}
   );
 
   // Alternative school grade (1-5)
-  const [schoolGrade, setSchoolGrade] = useState<number | undefined>(
-    selectedSubmission?.schoolGrade
+  const [schoolGrade, setSchoolGrade] = useState<number | null>(
+    selectedSubmission?.schoolGrade != null ? selectedSubmission.schoolGrade : null
+  );
+
+  // Manual totalScore input (if empty string / null, saved as null for "Без баллов / Зачет")
+  const [manualTotalScore, setManualTotalScore] = useState<number | string | null>(
+    selectedSubmission?.totalScore != null ? selectedSubmission.totalScore : ''
   );
 
   // Keep grading state synchronized when selectedSubmission changes
   useEffect(() => {
     if (selectedSubmission) {
       setTaskFeedbacks(selectedSubmission.taskFeedbacks || {});
-      setSchoolGrade(selectedSubmission.schoolGrade);
+      setSchoolGrade(selectedSubmission.schoolGrade != null ? selectedSubmission.schoolGrade : null);
       setFeedbackText(selectedSubmission.teacherFeedbackText || '');
       setTeacherVoiceUrl(selectedSubmission.teacherVoiceAudioUrl || null);
+      setManualTotalScore(selectedSubmission.totalScore != null ? selectedSubmission.totalScore : '');
       if (selectedSubmission.criteriaScores) {
         setCriteria(selectedSubmission.criteriaScores);
       }
     } else {
       setTaskFeedbacks({});
-      setSchoolGrade(undefined);
+      setSchoolGrade(null);
       setFeedbackText('');
       setTeacherVoiceUrl(null);
+      setManualTotalScore('');
     }
   }, [selectedSubmission]);
 
@@ -1295,36 +1304,69 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
   const handleSaveGrading = () => {
     if (!selectedSubmission) return;
     const hw = getHomeworkForSubmission(selectedSubmission.homeworkId);
-    const totalScore =
-      criteria.k1_taskSolution +
-      criteria.k2_organization +
-      criteria.k3_vocabulary +
-      criteria.k4_grammar;
-
     const maxScore = hw?.maxPoints || 14;
-    const finalScore = Math.min(totalScore, maxScore);
+
+    // Strict rule: If teacher left totalScore empty (empty string / undefined / null), send null.
+    // NEVER auto-calculate totalScore from criteria, egeItems, qna, or task scores if left empty!
+    let finalScore: number | null = null;
+    if (
+      manualTotalScore !== undefined &&
+      manualTotalScore !== null &&
+      String(manualTotalScore).trim() !== ''
+    ) {
+      const parsed = Number(manualTotalScore);
+      if (!isNaN(parsed)) {
+        finalScore = Math.min(Math.max(0, parsed), maxScore);
+      }
+    }
+
+    const cleanSchoolGrade =
+      schoolGrade !== undefined && schoolGrade !== null && String(schoolGrade).trim() !== '' && !isNaN(Number(schoolGrade))
+        ? Number(schoolGrade)
+        : null;
+
+    // Sanitize taskFeedbacks: if task score is empty string/undefined/null/NaN, send null (NOT undefined or NaN)
+    const sanitizedTaskFeedbacks: Record<string, { comment?: string; score: number | null }> = {};
+    (Object.entries(taskFeedbacks) as [string, { comment?: string; score?: number | null }][]).forEach(([tId, fb]) => {
+      const rawScore = fb.score;
+      const cleanScore =
+        rawScore !== undefined &&
+        rawScore !== null &&
+        String(rawScore).trim() !== '' &&
+        !isNaN(Number(rawScore))
+          ? Number(rawScore)
+          : null;
+      const cleanComment = fb.comment?.trim() || '';
+      sanitizedTaskFeedbacks[tId] = {
+        comment: cleanComment,
+        score: cleanScore,
+      };
+    });
 
     const now = new Date();
     const formattedCheckedAt = `${now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
 
     onGradeSubmission(selectedSubmission.id, {
       status: 'graded',
-      criteriaScores: criteria,
+      criteriaScores: finalScore !== null ? criteria : null,
       totalScore: finalScore,
-      maxScore,
-      schoolGrade: schoolGrade,
-      taskFeedbacks: Object.keys(taskFeedbacks).length > 0 ? taskFeedbacks : undefined,
-      teacherFeedbackText: feedbackText,
-      teacherVoiceAudioUrl: teacherVoiceUrl || undefined,
+      maxScore: finalScore !== null ? maxScore : null,
+      schoolGrade: cleanSchoolGrade,
+      testScore: selectedSubmission.testScore != null ? selectedSubmission.testScore : null,
+      taskFeedbacks: Object.keys(sanitizedTaskFeedbacks).length > 0 ? sanitizedTaskFeedbacks : {},
+      teacherFeedbackText: feedbackText || '',
+      teacherVoiceAudioUrl: teacherVoiceUrl || null,
       teacherCheckedAt: formattedCheckedAt,
     });
 
     setGradeSuccessToast({
       studentName: selectedSubmission.studentName,
       scoreStr:
-        schoolGrade !== undefined
-          ? `Оценка: ${schoolGrade}`
-          : `${finalScore} / ${maxScore} баллов`,
+        cleanSchoolGrade !== null
+          ? `Оценка: ${cleanSchoolGrade}`
+          : finalScore !== null
+          ? `${finalScore} / ${maxScore} баллов`
+          : 'Зачтено (без баллов)',
     });
 
     const remainingPending = submissions.filter(
@@ -1340,6 +1382,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       setGradeSuccessToast(null);
     }, 6000);
   };
+
+  // Alias for compatibility
+  const handleCompleteGrading = handleSaveGrading;
 
   const totalCalculatedScore =
     criteria.k1_taskSolution +
@@ -2671,9 +2716,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                         min={0}
                                         max={100}
                                         placeholder="Балл (0-100)"
-                                        value={taskFeedbacks[task.id]?.score !== undefined ? taskFeedbacks[task.id]?.score : ''}
+                                        value={taskFeedbacks[task.id]?.score != null && !isNaN(taskFeedbacks[task.id]!.score!) ? taskFeedbacks[task.id]!.score! : ''}
                                         onChange={(e) => {
-                                          const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                          const raw = e.target.value.trim();
+                                          const val = raw === '' ? null : (isNaN(Number(raw)) ? null : Number(raw));
                                           setTaskFeedbacks((prev) => ({
                                             ...prev,
                                             [task.id]: {
@@ -2765,9 +2811,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       min={0}
                                       max={100}
                                       placeholder="Балл (0-100)"
-                                      value={taskFeedbacks[taskId]?.score !== undefined ? taskFeedbacks[taskId]?.score : ''}
+                                      value={taskFeedbacks[taskId]?.score != null && !isNaN(taskFeedbacks[taskId]!.score!) ? taskFeedbacks[taskId]!.score! : ''}
                                       onChange={(e) => {
-                                        const val = e.target.value === '' ? undefined : Number(e.target.value);
+                                        const raw = e.target.value.trim();
+                                        const val = raw === '' ? null : (isNaN(Number(raw)) ? null : Number(raw));
                                         setTaskFeedbacks((prev) => ({
                                           ...prev,
                                           [taskId]: {
@@ -2943,6 +2990,68 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                 );
               })()}
 
+              {/* ИТОГОВЫЙ БАЛЛ (TOTAL SCORE) С ПОДДЕРЖКОЙ ЗАЧЕТА "БЕЗ БАЛЛОВ" */}
+              {(() => {
+                const targetHw = getHomeworkForSubmission(selectedSubmission.homeworkId);
+                const maxPoints = targetHw?.maxPoints || 14;
+                const isPassMode = manualTotalScore === '' || manualTotalScore == null;
+
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Award className="w-4 h-4 text-amber-400" />
+                        <h4 className="text-xs font-bold text-amber-300">
+                          Итоговый балл за работу (totalScore):
+                        </h4>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Оставьте пустым для "Без баллов / Зачет"
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          max={maxPoints}
+                          placeholder="Без баллов (зачет)"
+                          value={manualTotalScore != null ? manualTotalScore : ''}
+                          onChange={(e) => {
+                            const val = e.target.value.trim();
+                            setManualTotalScore(val === '' ? '' : (isNaN(Number(val)) ? '' : Number(val)));
+                          }}
+                          className={`w-36 p-2 rounded-xl text-xs font-black border text-center ${
+                            isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-amber-300' : 'bg-white border-slate-300 text-slate-900'
+                          }`}
+                        />
+                        <span className="text-xs text-slate-400 font-semibold">из {maxPoints} макс.</span>
+                      </div>
+
+                      {!isPassMode ? (
+                        <button
+                          type="button"
+                          onClick={() => setManualTotalScore('')}
+                          className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 border border-rose-500/20 transition-colors"
+                        >
+                          ✕ Сделать без баллов (Зачет)
+                        </button>
+                      ) : (
+                        <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                          ✓ Режим «Без баллов / Зачет»
+                        </span>
+                      )}
+                    </div>
+                    {isPassMode && (
+                      <p className="text-[10px] text-emerald-400/90 font-medium">
+                        ✨ Поле оставлено пустым: балл не будет начислен, работа сохранится со статусом «Проверено» без искажения статистики ученика.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* CRITERIA SCORING FORM (ФИПИ) */}
               <div className="space-y-3 pt-2">
                 <div className="flex items-center justify-between">
@@ -2950,9 +3059,19 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     <Sliders className="w-4 h-4" />
                     <span>Выставление баллов по критериям ФИПИ</span>
                   </h4>
-                  <span className="text-sm font-extrabold text-amber-400 bg-amber-400/20 px-2.5 py-0.5 rounded-full">
-                    Итого: {totalCalculatedScore} баллов
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-400 bg-amber-400/20 px-2 py-0.5 rounded-full">
+                      Сумма: {totalCalculatedScore} б.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setManualTotalScore(totalCalculatedScore)}
+                      className="text-[11px] font-semibold text-amber-300 hover:text-amber-200 underline"
+                      title="Подставить сумму критериев в итоговый балл"
+                    >
+                      Применить в балл ↵
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -3029,10 +3148,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       Школьная оценка (1-5)
                     </h4>
                   </div>
-                  {schoolGrade !== undefined && (
+                  {schoolGrade != null && (
                     <button
                       type="button"
-                      onClick={() => setSchoolGrade(undefined)}
+                      onClick={() => setSchoolGrade(null)}
                       className="text-[11px] font-medium text-slate-400 hover:text-rose-400 transition-colors"
                     >
                       Сбросить
@@ -3046,7 +3165,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       <button
                         key={gradeNum}
                         type="button"
-                        onClick={() => setSchoolGrade(isSelected ? undefined : gradeNum)}
+                        onClick={() => setSchoolGrade(isSelected ? null : gradeNum)}
                         className={`py-2 rounded-xl text-sm font-black transition-all border ${
                           isSelected
                             ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-600/40 scale-105'
@@ -3148,7 +3267,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                   className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
                 >
                   <CheckCircle className="w-4 h-4" />
-                  <span>Отправить результат ученику в Telegram</span>
+                  <span>Сохранить проверку / Отправить результат ученику</span>
                 </button>
               </div>
             </div>
@@ -3336,9 +3455,24 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       <div className="flex flex-col items-start sm:items-end gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-700/30">
                         <div className="text-left sm:text-right">
                           <span className="text-[10px] text-slate-400 block font-medium">Оценка:</span>
-                          <span className="text-sm font-black text-emerald-400">
-                            {sub.totalScore ?? 0} / {sub.maxScore ?? 14} баллов
-                          </span>
+                          {sub.totalScore !== undefined ? (
+                            <span className="text-sm font-black text-emerald-400">
+                              {sub.totalScore} / {sub.maxScore ?? hw?.maxPoints ?? 14} баллов
+                            </span>
+                          ) : sub.schoolGrade !== undefined ? (
+                            <span className="text-sm font-black text-indigo-400">
+                              Оценка: {sub.schoolGrade}
+                            </span>
+                          ) : sub.testScore !== undefined ? (
+                            <span className="text-sm font-black text-emerald-400">
+                              {sub.testScore} / {sub.maxScore ?? hw?.maxPoints ?? 14} баллов
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full inline-flex items-center space-x-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Зачет (без баллов)</span>
+                            </span>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -5001,7 +5135,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
             ) : (
               activeRegisteredStudents.map((st) => {
                 const isEditingThis = editingStudentId === st.id;
-                const stSubs = activeSubmissions.filter((s) => s.studentName === st.name && s.status === 'graded');
+                const stSubs = activeSubmissions.filter(
+                  (s) => s.studentName === st.name && s.status === 'graded' && (s.totalScore !== undefined || s.testScore !== undefined)
+                );
                 let avgScoreDisplay = '—';
                 if (stSubs.length > 0) {
                   const totalPct = stSubs.reduce((acc, sub) => {

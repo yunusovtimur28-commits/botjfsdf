@@ -832,8 +832,8 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       if (!allImages.includes(p)) allImages.push(p);
     });
 
-    const firstSpeakingAudio = Object.values(mergedTaskAnswers).find((ans: any) => ans?.voiceAudioUrl)?.voiceAudioUrl;
-    const firstSpeakingBase64 = Object.values(mergedTaskAnswers).find((ans: any) => ans?.voiceAudioBase64)?.voiceAudioBase64;
+    const firstSpeakingAudio = (Object.values(mergedTaskAnswers) as any[]).find((ans) => ans?.voiceAudioUrl)?.voiceAudioUrl;
+    const firstSpeakingBase64 = (Object.values(mergedTaskAnswers) as any[]).find((ans) => ans?.voiceAudioBase64)?.voiceAudioBase64;
 
     onSubmit({
       homeworkId: homework.id,
@@ -956,14 +956,20 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                   <span className="font-bold text-sm">Результат проверки Ангелины</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  {existingSubmission.schoolGrade !== undefined && (
+                  {existingSubmission.schoolGrade != null && (
                     <span className="text-xs font-black text-indigo-300 bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-0.5 rounded-full">
                       Школьная оценка: {existingSubmission.schoolGrade}
                     </span>
                   )}
-                  {existingSubmission.totalScore !== undefined && (
+                  {existingSubmission.totalScore != null && (
                     <span className="text-sm font-extrabold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full">
                       {existingSubmission.totalScore} / {homework.maxPoints} баллов
+                    </span>
+                  )}
+                  {existingSubmission.totalScore == null && existingSubmission.schoolGrade == null && existingSubmission.testScore == null && (
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Зачет (без баллов)</span>
                     </span>
                   )}
                 </div>

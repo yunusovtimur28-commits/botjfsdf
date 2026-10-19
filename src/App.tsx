@@ -470,13 +470,15 @@ export default function App() {
     const isSprinterUnlocked = currentStreak >= 7;
 
     // Dynamic exam progress for student based on actual graded submissions
-    const gradedUserSubs = currentStudentSubmissions.filter((s) => s.status === 'graded');
+    const gradedUserSubs = currentStudentSubmissions.filter(
+      (s) => s.status === 'graded' && (s.totalScore != null || s.testScore != null)
+    );
     let dynamicExamProgress: ExamBlockScore[] = [];
 
     if (gradedUserSubs.length > 0) {
       gradedUserSubs.forEach((sub, idx) => {
         const hw = homeworks.find((h) => h.id === sub.homeworkId);
-        const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+        const score = sub.totalScore != null ? sub.totalScore : (sub.testScore || 0);
         const max = sub.maxScore || hw?.maxPoints || 14;
         const totalPct = Math.round(Math.min(100, Math.max(0, (score / max) * 100)));
         const block20 = Math.round(Math.min(20, Math.max(0, (score / max) * 20)));
@@ -530,7 +532,7 @@ export default function App() {
       averageScorePercent: gradedUserSubs.length > 0
         ? Math.round(
             gradedUserSubs.reduce((acc, sub) => {
-              const score = sub.totalScore !== undefined ? sub.totalScore : (sub.testScore || 0);
+              const score = sub.totalScore != null ? sub.totalScore : (sub.testScore || 0);
               const max = sub.maxScore || 14;
               return acc + Math.min(100, (score / max) * 100);
             }, 0) / gradedUserSubs.length
