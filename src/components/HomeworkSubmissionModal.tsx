@@ -1557,16 +1557,11 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                         </div>
                         <audio controls src={task.taskAudioUrl} className="w-full h-8 accent-sky-500" />
                       </div>
-                    ) : isSpeakingTask ? (
-                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-center space-x-2">
-                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>Преподаватель не прикрепил голосовую запись к этому номеру. Запишите ответ согласно тексту инструкции.</span>
-                      </div>
                     ) : null}
 
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
-                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && !isSpeakingTask && (
+                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && !isSpeakingTask && (
                         <label className="text-[11px] font-semibold text-slate-300 block">
                           Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
                         </label>
@@ -2249,6 +2244,215 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             );
                           })()}
                         </div>
+                      ) : task.taskType === 'bracket_gaps' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* Instructions Header banner */}
+                          <div className="p-3 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center space-x-2">
+                              <span className="p-1.5 rounded-lg bg-teal-500/20 text-teal-400 font-bold text-xs">
+                                🔤
+                              </span>
+                              <div>
+                                <h4 className="font-extrabold text-xs sm:text-sm text-teal-300">
+                                  Заполнение пропусков в тексте
+                                </h4>
+                                <p className="text-[11px] text-slate-400">
+                                  Впишите правильные слова в каждый пропуск. Подсказки с количеством слов указаны в скобках.
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] px-2.5 py-1 rounded-full bg-teal-500/20 text-teal-200 border border-teal-500/30 font-semibold self-start sm:self-auto shrink-0">
+                              Автопроверка
+                            </span>
+                          </div>
+
+                          {/* Lines and inline gaps */}
+                          {(() => {
+                            const rawText = task.bracketText || '';
+                            const lines = rawText.split('\n');
+                            const expectedAnswers: string[] = task.bracketAnswers && task.bracketAnswers.length > 0
+                              ? task.bracketAnswers
+                              : Array.from(rawText.matchAll(/\[(.*?)\]/g)).map((m) => m[1].trim()).filter(Boolean);
+                            const studentInputs = currentAnswer.gapInputs || [];
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const normalize = (w: string) => (w || '').trim().toLowerCase().replace(/['’`]/g, "'");
+
+                            let runningGapIdx = 0;
+
+                            return (
+                              <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/70 border border-teal-500/30 space-y-3.5 shadow-inner">
+                                {lines.map((line, lIdx) => {
+                                  if (!line.trim()) {
+                                    return <div key={lIdx} className="h-2" />;
+                                  }
+
+                                  const parts = line.split(/(\[.*?\])/g);
+
+                                  return (
+                                    <div
+                                      key={lIdx}
+                                      className="text-xs sm:text-sm text-slate-100 leading-loose sm:leading-loose font-medium flex flex-wrap items-center gap-y-1.5"
+                                    >
+                                      {parts.map((part, pIdx) => {
+                                        if (part.startsWith('[') && part.endsWith(']')) {
+                                          const currentGapIdx = runningGapIdx++;
+                                          const targetWord = expectedAnswers[currentGapIdx] || part.slice(1, -1).trim();
+                                          const userVal = studentInputs[currentGapIdx] || '';
+                                          const gapStatus = gapChecked[task.id]?.[currentGapIdx];
+                                          const isCorrect = gapStatus === 'correct';
+                                          const isIncorrect = gapStatus === 'incorrect';
+
+                                          return (
+                                            <span key={pIdx} className="inline-flex items-center mx-1 my-0.5">
+                                              <input
+                                                type="text"
+                                                disabled={isSubmissionBlocked || isTaskChecked}
+                                                value={userVal}
+                                                onChange={(e) => {
+                                                  if (isSubmissionBlocked || isTaskChecked) return;
+                                                  const val = e.target.value;
+                                                  const updated = [...(currentAnswer.gapInputs || [])];
+                                                  while (updated.length <= currentGapIdx) updated.push('');
+                                                  updated[currentGapIdx] = val;
+                                                  setTaskAnswers((prev) => ({
+                                                    ...prev,
+                                                    [task.id]: {
+                                                      ...prev[task.id],
+                                                      gapInputs: updated,
+                                                    },
+                                                  }));
+                                                }}
+                                                placeholder="..."
+                                                style={{
+                                                  width: `${Math.max(5, (targetWord.length || 4) + 2)}ch`,
+                                                  minWidth: '58px',
+                                                }}
+                                                className={`text-center text-xs sm:text-sm font-bold px-2 py-0.5 rounded-lg border focus:outline-none transition-all shadow-sm ${
+                                                  isCorrect
+                                                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/30'
+                                                    : isIncorrect
+                                                    ? 'bg-rose-500/20 border-rose-500 text-rose-300 ring-2 ring-rose-500/30'
+                                                    : isDarkMode
+                                                    ? 'bg-[#1e2c3a] border-teal-500/40 text-teal-100 focus:border-teal-400 focus:ring-2 focus:ring-teal-400/30'
+                                                    : 'bg-white border-teal-500/50 text-slate-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-500/20'
+                                                } ${isSubmissionBlocked || isTaskChecked ? 'cursor-not-allowed opacity-90' : ''}`}
+                                              />
+                                              {isIncorrect && (
+                                                <span className="ml-1 text-[10px] font-bold text-rose-400 font-mono bg-rose-500/10 px-1 rounded border border-rose-500/20" title={`Правильно: ${targetWord}`}>
+                                                  {targetWord}
+                                                </span>
+                                              )}
+                                            </span>
+                                          );
+                                        }
+
+                                        // Regular text part (may include (3 слова), etc.)
+                                        return (
+                                          <span
+                                            key={pIdx}
+                                            className={
+                                              /\(.*?(?:слов|слова|word|words).*?\)/i.test(part)
+                                                ? 'text-teal-400/90 font-medium italic'
+                                                : ''
+                                            }
+                                          >
+                                            {part}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+
+                          {/* "Проверить ответы" Button & Validation Banner */}
+                          {(() => {
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const rawText = task.bracketText || '';
+                            const expectedAnswers: string[] = task.bracketAnswers && task.bracketAnswers.length > 0
+                              ? task.bracketAnswers
+                              : Array.from(rawText.matchAll(/\[(.*?)\]/g)).map((m) => m[1].trim()).filter(Boolean);
+                            const studentInputs = currentAnswer.gapInputs || [];
+                            const normalize = (w: string) => (w || '').trim().toLowerCase().replace(/['’`]/g, "'");
+
+                            return (
+                              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                {isSubmissionBlocked ? (
+                                  <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                    <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Режим просмотра (сдача закрыта)</span>
+                                  </div>
+                                ) : isTaskChecked ? (
+                                  <button
+                                    type="button"
+                                    disabled={true}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                  >
+                                    <Check className="w-4 h-4 text-emerald-400" />
+                                    <span>Ответы зафиксированы</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newMap: Record<number, 'correct' | 'incorrect'> = {};
+                                      let correctCount = 0;
+
+                                      expectedAnswers.forEach((target, idx) => {
+                                        const userAns = studentInputs[idx] || '';
+                                        const isMatch = normalize(userAns) === normalize(target);
+                                        newMap[idx] = isMatch ? 'correct' : 'incorrect';
+                                        if (isMatch) correctCount++;
+                                      });
+
+                                      setGapChecked((prev) => ({
+                                        ...prev,
+                                        [task.id]: newMap,
+                                      }));
+
+                                      const allCorrect = expectedAnswers.length > 0 && correctCount === expectedAnswers.length;
+                                      setCheckedTasks((prev) => ({
+                                        ...prev,
+                                        [task.id]: allCorrect ? 'correct' : 'incorrect',
+                                      }));
+
+                                      const summary = expectedAnswers.map((_, i) => `${i + 1}. ${studentInputs[i] || '(пусто)'}`).join(' | ');
+                                      setTaskAnswers((prev) => ({
+                                        ...prev,
+                                        [task.id]: {
+                                          ...prev[task.id],
+                                          textAnswer: summary,
+                                          gapInputs: studentInputs,
+                                        },
+                                      }));
+                                    }}
+                                    className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-teal-500 via-emerald-600 to-teal-700 hover:from-teal-600 hover:to-emerald-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-teal-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                    <span>Проверить ответы</span>
+                                  </button>
+                                )}
+
+                                {isTaskChecked && expectedAnswers.length > 0 && (
+                                  <div className="text-xs font-bold flex items-center gap-1.5">
+                                    {expectedAnswers.every((target, i) => normalize(studentInputs[i] || '') === normalize(target)) ? (
+                                      <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Все слова верны! Отличная работа! 🎉</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                                        Верно: {expectedAnswers.filter((target, i) => normalize(studentInputs[i] || '') === normalize(target)).length} из {expectedAnswers.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
                       ) : isSpeakingTask ? (
                         /* SPEAKING TASK: Strictly voice response ONLY (no text input, no photo attachment) */
                         <div className="p-3.5 rounded-2xl bg-gradient-to-br from-purple-950/40 to-indigo-950/30 border border-purple-500/35 space-y-3">
@@ -2392,7 +2596,11 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                           ) : (
                             <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 text-slate-400 text-xs italic flex items-center space-x-2">
                               <Mic className="w-4 h-4 text-slate-500 shrink-0" />
-                              <span>Голосовой ответ ещё не записан. Прослушайте голосовое учителя выше и нажмите «🎙 Записать голосовой ответ».</span>
+                              <span>
+                                {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim())
+                                  ? 'Голосовой ответ ещё не записан. Прослушайте голосовое учителя выше и нажмите «🎙 Записать голосовой ответ».'
+                                  : 'Голосовой ответ ещё не записан. Нажмите «🎙 Записать голосовой ответ» или прикрепите аудиофайл.'}
+                              </span>
                             </div>
                           )}
 

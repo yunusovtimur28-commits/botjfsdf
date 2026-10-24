@@ -586,7 +586,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     {
       id: string;
       block: BlockCategory;
-      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna';
+      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps';
       taskNumber: string;
       instruction: string;
       taskPrompt: string;
@@ -606,6 +606,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       textWithGaps?: string;
       gapAnswers?: string[];
       qnaItems?: { id: string; question: string; correctAnswer: string }[];
+      bracketText?: string;
+      bracketAnswers?: string[];
     }[]
   >([
     {
@@ -698,12 +700,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
         id: `task-${Date.now()}-${prev.length + 1}`,
         block: defaultBlock,
         taskType: isSp ? 'speaking' : 'test',
-        taskNumber: options[0] || `Задание #${prev.length + 1}`,
         instruction: isSp
-          ? 'Прослушайте голосовое условие от преподавателя и запишите свой голосовой ответ.'
+          ? 'Запишите голосовой ответ на задание.'
           : 'Инструкция к выполнению задания...',
         taskPrompt: isSp ? 'Голосовое задание' : 'Задание / Условие...',
-        taskAudioUrl: '',
+        taskAudioUrl: undefined,
       },
     ]);
   };
@@ -1113,6 +1114,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           textWithGaps: t.textWithGaps,
           gapAnswers: t.gapAnswers,
           qnaItems: t.qnaItems,
+          bracketText: t.bracketText,
+          bracketAnswers: t.bracketAnswers,
         }))
       );
     } else {
@@ -1172,10 +1175,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       taskImageUrls: t.taskImageUrls,
       taskFileLink: t.taskFileLink,
       taskFileName: t.taskFileName,
-      taskAudioUrl: t.taskAudioUrl,
+      taskAudioUrl: t.taskAudioUrl && t.taskAudioUrl.trim() ? t.taskAudioUrl.trim() : undefined,
       taskVideoUrl: t.taskVideoUrl,
-      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
-      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna') ? undefined : (t.correctOptionIndex ?? 0),
+      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
+      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps') ? undefined : (t.correctOptionIndex ?? 0),
       correctAnswer: t.taskType === 'gap_fill' ? t.correctAnswer?.trim() : (t.options ? t.options[t.correctOptionIndex ?? 0] : undefined),
       explanation: t.explanation?.trim() || undefined,
       baseWord: t.taskType === 'gap_fill' ? t.baseWord?.trim() : undefined,
@@ -1184,10 +1187,14 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       textWithGaps: t.taskType === 'text_bank' ? t.textWithGaps?.trim() : undefined,
       gapAnswers: t.taskType === 'text_bank' ? (t.gapAnswers || []).map((a) => a.trim()) : undefined,
       qnaItems: t.taskType === 'qna' ? (t.qnaItems || []).map((q) => ({ id: q.id, question: q.question.trim(), correctAnswer: q.correctAnswer.trim() })) : undefined,
+      bracketText: t.taskType === 'bracket_gaps' ? t.bracketText?.trim() : undefined,
+      bracketAnswers: t.taskType === 'bracket_gaps' ? (
+        t.bracketText ? Array.from(t.bracketText.matchAll(/\[(.*?)\]/g)).map((m) => m[1].trim()).filter(Boolean) : []
+      ) : undefined,
     }));
 
     const primaryBlock = formattedTasks[0]?.block || hwBlock;
-    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna') ? 'test' : (formattedTasks[0]?.taskType || 'test');
+    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna' || formattedTasks[0]?.taskType === 'bracket_gaps') ? 'test' : (formattedTasks[0]?.taskType || 'test');
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
@@ -2459,11 +2466,6 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                     </div>
                                     <audio controls src={task.taskAudioUrl} className="w-full h-8 accent-sky-500" />
                                   </div>
-                                ) : isSpeakingTask ? (
-                                  <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-center space-x-1.5 my-1">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                                    <span>Голосовое условие от преподавателя не было прикреплено к этому номеру</span>
-                                  </div>
                                 ) : null}
 
                                 {hasAnyStudentInput ? (
@@ -2624,6 +2626,68 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                             );
                                           })}
                                         </div>
+                                      </div>
+                                    )}
+                                    {task.taskType === 'bracket_gaps' && (
+                                      <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/20 text-xs space-y-2">
+                                        {(() => {
+                                          const answers = task.bracketAnswers && task.bracketAnswers.length > 0
+                                            ? task.bracketAnswers
+                                            : Array.from((task.bracketText || '').matchAll(/\[(.*?)\]/g)).map((m) => m[1].trim()).filter(Boolean);
+                                          const studentInputs = ans?.gapInputs || [];
+                                          const normalize = (w: string) => w.trim().toLowerCase().replace(/['’`]/g, "'");
+                                          const correctCount = answers.filter((target, i) => normalize(studentInputs[i] || '') === normalize(target)).length;
+
+                                          return (
+                                            <>
+                                              <div className="flex items-center justify-between font-bold text-teal-300 text-[11px]">
+                                                <span>Проверка инлайн-пропусков [в скобках]:</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                  answers.length > 0 && correctCount === answers.length
+                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                                }`}>
+                                                  Верно {correctCount} из {answers.length}
+                                                </span>
+                                              </div>
+
+                                              <div className="space-y-1.5">
+                                                {answers.map((targetAns, aIdx) => {
+                                                  const studentAns = (studentInputs[aIdx] || '').trim();
+                                                  const isMatch = normalize(studentAns) === normalize(targetAns);
+                                                  return (
+                                                    <div
+                                                      key={aIdx}
+                                                      className="p-2 rounded-lg bg-black/30 border border-slate-700/60 flex items-center justify-between gap-2 text-[11px]"
+                                                    >
+                                                      <div className="flex items-center gap-2">
+                                                        <span className="w-6 h-6 rounded border border-teal-500/40 flex items-center justify-center font-bold text-teal-300 shrink-0 text-[11px]">
+                                                          №{aIdx + 1}
+                                                        </span>
+                                                        <div>
+                                                          <div className="flex items-center gap-1.5">
+                                                            <span className="text-slate-400 text-[10px]">Ответ:</span>
+                                                            <span className={`font-bold ${isMatch ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                              {studentAns || '(нет ответа)'}
+                                                            </span>
+                                                            {isMatch ? (
+                                                              <span className="text-[10px] text-emerald-400 font-bold">✅</span>
+                                                            ) : (
+                                                              <span className="text-[10px] text-rose-400 font-bold">❌</span>
+                                                            )}
+                                                          </div>
+                                                          <div className="text-[10px] text-slate-400">
+                                                            Верно: <b className="text-emerald-300 font-mono">{targetAns}</b>
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </>
+                                          );
+                                        })()}
                                       </div>
                                     )}
                                     {/* Voice Answer */}
@@ -3640,7 +3704,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           ...t,
                           block: 'speaking',
                           taskType: 'speaking',
-                          taskAudioUrl: t.taskAudioUrl ?? '',
+                          taskAudioUrl: t.taskAudioUrl,
                         }))
                       );
                     }
@@ -3727,7 +3791,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         <select
                           value={task.taskType || 'test'}
                           onChange={(e) => {
-                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna';
+                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps';
                             setHwTasks((prev) =>
                               prev.map((t, i) =>
                                 i === idx
@@ -3735,9 +3799,18 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       ...t,
                                       taskType: val,
                                       block: val === 'speaking' ? 'speaking' : t.block,
-                                      taskAudioUrl: val === 'speaking' ? (t.taskAudioUrl || '') : t.taskAudioUrl,
+                                      taskAudioUrl: t.taskAudioUrl,
                                       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
                                       correctOptionIndex: t.correctOptionIndex ?? 0,
+                                      instruction:
+                                        val === 'bracket_gaps' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
+                                          ? 'Впишите правильные слова в каждый пропуск. Количество слов указано в скобках.'
+                                          : t.instruction,
+                                      bracketText:
+                                        val === 'bracket_gaps'
+                                          ? (t.bracketText ||
+                                            `• 1 January - [New] [Year's] [Day] (3 слова);\n• 7 January - [Orthodox] [Christmas] (2 слова);\n• 23 February - [Defender] [of] [the] [Fatherland] [Day] (5 слов);\n• 8 March - [International] [Women's] [Day] (3 слова);`)
+                                          : t.bracketText,
                                       gapAnswers: val === 'text_bank' ? (t.gapAnswers && t.gapAnswers.length > 0 ? t.gapAnswers : ['']) : t.gapAnswers,
                                       qnaItems: val === 'qna' ? (t.qnaItems && t.qnaItems.length > 0 ? t.qnaItems : [{ id: `qna-${Date.now()}-1`, question: '', correctAnswer: '' }]) : t.qnaItems,
                                       egeItems:
@@ -3776,6 +3849,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           <option value="gap_fill">Текст с пропусками (Автопроверка)</option>
                           <option value="ege_gap_fill">Текст с пропусками (ЕГЭ 19-29)</option>
                           <option value="text_bank">Текст с банком слов (Ввод ручками)</option>
+                          <option value="bracket_gaps">🔤 Заполнение пропусков [в скобках] (Инлайн-ответы)</option>
                           <option value="qna">Вопрос-Ответ (Ввод ручками)</option>
                           <option value="written">✍️ Письменно / Файл</option>
                           <option value="speaking">🗣 Говорение (Аудио)</option>
@@ -3797,7 +3871,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   block: newBlock,
                                   taskNumber: newOpts[0],
                                   taskType: newBlock === 'speaking' ? 'speaking' : t.taskType,
-                                  taskAudioUrl: newBlock === 'speaking' ? (t.taskAudioUrl || '') : t.taskAudioUrl,
+                                  taskAudioUrl: t.taskAudioUrl,
                                 } : t
                               )
                             );
@@ -4562,6 +4636,97 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                       </div>
                     )}
 
+                    {/* BRACKET GAPS EDITOR (taskType === 'bracket_gaps') */}
+                    {task.taskType === 'bracket_gaps' && (() => {
+                      const detectedAnswers = Array.from((task.bracketText || '').matchAll(/\[(.*?)\]/g)).map(m => m[1].trim()).filter(Boolean);
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/30 space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-500/20 pb-2">
+                            <div>
+                              <h4 className="text-xs font-extrabold text-teal-300 flex items-center gap-1.5">
+                                <span>🔤 Заполнение пропусков [в скобках]</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-200 font-mono font-bold">
+                                  {detectedAnswers.length} {detectedAnswers.length === 1 ? 'пропуск' : detectedAnswers.length < 5 ? 'пропуска' : 'пропусков'}
+                                </span>
+                              </h4>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Заключите слова-ответы в квадратные скобки <code className="text-teal-300 font-bold bg-black/40 px-1 rounded">[Слово]</code>. Для каждого слова будет отдельный пропуск. Подсказки в круглых скобках <code className="text-slate-300 font-bold bg-black/40 px-1 rounded">(3 слова)</code> останутся видимым текстом.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sample = `• 1 January - [New] [Year's] [Day] (3 слова);\n• 7 January - [Orthodox] [Christmas] (2 слова);\n• 23 February - [Defender] [of] [the] [Fatherland] [Day] (5 слов);\n• 8 March - [International] [Women's] [Day] (3 слова);\n• 1 May - [Spring] [and] [Labour] [Day] (3 слова);\n• 9 May - [Victory] [Day] (2 слова);\n• 12 June - [Russia] [Day] (2 слова);\n• 4 November - [Unity] [Day] (2 слова);`;
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) =>
+                                    i === idx
+                                      ? {
+                                          ...t,
+                                          bracketText: sample,
+                                          instruction: t.instruction && t.instruction !== 'Инструкция к заданию...' ? t.instruction : 'Впишите правильные слова в каждый пропуск. Количество слов указано в скобках.',
+                                        }
+                                      : t
+                                  )
+                                );
+                              }}
+                              className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-bold flex items-center space-x-1 shrink-0 shadow-sm transition-all self-start sm:self-auto"
+                            >
+                              <span>📋 Вставить пример (Праздники)</span>
+                            </button>
+                          </div>
+
+                          {/* bracketText textarea */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-bold text-teal-300 block">
+                                Текст с ответами в квадратных скобках [ ]:
+                              </label>
+                              <span className="text-[10px] text-slate-400">
+                                Enter для новой строки
+                              </span>
+                            </div>
+                            <textarea
+                              rows={8}
+                              value={task.bracketText || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setHwTasks((prev) => prev.map((t, i) => (i === idx ? { ...t, bracketText: val } : t)));
+                              }}
+                              placeholder={`• 1 January - [New] [Year's] [Day] (3 слова);\n• 7 January - [Orthodox] [Christmas] (2 слова);`}
+                              className={`w-full p-3 rounded-xl text-xs font-mono border leading-relaxed resize-y ${
+                                isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-teal-100 placeholder-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
+                              }`}
+                            />
+                          </div>
+
+                          {/* Live detected answers chips */}
+                          {detectedAnswers.length > 0 ? (
+                            <div className="p-3 rounded-xl bg-black/30 border border-teal-500/20 space-y-1.5">
+                              <p className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">
+                                Распознанные правильные слова ({detectedAnswers.length} шт.):
+                              </p>
+                              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pt-1">
+                                {detectedAnswers.map((ans, aIdx) => (
+                                  <span
+                                    key={aIdx}
+                                    className="px-2 py-0.5 rounded-md bg-teal-500/20 border border-teal-500/30 text-teal-200 text-[11px] font-mono flex items-center gap-1"
+                                  >
+                                    <span className="text-[9px] text-teal-400/80 font-bold">#{aIdx + 1}</span>
+                                    <b>{ans}</b>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px]">
+                              ⚠️ Пока не найдено ни одного слова в скобках. Оберните нужное слово в квадратные скобки, например: <code className="bg-black/40 px-1 py-0.5 rounded text-white">[Holiday]</code>.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Media attach buttons panel */}
                     <div className="flex items-center space-x-2 pt-1 pb-2 border-b border-slate-700/40">
                       {(!task.taskImageUrls || task.taskImageUrls.length === 0) && task.taskImageUrl === undefined && (
@@ -4584,7 +4749,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           <span>+ Файл (Ссылка)</span>
                         </button>
                       )}
-                      {task.taskAudioUrl === undefined && task.block !== 'speaking' && task.taskType !== 'speaking' && (
+                      {task.taskAudioUrl === undefined && (
                         <button
                           type="button"
                           onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: '' } : t))}
@@ -4736,29 +4901,28 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         )}
 
                         {/* ROW 2: AUDIO / VOICE ATTACHMENT + RECORD BUTTON */}
-                        {(task.taskAudioUrl !== undefined || task.block === 'speaking' || task.taskType === 'speaking') && (
+                        {task.taskAudioUrl !== undefined && (
                           <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/25 space-y-2">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-sky-300 flex items-center space-x-1.5">
                                 <Mic className="w-3.5 h-3.5 text-sky-400" />
                                 <span>🎙 Голосовое от преподавателя (условие задачи)</span>
                               </span>
-                              {task.block !== 'speaking' && task.taskType !== 'speaking' && (
-                                <button
-                                  type="button"
-                                  onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: undefined } : t))}
-                                  className="text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-rose-500/10"
-                                  title="Удалить аудио условие"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setHwTasks(prev => prev.map((t, i) => i === idx ? { ...t, taskAudioUrl: undefined } : t))}
+                                className="text-rose-400 hover:text-rose-300 transition-colors px-2 py-1 rounded-lg hover:bg-rose-500/10 flex items-center space-x-1 border border-rose-500/20"
+                                title="Удалить аудио условие"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span className="text-[10px] font-bold">Удалить аудио условие</span>
+                              </button>
                             </div>
 
                             {(task.block === 'speaking' || task.taskType === 'speaking') && (
                               <div className="p-2 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-200 text-[11px] flex items-center space-x-2">
                                 <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                                <span><b>Режим «Говорение (аудио)»:</b> ученик слушает ваше голосовое условие и сдает <u>только голосовой ответ</u>. Ввод текста и прикрепление фото полностью отключены.</span>
+                                <span><b>Режим «Говорение (аудио)»:</b> ученик сдает <u>только голосовой ответ</u>. Если голосовое условие от учителя не требуется, вы можете удалить его кнопкой выше.</span>
                               </div>
                             )}
 

@@ -397,6 +397,39 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
                 }
               });
             }
+
+            // Bracket gaps [слово]
+            if (task.taskType === 'bracket_gaps' && taskAns.gapInputs) {
+              const answers = task.bracketAnswers && task.bracketAnswers.length > 0
+                ? task.bracketAnswers
+                : Array.from((task.bracketText || '').matchAll(/\[(.*?)\]/g)).map((m) => m[1].trim()).filter(Boolean);
+
+              const normalize = (w: string) => w.trim().toLowerCase().replace(/['’`]/g, "'");
+
+              answers.forEach((correctAns, idx) => {
+                const userAns = (taskAns.gapInputs?.[idx] || '').trim();
+                const trimmedCorrect = correctAns.trim();
+                if (userAns && normalize(userAns) !== normalize(trimmedCorrect)) {
+                  const alreadyExists = entries.some(
+                    (e) =>
+                      normalize(e.correctAnswer) === normalize(trimmedCorrect) &&
+                      normalize(e.errorText) === normalize(userAns)
+                  );
+
+                  if (!alreadyExists && !result.some((r) => normalize(r.correctAnswer) === normalize(trimmedCorrect))) {
+                    result.push({
+                      id: `err-${hw.id}-${task.id}-bracket-${idx}`,
+                      testTitle: `${hw.title} (${task.taskNumber || 'Заполнение пропусков'})`,
+                      questionPrompt: `Пропуск №${idx + 1} (${trimmedCorrect.length} букв)`,
+                      errorText: userAns,
+                      correctAnswer: trimmedCorrect,
+                      explanation: `Задание ${task.taskNumber}, пропуск №${idx + 1}. Правильный ответ: ${trimmedCorrect}`,
+                      section: 'Лексика',
+                    });
+                  }
+                }
+              });
+            }
           });
         }
       });

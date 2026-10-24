@@ -97,12 +97,61 @@ export default function App() {
   const [forceMobile, setForceMobile] = useState(false);
   const showDesktop = isDesktopScreen() && !forceMobile;
 
-  // Firestore Real-time Application State
-  const [webinars, setWebinars] = useState<Webinar[]>([]);
-  const [homeworks, setHomeworks] = useState<Homework[]>([]);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [notifications, setNotifications] = useState<TGNotification[]>([]);
-  const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+  // Firestore Real-time Application State with Local Storage caching & fallback
+  const [webinars, setWebinars] = useState<Webinar[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_cached_webinars');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return initialWebinars;
+  });
+
+  const [homeworks, setHomeworks] = useState<Homework[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_cached_homeworks');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return initialHomeworks;
+  });
+
+  const [submissions, setSubmissions] = useState<Submission[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_cached_submissions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return initialSubmissions;
+  });
+
+  const [notifications, setNotifications] = useState<TGNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_cached_notifications');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return initialNotifications;
+  });
+
+  const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>(() => {
+    try {
+      const saved = localStorage.getItem('ege_app_cached_students');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return initialRegisteredStudents;
+  });
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>(() => {
     try {
       const saved = localStorage.getItem('ege_app_diary_entries');
@@ -594,51 +643,105 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Connect Real-Time Listeners
+  // Auto-sync application state to LocalStorage as resilient cache
   useEffect(() => {
+    try {
+      if (webinars.length > 0) localStorage.setItem('ege_app_cached_webinars', JSON.stringify(webinars));
+    } catch (e) {}
+  }, [webinars]);
+
+  useEffect(() => {
+    try {
+      if (homeworks.length > 0) localStorage.setItem('ege_app_cached_homeworks', JSON.stringify(homeworks));
+    } catch (e) {}
+  }, [homeworks]);
+
+  useEffect(() => {
+    try {
+      if (submissions.length > 0) localStorage.setItem('ege_app_cached_submissions', JSON.stringify(submissions));
+    } catch (e) {}
+  }, [submissions]);
+
+  useEffect(() => {
+    try {
+      if (registeredStudents.length > 0) localStorage.setItem('ege_app_cached_students', JSON.stringify(registeredStudents));
+    } catch (e) {}
+  }, [registeredStudents]);
+
+  // Connect Real-Time Listeners (optimized: heavy collections lazy-loaded on login with server-side filters)
+  useEffect(() => {
+    let unsubSubmissions = () => {};
+    let unsubNotifications = () => {};
+    let unsubDiary = () => {};
+
+    // Base collections always loaded (for catalog & auth)
     const unsubWebinars = subscribeWebinars(
       (list) => {
-        setWebinars(list);
+        if (list && list.length > 0) {
+          setWebinars(list);
+          try { localStorage.setItem('ege_app_cached_webinars', JSON.stringify(list)); } catch (e) {}
+        }
       },
-      () => setWebinars([])
+      (err) => console.warn('Webinars snapshot offline/quota fallback:', err)
     );
 
     const unsubHomeworks = subscribeHomeworks(
       (list) => {
-        setHomeworks(list);
+        if (list && list.length > 0) {
+          setHomeworks(list);
+          try { localStorage.setItem('ege_app_cached_homeworks', JSON.stringify(list)); } catch (e) {}
+        }
       },
-      () => setHomeworks([])
-    );
-
-    const unsubSubmissions = subscribeSubmissions(
-      (list) => {
-        setSubmissions(list);
-      },
-      () => setSubmissions([])
-    );
-
-    const unsubNotifications = subscribeNotifications(
-      (list) => {
-        setNotifications(list);
-      },
-      () => setNotifications([])
+      (err) => console.warn('Homeworks snapshot offline/quota fallback:', err)
     );
 
     const unsubStudents = subscribeStudents(
       (list) => {
-        setRegisteredStudents(list);
-      },
-      () => setRegisteredStudents([])
-    );
-
-    const unsubDiary = subscribeDiaryEntries(
-      (list) => {
         if (list && list.length > 0) {
-          setDiaryEntries(list);
+          setRegisteredStudents(list);
+          try { localStorage.setItem('ege_app_cached_students', JSON.stringify(list)); } catch (e) {}
         }
       },
-      () => {}
+      (err) => console.warn('Students snapshot offline/quota fallback:', err)
     );
+
+    // Heavy collections loaded ONLY after login, using optimized role & studentName filters and document limits
+    if (isLoggedIn) {
+      unsubSubmissions = subscribeSubmissions(
+        (list) => {
+          if (list && list.length > 0) {
+            setSubmissions(list);
+            try { localStorage.setItem('ege_app_cached_submissions', JSON.stringify(list)); } catch (e) {}
+          }
+        },
+        (err) => console.warn('Submissions snapshot offline/quota fallback:', err),
+        currentUser.role,
+        currentUser.name,
+        150
+      );
+
+      unsubNotifications = subscribeNotifications(
+        (list) => {
+          if (list && list.length > 0) {
+            setNotifications(list);
+            try { localStorage.setItem('ege_app_cached_notifications', JSON.stringify(list)); } catch (e) {}
+          }
+        },
+        (err) => console.warn('Notifications snapshot offline/quota fallback:', err)
+      );
+
+      unsubDiary = subscribeDiaryEntries(
+        (list) => {
+          if (list && list.length > 0) {
+            setDiaryEntries(list);
+          }
+        },
+        (err) => console.warn('Diary snapshot offline/quota fallback:', err),
+        currentUser.role,
+        currentUser.name,
+        150
+      );
+    }
 
     return () => {
       unsubWebinars();
@@ -648,7 +751,7 @@ export default function App() {
       unsubStudents();
       unsubDiary();
     };
-  }, []);
+  }, [isLoggedIn, currentUser.role, currentUser.name]);
 
   // One-time cleanup for legacy unscoped/leaked draft keys from previous versions
   const cleanLegacyDraftKeys = () => {

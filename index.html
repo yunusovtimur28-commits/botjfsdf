@@ -6,6 +6,32 @@
     <link rel="apple-touch-icon" href="/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Делай и Точка | Подготовка к ЕГЭ</title>
+    <script>
+      (function() {
+        if (typeof window === 'undefined') return;
+        var origError = console.error;
+        console.error = function() {
+          var text = Array.prototype.slice.call(arguments).map(function(a) {
+            return (typeof a === 'string') ? a : (a && (a.message || a.stack || String(a))) || '';
+          }).join(' ');
+          if (
+            text.indexOf('Disconnecting idle stream') !== -1 ||
+            text.indexOf('Timed out waiting for new targets') !== -1 ||
+            (text.indexOf('@firebase/firestore') !== -1 && text.indexOf('CANCELLED') !== -1)
+          ) {
+            return;
+          }
+          origError.apply(console, arguments);
+        };
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = (e && e.reason && (e.reason.message || String(e.reason))) || '';
+          if (reason.indexOf('Disconnecting idle stream') !== -1 || reason.indexOf('Timed out waiting for new targets') !== -1) {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

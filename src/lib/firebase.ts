@@ -14,12 +14,18 @@ import {
   updateDoc,
   where,
   getDocs,
+  limit,
 } from 'firebase/firestore';
 import config from '../../firebase-applet-config.json';
 import { Webinar, Homework, Submission, TGNotification, RegisteredStudent, DiaryEntry } from '../types';
 import { uploadBase64ToServer } from './fileUpload';
 
+import { setLogLevel as setFirebaseLogLevel } from '@firebase/logger';
+
 setLogLevel('silent');
+try {
+  setFirebaseLogLevel('silent');
+} catch (e) {}
 
 const firebaseConfig = {
   apiKey: config.apiKey,
@@ -88,13 +94,25 @@ export function subscribeHomeworks(
 
 export function subscribeSubmissions(
   callback: (data: Submission[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  role?: string,
+  studentName?: string,
+  queryLimit: number = 100
 ) {
+  let q: any = collection(db, 'submissions');
+  if (role === 'student' && studentName) {
+    q = query(collection(db, 'submissions'), where('studentName', '==', studentName), limit(queryLimit));
+  } else if (role === 'teacher') {
+    q = query(collection(db, 'submissions'), limit(queryLimit));
+  } else if (queryLimit) {
+    q = query(collection(db, 'submissions'), limit(queryLimit));
+  }
+
   return onSnapshot(
-    submissionsCol,
-    (snapshot) => {
+    q,
+    (snapshot: any) => {
       const list: Submission[] = [];
-      snapshot.forEach((docSnap) => {
+      snapshot.forEach((docSnap: any) => {
         list.push({ id: docSnap.id, ...docSnap.data() } as Submission);
       });
       callback(list);
@@ -404,13 +422,25 @@ export async function dbUpdateStudent(studentId: string, updatedData: Partial<Re
 
 export function subscribeDiaryEntries(
   callback: (data: DiaryEntry[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  role?: string,
+  studentName?: string,
+  queryLimit: number = 100
 ) {
+  let q: any = collection(db, 'diary');
+  if (role === 'student' && studentName) {
+    q = query(collection(db, 'diary'), where('studentName', '==', studentName), limit(queryLimit));
+  } else if (role === 'teacher') {
+    q = query(collection(db, 'diary'), limit(queryLimit));
+  } else if (queryLimit) {
+    q = query(collection(db, 'diary'), limit(queryLimit));
+  }
+
   return onSnapshot(
-    diaryCol,
-    (snapshot) => {
+    q,
+    (snapshot: any) => {
       const list: DiaryEntry[] = [];
-      snapshot.forEach((docSnap) => {
+      snapshot.forEach((docSnap: any) => {
         list.push({ id: docSnap.id, ...docSnap.data() } as DiaryEntry);
       });
       callback(list);

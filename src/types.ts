@@ -70,7 +70,7 @@ export interface QnaItem {
 export interface HomeworkTask {
   id: string;
   block: BlockCategory;
-  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ
+  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ, вставка слов в пропуски [ответы]
   taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
   instruction?: string; // Инструкция к заданию
   taskPrompt: string; // Задание / Условие / Заголовок текста
@@ -91,6 +91,8 @@ export interface HomeworkTask {
   textWithGaps?: string; // Сплошной текст, пропуски обозначаются как ___
   gapAnswers?: string[]; // Массив правильных ответов для пропусков по порядку
   qnaItems?: { id: string; question: string; correctAnswer: string; }[]; // Для списка вопросов (Task 3, 4)
+  bracketText?: string; // Текст с ответами в квадратных скобках [слово] для инлайн-пропусков
+  bracketAnswers?: string[]; // Массив правильных ответов для квадратных скобок по порядку
 }
 
 export interface Homework {
