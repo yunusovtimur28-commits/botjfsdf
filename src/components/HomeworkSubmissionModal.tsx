@@ -227,9 +227,45 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
           }
         }
+        if (t.taskType === 'match_headings' && t.correctAnswers) {
+          const inputs = existingSubmission.taskAnswers?.[t.id]?.matchHeadingsInputs;
+          if (inputs && Object.keys(inputs).length > 0) {
+            const letters = t.paragraphs && t.paragraphs.length > 0
+              ? t.paragraphs.map((p) => p.letter)
+              : Object.keys(t.correctAnswers);
+            const allMatch = letters.length > 0 && letters.every((l) => (inputs[l] || '').trim() === (t.correctAnswers![l] || '').trim());
+            initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
+          }
+        }
       });
     }
     return initialChecked;
+  });
+
+  const [matchHeadingsChecked, setMatchHeadingsChecked] = useState<Record<string, Record<string, 'correct' | 'incorrect'>>>(() => {
+    const initial: Record<string, Record<string, 'correct' | 'incorrect'>> = {};
+    if (homework.tasks && existingSubmission) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'match_headings' && t.correctAnswers) {
+          const inputs = existingSubmission.taskAnswers?.[t.id]?.matchHeadingsInputs;
+          if (inputs) {
+            const map: Record<string, 'correct' | 'incorrect'> = {};
+            const letters = t.paragraphs && t.paragraphs.length > 0
+              ? t.paragraphs.map((p) => p.letter)
+              : Object.keys(t.correctAnswers);
+            letters.forEach((l) => {
+              const val = (inputs[l] || '').trim();
+              const target = (t.correctAnswers![l] || '').trim();
+              if (val && target) {
+                map[l] = val === target ? 'correct' : 'incorrect';
+              }
+            });
+            initial[t.id] = map;
+          }
+        }
+      });
+    }
+    return initial;
   });
 
   const [gapChecked, setGapChecked] = useState<Record<string, Record<number, 'correct' | 'incorrect'>>>(() => {
@@ -1561,7 +1597,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
-                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && !isSpeakingTask && (
+                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && task.taskType !== 'match_headings' && !isSpeakingTask && (
                         <label className="text-[11px] font-semibold text-slate-300 block">
                           Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
                         </label>
@@ -2449,6 +2485,249 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     )}
                                   </div>
                                 )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : task.taskType === 'match_headings' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* 1. Instruction block */}
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-indigo-950/40 to-purple-950/40 border border-indigo-500/30 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-extrabold text-xs sm:text-sm text-indigo-300 flex items-center space-x-1.5">
+                                <span>📖 Задание 10 (Чтение): Соответствие заголовков</span>
+                              </h4>
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold">
+                                ЕГЭ Чтение
+                              </span>
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-medium whitespace-pre-wrap">
+                              {task.taskPrompt || task.instruction || 'Установите соответствие между заголовками 1–8 и текстами A–G. Занесите свои ответы в таблицу. Используйте каждую цифру только один раз. В задании один заголовок лишний.'}
+                            </p>
+                          </div>
+
+                          {/* 2. Headings block */}
+                          {Boolean(task.headings && task.headings.length > 0) && (
+                            <div className="p-3.5 sm:p-4 rounded-2xl bg-black/25 border border-slate-700/70 space-y-2.5">
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                  Заголовки:
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  (один заголовок лишний)
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {task.headings!.map((heading, hIdx) => (
+                                  <div
+                                    key={hIdx}
+                                    className={`p-2.5 rounded-xl border flex items-start space-x-2.5 transition-all ${
+                                      isDarkMode ? 'bg-[#17212b]/90 border-slate-700/80 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                                    }`}
+                                  >
+                                    <span className="w-6 h-6 rounded-lg bg-indigo-600/25 border border-indigo-500/40 text-indigo-300 font-black text-xs flex items-center justify-center shrink-0">
+                                      {hIdx + 1}
+                                    </span>
+                                    <span className="text-xs sm:text-sm font-semibold leading-snug pt-0.5">
+                                      {heading}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 3. Paragraphs block */}
+                          {Boolean(task.paragraphs && task.paragraphs.length > 0) && (
+                            <div className="space-y-3">
+                              <h5 className="text-xs font-black uppercase tracking-wider text-indigo-300 px-1">
+                                Тексты A–G:
+                              </h5>
+                              {task.paragraphs!.map((para) => (
+                                <div
+                                  key={para.letter}
+                                  className={`p-3.5 sm:p-4 rounded-2xl border transition-all ${
+                                    isDarkMode ? 'bg-slate-900/60 border-slate-700/70' : 'bg-slate-50 border-slate-200'
+                                  }`}
+                                >
+                                  <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
+                                    <span className="font-black text-indigo-400 text-sm sm:text-base mr-2 inline-block">
+                                      {para.letter}.
+                                    </span>
+                                    {para.text}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 4. Interactive Answer block */}
+                          {(() => {
+                            const paragraphs = task.paragraphs && task.paragraphs.length > 0
+                              ? task.paragraphs
+                              : Object.keys(task.correctAnswers || {}).map((letter) => ({ letter, text: '' }));
+                            const userInputs = currentAnswer.matchHeadingsInputs || {};
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const correctMap = task.correctAnswers || {};
+
+                            return (
+                              <div className="p-4 rounded-2xl bg-slate-900/80 border border-indigo-500/30 space-y-4 shadow-lg">
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-indigo-300 flex items-center space-x-1.5">
+                                    <span>✍️ Таблица ответов:</span>
+                                  </h5>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    Впишите цифру выбранного заголовка (1–8) под каждой буквой:
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                                  {paragraphs.map((p) => {
+                                    const letter = p.letter;
+                                    const val = userInputs[letter] || '';
+                                    const status = matchHeadingsChecked[task.id]?.[letter];
+                                    const isCorrect = status === 'correct';
+                                    const isIncorrect = status === 'incorrect';
+                                    const targetDigit = (correctMap[letter] || '').trim();
+
+                                    return (
+                                      <div
+                                        key={letter}
+                                        className={`flex flex-col items-center p-2 rounded-xl border min-w-[54px] sm:min-w-[62px] transition-all ${
+                                          isCorrect
+                                            ? 'bg-emerald-500/15 border-emerald-500/50'
+                                            : isIncorrect
+                                            ? 'bg-rose-500/15 border-rose-500/50'
+                                            : 'bg-black/40 border-slate-700/80'
+                                        }`}
+                                      >
+                                        <span className="font-black text-xs sm:text-sm text-indigo-400 mb-1.5">
+                                          {letter}
+                                        </span>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          maxLength={1}
+                                          disabled={isSubmissionBlocked || isTaskChecked}
+                                          value={val}
+                                          onChange={(e) => {
+                                            if (isSubmissionBlocked || isTaskChecked) return;
+                                            const cleaned = e.target.value.replace(/[^1-8]/g, '');
+                                            const updatedInputs = {
+                                              ...(currentAnswer.matchHeadingsInputs || {}),
+                                              [letter]: cleaned,
+                                            };
+
+                                            const summary = paragraphs.map((item) => `${item.letter}: ${updatedInputs[item.letter] || '-'}`).join(', ');
+
+                                            setTaskAnswers((prev) => ({
+                                              ...prev,
+                                              [task.id]: {
+                                                ...prev[task.id],
+                                                textAnswer: summary,
+                                                matchHeadingsInputs: updatedInputs,
+                                              },
+                                            }));
+                                          }}
+                                          placeholder="—"
+                                          className={`w-9 h-9 sm:w-10 sm:h-10 text-center text-sm sm:text-base font-black rounded-lg border focus:outline-none transition-all shadow-sm ${
+                                            isCorrect
+                                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/30'
+                                              : isIncorrect
+                                              ? 'bg-rose-500/20 border-rose-500 text-rose-300 ring-2 ring-rose-500/30'
+                                              : isDarkMode
+                                              ? 'bg-[#1e2c3a] border-slate-600 text-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20'
+                                              : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20'
+                                          } ${isSubmissionBlocked || isTaskChecked ? 'cursor-not-allowed opacity-90' : ''}`}
+                                        />
+                                        {isIncorrect && targetDigit && (
+                                          <span
+                                            className="mt-1.5 text-[10px] font-bold text-rose-300 font-mono bg-rose-500/25 px-1.5 py-0.5 rounded border border-rose-500/40"
+                                            title={`Правильный заголовок: ${targetDigit}`}
+                                          >
+                                            {targetDigit}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Validation & Check Button */}
+                                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-700/50">
+                                  {isSubmissionBlocked ? (
+                                    <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                      <span>Режим просмотра (сдача закрыта)</span>
+                                    </div>
+                                  ) : isTaskChecked ? (
+                                    <button
+                                      type="button"
+                                      disabled={true}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                    >
+                                      <Check className="w-4 h-4 text-emerald-400" />
+                                      <span>Ответы зафиксированы</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newCheckedMap: Record<string, 'correct' | 'incorrect'> = {};
+                                        let correctCount = 0;
+
+                                        paragraphs.forEach((p) => {
+                                          const letter = p.letter;
+                                          const userVal = (userInputs[letter] || '').trim();
+                                          const target = (correctMap[letter] || '').trim();
+                                          const isMatch = userVal !== '' && userVal === target;
+                                          newCheckedMap[letter] = isMatch ? 'correct' : 'incorrect';
+                                          if (isMatch) correctCount++;
+                                        });
+
+                                        setMatchHeadingsChecked((prev) => ({
+                                          ...prev,
+                                          [task.id]: newCheckedMap,
+                                        }));
+
+                                        const allCorrect = paragraphs.length > 0 && correctCount === paragraphs.length;
+                                        setCheckedTasks((prev) => ({
+                                          ...prev,
+                                          [task.id]: allCorrect ? 'correct' : 'incorrect',
+                                        }));
+
+                                        const summary = paragraphs.map((item) => `${item.letter}: ${userInputs[item.letter] || '-'}`).join(', ');
+                                        setTaskAnswers((prev) => ({
+                                          ...prev,
+                                          [task.id]: {
+                                            ...prev[task.id],
+                                            textAnswer: summary,
+                                            matchHeadingsInputs: { ...userInputs },
+                                          },
+                                        }));
+                                      }}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                    >
+                                      <Check className="w-4 h-4" />
+                                      <span>Проверить ответы</span>
+                                    </button>
+                                  )}
+
+                                  {isTaskChecked && paragraphs.length > 0 && (
+                                    <div className="text-xs font-bold flex items-center gap-1.5">
+                                      {paragraphs.every((p) => (userInputs[p.letter] || '').trim() === (correctMap[p.letter] || '').trim()) ? (
+                                        <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                          <span>Все заголовки сопоставлены верно! 🎉</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                                          Верно: {paragraphs.filter((p) => (userInputs[p.letter] || '').trim() === (correctMap[p.letter] || '').trim()).length} из {paragraphs.length}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })()}

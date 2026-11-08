@@ -247,6 +247,74 @@ export const initialHomeworks: Homework[] = [
       samplePdfUrl: '#',
     },
   },
+  {
+    id: 'hw-reading-10',
+    title: 'ЕГЭ Чтение: Задание 10 (Соответствие заголовков)',
+    block: 'reading',
+    type: 'test',
+    deadline: '15 августа, 23:59',
+    deadlineDate: '2026-08-15T23:59:00',
+    maxPoints: 7,
+    description: 'Установите соответствие между текстами A–G и заголовками 1–8. Помните: один заголовок лишний!',
+    tasks: [
+      {
+        id: 'task-read-10',
+        taskNumber: 'Задание 10',
+        block: 'reading',
+        taskType: 'match_headings',
+        taskPrompt: 'Установите соответствие между текстами A–G и заголовками 1–8. Занесите свои ответы в таблицу. Используйте каждую цифру только один раз. В задании один заголовок лишний.',
+        headings: [
+          'A royal pastime',
+          'Modern transformations',
+          'Global influence',
+          'A healthy discipline',
+          'Historical roots',
+          'Popular entertainment',
+          'Equipment and rules',
+          'A costly activity',
+        ],
+        paragraphs: [
+          {
+            letter: 'A',
+            text: 'Martial arts date back thousands of years. Early forms were developed in ancient civilizations, including Egypt, Greece, and various Asian cultures, primarily for warfare and self-defense. Over time, these practices evolved from survival techniques into structured philosophies emphasizing honor and personal growth.',
+          },
+          {
+            letter: 'B',
+            text: 'Practicing martial arts provides comprehensive benefits for the human body. Regular training strengthens muscles, boosts cardiovascular endurance, and enhances flexibility. Beyond physical gains, practitioners learn focus and mental resilience, reducing stress levels effectively.',
+          },
+          {
+            letter: 'C',
+            text: 'In medieval Europe, fencing and archery were considered noble pursuits reserved almost exclusively for aristocrats and monarchs. Kings and knights spent hours mastering the blade, viewing martial excellence as a divine marker of leadership and royal authority.',
+          },
+          {
+            letter: 'D',
+            text: 'To participate in traditional kendo or taekwondo, students must acquire specific gear, such as bamboo swords, padded armor, or specialized doboks. Moreover, participants must strictly abide by formal etiquette, bowing before every bout to show deep mutual respect.',
+          },
+          {
+            letter: 'E',
+            text: 'During the 20th and 21st centuries, martial arts transitioned from secretive school traditions into mainstream global Olympic sports like judo and karate. Digital apps, video tutorials, and international federations have made these disciplines accessible to millions around the globe.',
+          },
+          {
+            letter: 'F',
+            text: 'Cinema played a massive role in spreading enthusiasm for Eastern combat arts worldwide. Iconic movie stars such as Bruce Lee and Jackie Chan captivated generations of viewers, inspiring millions of teenagers to enroll in neighborhood dojos and clubs.',
+          },
+          {
+            letter: 'G',
+            text: 'Today, martial arts concepts have permeated everyday language, fitness regimes, video games, and even military training across every continent. Their universal principles of respect and perseverance resonate with people of all ages and cultures.',
+          },
+        ],
+        correctAnswers: {
+          A: '5',
+          B: '4',
+          C: '1',
+          D: '7',
+          E: '2',
+          F: '6',
+          G: '3',
+        },
+      },
+    ],
+  },
 ];
 
 export const initialSubmissions: Submission[] = [

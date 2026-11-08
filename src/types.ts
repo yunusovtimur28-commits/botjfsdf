@@ -70,7 +70,7 @@ export interface QnaItem {
 export interface HomeworkTask {
   id: string;
   block: BlockCategory;
-  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ, вставка слов в пропуски [ответы]
+  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ, вставка слов в пропуски [ответы], сопоставление заголовков (Задание 10)
   taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
   instruction?: string; // Инструкция к заданию
   taskPrompt: string; // Задание / Условие / Заголовок текста
@@ -93,6 +93,9 @@ export interface HomeworkTask {
   qnaItems?: { id: string; question: string; correctAnswer: string; }[]; // Для списка вопросов (Task 3, 4)
   bracketText?: string; // Текст с ответами в квадратных скобках [слово] для инлайн-пропусков
   bracketAnswers?: string[]; // Массив правильных ответов для квадратных скобок по порядку
+  headings?: string[]; // Список заголовков для задания 10 (1-8)
+  paragraphs?: { letter: string; text: string; }[]; // Тексты абзацев A-G
+  correctAnswers?: Record<string, string>; // Соответствия { A: '3', B: '7', ... }
 }
 
 export interface Homework {
@@ -163,6 +166,7 @@ export interface Submission {
       egeAnswers?: Record<string, string>;
       gapInputs?: string[];
       qnaInputs?: Record<string, string>;
+      matchHeadingsInputs?: Record<string, string>;
     }
   >;
   // Written data

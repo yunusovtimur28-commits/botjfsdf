@@ -430,8 +430,46 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
                 }
               });
             }
+
+            // Match headings (Задание 10: Установление соответствия заголовков)
+            if (task.taskType === 'match_headings' && taskAns.matchHeadingsInputs && task.correctAnswers) {
+              const paragraphs = task.paragraphs || [];
+              const correctMap = task.correctAnswers || {};
+              const userInputs = taskAns.matchHeadingsInputs || {};
+
+              paragraphs.forEach((p) => {
+                const userVal = (userInputs[p.letter] || '').trim();
+                const correctVal = (correctMap[p.letter] || '').trim();
+
+                if (userVal && userVal !== correctVal) {
+                  const headingIdx = parseInt(correctVal, 10) - 1;
+                  const headingText = task.headings?.[headingIdx] || `Заголовок ${correctVal}`;
+                  const userHeadingIdx = parseInt(userVal, 10) - 1;
+                  const userHeadingText = task.headings?.[userHeadingIdx] || `Заголовок ${userVal}`;
+
+                  const alreadyExists = entries.some(
+                    (e) =>
+                      e.correctAnswer.includes(`№${correctVal}`) &&
+                      e.questionPrompt?.includes(`Текст ${p.letter}`)
+                  );
+
+                  if (!alreadyExists && !result.some((r) => r.id === `err-${hw.id}-${task.id}-heading-${p.letter}`)) {
+                    result.push({
+                      id: `err-${hw.id}-${task.id}-heading-${p.letter}`,
+                      testTitle: `${hw.title} (Задание 10: Текст ${p.letter})`,
+                      questionPrompt: `Текст ${p.letter}: "${p.text.slice(0, 80)}${p.text.length > 80 ? '...' : ''}"`,
+                      errorText: `№${userVal} (${userHeadingText})`,
+                      correctAnswer: `№${correctVal}: ${headingText}`,
+                      explanation: `Для абзаца ${p.letter} правильный заголовок: №${correctVal} «${headingText}». Ошибочно указан заголовок №${userVal}.`,
+                      section: 'Чтение',
+                    });
+                  }
+                }
+              });
+            }
           });
         }
+
       });
     }
 
