@@ -467,6 +467,43 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
                 }
               });
             }
+
+            // Sentence gaps (Задание 11: Заполнение пропусков частями предложений)
+            if (task.taskType === 'sentence_gaps' && task.correctAnswers) {
+              const userInputs = taskAns.sentenceGapsInputs || taskAns.matchHeadingsInputs || {};
+              const correctMap = task.correctAnswers || {};
+              const letters = Object.keys(correctMap).sort();
+
+              letters.forEach((letter) => {
+                const userVal = (userInputs[letter] || '').trim();
+                const correctVal = (correctMap[letter] || '').trim();
+
+                if (userVal && userVal !== correctVal) {
+                  const partIdx = parseInt(correctVal, 10) - 1;
+                  const partText = task.sentenceParts?.[partIdx] || `Часть ${correctVal}`;
+                  const userPartIdx = parseInt(userVal, 10) - 1;
+                  const userPartText = task.sentenceParts?.[userPartIdx] || `Часть ${userVal}`;
+
+                  const alreadyExists = entries.some(
+                    (e) =>
+                      e.correctAnswer.includes(`№${correctVal}`) &&
+                      e.questionPrompt?.includes(`Пропуск ${letter}`)
+                  );
+
+                  if (!alreadyExists && !result.some((r) => r.id === `err-${hw.id}-${task.id}-gap-${letter}`)) {
+                    result.push({
+                      id: `err-${hw.id}-${task.id}-gap-${letter}`,
+                      testTitle: `${hw.title} (Задание 11: Пропуск ${letter})`,
+                      questionPrompt: `Пропуск ${letter} в тексте "${task.textTitle || 'Текст задания 11'}"`,
+                      errorText: `№${userVal} (${userPartText.slice(0, 50)}${userPartText.length > 50 ? '...' : ''})`,
+                      correctAnswer: `№${correctVal}: ${partText.slice(0, 60)}${partText.length > 60 ? '...' : ''}`,
+                      explanation: `Для пропуска ${letter} правильный вариант: №${correctVal} «${partText}». Ошибочно указан вариант №${userVal}.`,
+                      section: 'Чтение',
+                    });
+                  }
+                }
+              });
+            }
           });
         }
 

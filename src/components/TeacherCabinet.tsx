@@ -586,7 +586,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     {
       id: string;
       block: BlockCategory;
-      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings';
+      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps';
       taskNumber: string;
       instruction: string;
       taskPrompt: string;
@@ -611,6 +611,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       headings?: string[];
       paragraphs?: { letter: string; text: string }[];
       correctAnswers?: Record<string, string>;
+      textTitle?: string;
+      sentenceParts?: string[];
     }[]
   >([
     {
@@ -1122,6 +1124,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           headings: t.headings,
           paragraphs: t.paragraphs,
           correctAnswers: t.correctAnswers,
+          textTitle: t.textTitle,
+          sentenceParts: t.sentenceParts,
         }))
       );
     } else {
@@ -1183,14 +1187,14 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       taskFileName: t.taskFileName,
       taskAudioUrl: t.taskAudioUrl && t.taskAudioUrl.trim() ? t.taskAudioUrl.trim() : undefined,
       taskVideoUrl: t.taskVideoUrl,
-      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
-      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings') ? undefined : (t.correctOptionIndex ?? 0),
+      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings' || t.taskType === 'sentence_gaps') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
+      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings' || t.taskType === 'sentence_gaps') ? undefined : (t.correctOptionIndex ?? 0),
       correctAnswer: t.taskType === 'gap_fill' ? t.correctAnswer?.trim() : (t.options ? t.options[t.correctOptionIndex ?? 0] : undefined),
       explanation: t.explanation?.trim() || undefined,
       baseWord: t.taskType === 'gap_fill' ? t.baseWord?.trim() : undefined,
       egeItems: t.taskType === 'ege_gap_fill' ? t.egeItems : undefined,
       wordBank: t.taskType === 'text_bank' ? t.wordBank?.trim() : undefined,
-      textWithGaps: t.taskType === 'text_bank' ? t.textWithGaps?.trim() : undefined,
+      textWithGaps: (t.taskType === 'text_bank' || t.taskType === 'sentence_gaps') ? t.textWithGaps?.trim() : undefined,
       gapAnswers: t.taskType === 'text_bank' ? (t.gapAnswers || []).map((a) => a.trim()) : undefined,
       qnaItems: t.taskType === 'qna' ? (t.qnaItems || []).map((q) => ({ id: q.id, question: q.question.trim(), correctAnswer: q.correctAnswer.trim() })) : undefined,
       bracketText: t.taskType === 'bracket_gaps' ? t.bracketText?.trim() : undefined,
@@ -1199,11 +1203,13 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       ) : undefined,
       headings: t.taskType === 'match_headings' ? (t.headings || []).map((h) => h.trim()).filter(Boolean) : undefined,
       paragraphs: t.taskType === 'match_headings' ? (t.paragraphs || []).map((p) => ({ letter: p.letter.trim().toUpperCase(), text: p.text.trim() })).filter((p) => p.letter && p.text) : undefined,
-      correctAnswers: t.taskType === 'match_headings' ? t.correctAnswers : undefined,
+      textTitle: t.taskType === 'sentence_gaps' ? t.textTitle?.trim() : undefined,
+      sentenceParts: t.taskType === 'sentence_gaps' ? (t.sentenceParts || []).map((s) => s.trim()).filter(Boolean) : undefined,
+      correctAnswers: (t.taskType === 'match_headings' || t.taskType === 'sentence_gaps') ? t.correctAnswers : undefined,
     }));
 
     const primaryBlock = formattedTasks[0]?.block || hwBlock;
-    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna' || formattedTasks[0]?.taskType === 'bracket_gaps' || formattedTasks[0]?.taskType === 'match_headings') ? 'test' : (formattedTasks[0]?.taskType || 'test');
+    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna' || formattedTasks[0]?.taskType === 'bracket_gaps' || formattedTasks[0]?.taskType === 'match_headings' || formattedTasks[0]?.taskType === 'sentence_gaps') ? 'test' : (formattedTasks[0]?.taskType || 'test');
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
@@ -2755,6 +2761,62 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       </div>
                                     )}
 
+                                    {/* Sentence Gaps Review */}
+                                    {task.taskType === 'sentence_gaps' && (
+                                      <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-xs space-y-2 mt-2">
+                                        {(() => {
+                                          const letters = Object.keys(task.correctAnswers || {}).length > 0
+                                            ? Object.keys(task.correctAnswers!).sort()
+                                            : ['A', 'B', 'C', 'D', 'E', 'F'];
+                                          const correctMap = task.correctAnswers || {};
+                                          const studentInputs = ans?.sentenceGapsInputs || ans?.matchHeadingsInputs || {};
+                                          const correctCount = letters.filter((l) => (studentInputs[l] || '').trim() === (correctMap[l] || '').trim()).length;
+
+                                          return (
+                                            <>
+                                              <div className="flex items-center justify-between font-bold text-sky-300 text-[11px]">
+                                                <span>Проверка заполнения пропусков (Задание 11):</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                  letters.length > 0 && correctCount === letters.length
+                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                                }`}>
+                                                  Верно {correctCount} из {letters.length}
+                                                </span>
+                                              </div>
+                                              <div className="flex flex-wrap gap-2 pt-1">
+                                                {letters.map((letter) => {
+                                                  const studentVal = (studentInputs[letter] || '').trim();
+                                                  const correctVal = (correctMap[letter] || '').trim();
+                                                  const isMatch = studentVal !== '' && studentVal === correctVal;
+                                                  const partText = task.sentenceParts?.[parseInt(correctVal, 10) - 1] || '';
+                                                  return (
+                                                    <div key={letter} className="p-2 rounded-lg bg-black/40 border border-slate-700/80 flex flex-col space-y-1 min-w-[100px] text-[11px]">
+                                                      <div className="flex items-center justify-between">
+                                                        <span className="font-extrabold text-sky-400">Пропуск {letter}:</span>
+                                                        {isMatch ? (
+                                                          <span className="text-[10px] text-emerald-400 font-bold">✅</span>
+                                                        ) : (
+                                                          <span className="text-[10px] text-rose-400 font-bold">❌</span>
+                                                        )}
+                                                      </div>
+                                                      <div className="text-[11px]">
+                                                        Ответ: <b className={isMatch ? 'text-emerald-400 font-mono' : 'text-rose-400 font-mono'}>{studentVal || '—'}</b>
+                                                      </div>
+                                                      <div className="text-[10px] text-slate-400">
+                                                        Верно: <b className="text-emerald-300 font-mono">{correctVal}</b>
+                                                        {partText && <span className="block text-[9px] text-slate-400 truncate max-w-[140px]" title={partText}>{partText}</span>}
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </>
+                                          );
+                                        })()}
+                                      </div>
+                                    )}
+
                                     {/* Voice Answer */}
                                     {hasTaskVoice && (
                                       <div className="p-2.5 rounded-xl bg-slate-900/60 border border-emerald-500/30 space-y-2 mt-2">
@@ -3856,27 +3918,53 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         <select
                           value={task.taskType || 'test'}
                           onChange={(e) => {
-                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings';
+                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps';
                             setHwTasks((prev) =>
                               prev.map((t, i) =>
                                 i === idx
                                   ? {
                                       ...t,
                                       taskType: val,
-                                      block: val === 'match_headings' ? 'reading' : val === 'speaking' ? 'speaking' : t.block,
+                                      block: val === 'match_headings' || val === 'sentence_gaps' ? 'reading' : val === 'speaking' ? 'speaking' : t.block,
                                       taskAudioUrl: t.taskAudioUrl,
                                       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
                                       correctOptionIndex: t.correctOptionIndex ?? 0,
                                       instruction:
-                                        val === 'match_headings' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
+                                        val === 'sentence_gaps' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
+                                          ? 'Прочитайте текст и заполните пропуски A–F частями предложений, обозначенными цифрами 1–7. Одна из частей в списке 1–7 лишняя.'
+                                          : val === 'match_headings' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
                                           ? 'Установите соответствие между заголовками 1–8 и текстами A–G. Используйте каждую цифру только один раз. В задании один заголовок лишний.'
                                           : val === 'bracket_gaps' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
                                           ? 'Впишите правильные слова в каждый пропуск. Количество слов указано в скобках.'
                                           : t.instruction,
                                       taskPrompt:
-                                        val === 'match_headings' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
+                                        val === 'sentence_gaps' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
+                                          ? 'Заполните пропуски A–F частями предложений 1–7. Занесите цифры в таблицу.'
+                                          : val === 'match_headings' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
                                           ? 'Прочитайте тексты и соотнесите их с заголовками. Запишите в таблицу цифру выбранного заголовка под соответствующей буквой.'
                                           : t.taskPrompt,
+                                      textTitle:
+                                        val === 'sentence_gaps'
+                                          ? (t.textTitle || 'The Sydney Opera House')
+                                          : t.textTitle,
+                                      textWithGaps:
+                                        val === 'sentence_gaps'
+                                          ? (t.textWithGaps || `The Sydney Opera House is one of the 20th century's most distinctive and famous buildings. Situated on Bennelong Point in Sydney Harbour, with parkland to the south and close to the enormous Sydney Harbour Bridge, the building and its surroundings form an iconic Australian image.\n\nThe building is of modern expressionist design, with a series of large precast concrete "shells", each composed of sections of a sphere of 75.2 metres radius, A_________. The design was by Danish architect Jørn Utzon, B_________. After the competition, Utzon arrived in Sydney in 1957 to supervise the construction, C_________.\n\nThe government pushed for work to begin early, D_________. Many design elements were still unresolved when foundation work commenced. The project experienced significant delays, rising costs, and political controversy, E_________.\n\nDespite the complications during construction, the Sydney Opera House was finally completed in 1973 F_________. In 2007, it became a UNESCO World Heritage Site.`)
+                                          : t.textWithGaps,
+                                      sentenceParts:
+                                        val === 'sentence_gaps'
+                                          ? (t.sentenceParts && t.sentenceParts.length > 0
+                                              ? t.sentenceParts
+                                              : [
+                                                  'which was formally opened by Queen Elizabeth II',
+                                                  'whose entry was selected as the winner from 233 entries from 32 countries',
+                                                  'forming the roofs of the structure',
+                                                  'which became an immediate tourist sensation',
+                                                  'which eventually led to Utzon resigning from the project in 1966',
+                                                  'fearing that funding would be canceled if there were delays',
+                                                  'which was originally estimated to take four years',
+                                                ])
+                                          : t.sentenceParts,
                                       headings:
                                         val === 'match_headings'
                                           ? (t.headings && t.headings.length > 0
@@ -3907,7 +3995,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                                 ])
                                           : t.paragraphs,
                                       correctAnswers:
-                                        val === 'match_headings'
+                                        val === 'sentence_gaps'
+                                          ? (t.correctAnswers && Object.keys(t.correctAnswers).length > 0
+                                              ? t.correctAnswers
+                                              : { A: '3', B: '2', C: '7', D: '6', E: '5', F: '1' })
+                                          : val === 'match_headings'
                                           ? (t.correctAnswers && Object.keys(t.correctAnswers).length > 0
                                               ? t.correctAnswers
                                               : { A: '4', B: '2', C: '6', D: '5', E: '1', F: '3', G: '7' })
@@ -3953,6 +4045,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         >
                           <option value="test">📝 Тест (С выбором ответа)</option>
                           <option value="match_headings">📖 Задание 10: Соответствие заголовков (A–G / 1–8)</option>
+                          <option value="sentence_gaps">🧩 Задание 11: Заполнение пропусков частями предложений (A–F / 1–7)</option>
                           <option value="gap_fill">Текст с пропусками (Автопроверка)</option>
                           <option value="ege_gap_fill">Текст с пропусками (ЕГЭ 19-29)</option>
                           <option value="text_bank">Текст с банком слов (Ввод ручками)</option>
@@ -5129,6 +5222,246 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       {headings.map((_, hIdx) => (
                                         <option key={hIdx + 1} value={String(hIdx + 1)}>
                                           {hIdx + 1}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* SENTENCE GAPS EDITOR (taskType === 'sentence_gaps') */}
+                    {task.taskType === 'sentence_gaps' && (() => {
+                      const parts = task.sentenceParts || [];
+                      const correctAnswers = task.correctAnswers || {};
+                      const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sky-500/20 pb-2">
+                            <div>
+                              <h4 className="text-xs font-extrabold text-sky-300 flex items-center gap-1.5">
+                                <span>🧩 Задание 11: Заполнение пропусков частями предложений</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-200 font-mono font-bold">
+                                  {parts.length} частей / {letters.length} пропусков (A–F)
+                                </span>
+                              </h4>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Ученик читает связный текст с пропусками A–F и подбирает фрагменты 1–7. Один фрагмент лишний.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sampleTitle = 'The Sydney Opera House';
+                                const sampleText = `The Sydney Opera House is one of the 20th century's most distinctive and famous buildings. Situated on Bennelong Point in Sydney Harbour, with parkland to the south and close to the enormous Sydney Harbour Bridge, the building and its surroundings form an iconic Australian image.\n\nThe building is of modern expressionist design, with a series of large precast concrete "shells", each composed of sections of a sphere of 75.2 metres radius, A_________. The design was by Danish architect Jørn Utzon, B_________. After the competition, Utzon arrived in Sydney in 1957 to supervise the construction, C_________.\n\nThe government pushed for work to begin early, D_________. Many design elements were still unresolved when foundation work commenced. The project experienced significant delays, rising costs, and political controversy, E_________.\n\nDespite the complications during construction, the Sydney Opera House was finally completed in 1973 F_________. In 2007, it became a UNESCO World Heritage Site.`;
+                                const sampleParts = [
+                                  'which was formally opened by Queen Elizabeth II',
+                                  'whose entry was selected as the winner from 233 entries from 32 countries',
+                                  'forming the roofs of the structure',
+                                  'which became an immediate tourist sensation',
+                                  'which eventually led to Utzon resigning from the project in 1966',
+                                  'fearing that funding would be canceled if there were delays',
+                                  'which was originally estimated to take four years',
+                                ];
+                                const sampleAnswers = { A: '3', B: '2', C: '7', D: '6', E: '5', F: '1' };
+
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) =>
+                                    i === idx
+                                      ? {
+                                          ...t,
+                                          block: 'reading',
+                                          instruction: 'Прочитайте текст и заполните пропуски A–F частями предложений, обозначенными цифрами 1–7. Одна из частей в списке 1–7 лишняя.',
+                                          taskPrompt: 'Заполните пропуски A–F частями предложений 1–7. Занесите цифры в таблицу.',
+                                          textTitle: sampleTitle,
+                                          textWithGaps: sampleText,
+                                          sentenceParts: sampleParts,
+                                          correctAnswers: sampleAnswers,
+                                        }
+                                      : t
+                                  )
+                                );
+                              }}
+                              className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold flex items-center space-x-1 shrink-0 shadow-sm transition-all self-start sm:self-auto"
+                            >
+                              <span>📋 Вставить пример (ФИПИ 2026)</span>
+                            </button>
+                          </div>
+
+                          {/* 1. Text Title */}
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-sky-300 block">
+                              Заголовок текста (опционально):
+                            </label>
+                            <input
+                              type="text"
+                              value={task.textTitle || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) =>
+                                    i === idx ? { ...t, textTitle: val } : t
+                                  )
+                                );
+                              }}
+                              placeholder="Например: The Sydney Opera House"
+                              className={`w-full p-2 rounded-xl text-xs font-semibold border ${
+                                isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                              }`}
+                            />
+                          </div>
+
+                          {/* 2. Text with Gaps */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-bold text-sky-300 block">
+                                Текст с пропусками (A–F):
+                              </label>
+                              <span className="text-[10px] text-slate-400">
+                                Обозначайте пропуски буквами: A________, B________ и т.д.
+                              </span>
+                            </div>
+                            <textarea
+                              rows={8}
+                              value={task.textWithGaps || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) =>
+                                    i === idx ? { ...t, textWithGaps: val } : t
+                                  )
+                                );
+                              }}
+                              placeholder="Вставьте связный текст с пропусками A_________, B_________, C_________, D_________, E_________, F_________..."
+                              className={`w-full p-3 rounded-xl text-xs font-serif leading-relaxed border resize-y ${
+                                isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'
+                              }`}
+                            />
+                          </div>
+
+                          {/* 3. Sentence Parts (1-7) */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-bold text-amber-300 block">
+                                Варианты частей предложений (обычно 7 шт., 1 лишняя):
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHwTasks((prev) =>
+                                    prev.map((t, i) =>
+                                      i === idx
+                                        ? { ...t, sentenceParts: [...(t.sentenceParts || []), `Часть ${(t.sentenceParts || []).length + 1}`] }
+                                        : t
+                                    )
+                                  );
+                                }}
+                                className="px-2 py-0.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-all"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Добавить часть</span>
+                              </button>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {parts.map((part, pIdx) => (
+                                <div key={pIdx} className="flex items-center space-x-2">
+                                  <span className="w-6 h-6 rounded-lg bg-black/40 border border-slate-700 font-mono font-bold text-sky-300 text-xs flex items-center justify-center shrink-0">
+                                    {pIdx + 1}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={part}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                sentenceParts: t.sentenceParts?.map((p, j) => (j === pIdx ? val : p)),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    placeholder={`Часть предложения #${pIdx + 1}`}
+                                    className={`flex-1 p-2 rounded-xl text-xs border ${
+                                      isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'
+                                    }`}
+                                  />
+                                  {parts.length > 2 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setHwTasks((prev) =>
+                                          prev.map((t, i) =>
+                                            i === idx
+                                              ? { ...t, sentenceParts: t.sentenceParts?.filter((_, j) => j !== pIdx) }
+                                              : t
+                                          )
+                                        );
+                                      }}
+                                      className="p-1.5 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-500/10 transition-all shrink-0"
+                                      title="Удалить вариант"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 4. Correct Answers selector */}
+                          <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2">
+                            <label className="text-[11px] font-bold text-emerald-400 block">
+                              Правильные соответствия (цифра части предложения 1–{parts.length} для каждого пропуска A–F):
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {letters.map((letter) => {
+                                const val = correctAnswers[letter] || '';
+
+                                return (
+                                  <div
+                                    key={letter}
+                                    className="p-2 rounded-xl bg-black/40 border border-slate-700 flex items-center space-x-2"
+                                  >
+                                    <span className="font-black text-xs text-sky-400">
+                                      {letter} =
+                                    </span>
+                                    <select
+                                      value={val}
+                                      onChange={(e) => {
+                                        const newDigit = e.target.value;
+                                        setHwTasks((prev) =>
+                                          prev.map((t, i) =>
+                                            i === idx
+                                              ? {
+                                                  ...t,
+                                                  correctAnswers: {
+                                                    ...(t.correctAnswers || {}),
+                                                    [letter]: newDigit,
+                                                  },
+                                                }
+                                              : t
+                                          )
+                                        );
+                                      }}
+                                      className={`p-1 rounded-lg text-xs font-bold border ${
+                                        isDarkMode ? 'bg-[#1e2c3a] border-slate-600 text-emerald-300' : 'bg-white border-slate-300 text-emerald-700'
+                                      }`}
+                                    >
+                                      <option value="">—</option>
+                                      {parts.map((_, pIdx) => (
+                                        <option key={pIdx + 1} value={String(pIdx + 1)}>
+                                          {pIdx + 1}
                                         </option>
                                       ))}
                                     </select>

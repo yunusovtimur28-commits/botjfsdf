@@ -237,6 +237,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
           }
         }
+        if (t.taskType === 'sentence_gaps' && t.correctAnswers) {
+          const inputs = existingSubmission.taskAnswers?.[t.id]?.sentenceGapsInputs || existingSubmission.taskAnswers?.[t.id]?.matchHeadingsInputs;
+          if (inputs && Object.keys(inputs).length > 0) {
+            const letters = Object.keys(t.correctAnswers).sort();
+            const allMatch = letters.length > 0 && letters.every((l) => (inputs[l] || '').trim() === (t.correctAnswers![l] || '').trim());
+            initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
+          }
+        }
       });
     }
     return initialChecked;
@@ -253,6 +261,30 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             const letters = t.paragraphs && t.paragraphs.length > 0
               ? t.paragraphs.map((p) => p.letter)
               : Object.keys(t.correctAnswers);
+            letters.forEach((l) => {
+              const val = (inputs[l] || '').trim();
+              const target = (t.correctAnswers![l] || '').trim();
+              if (val && target) {
+                map[l] = val === target ? 'correct' : 'incorrect';
+              }
+            });
+            initial[t.id] = map;
+          }
+        }
+      });
+    }
+    return initial;
+  });
+
+  const [sentenceGapsChecked, setSentenceGapsChecked] = useState<Record<string, Record<string, 'correct' | 'incorrect'>>>(() => {
+    const initial: Record<string, Record<string, 'correct' | 'incorrect'>> = {};
+    if (homework.tasks && existingSubmission) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'sentence_gaps' && t.correctAnswers) {
+          const inputs = existingSubmission.taskAnswers?.[t.id]?.sentenceGapsInputs || existingSubmission.taskAnswers?.[t.id]?.matchHeadingsInputs;
+          if (inputs) {
+            const map: Record<string, 'correct' | 'incorrect'> = {};
+            const letters = Object.keys(t.correctAnswers).sort();
             letters.forEach((l) => {
               const val = (inputs[l] || '').trim();
               const target = (t.correctAnswers![l] || '').trim();
@@ -1597,7 +1629,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
-                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && task.taskType !== 'match_headings' && !isSpeakingTask && (
+                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && task.taskType !== 'match_headings' && task.taskType !== 'sentence_gaps' && !isSpeakingTask && (
                         <label className="text-[11px] font-semibold text-slate-300 block">
                           Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
                         </label>
@@ -2723,6 +2755,243 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                       ) : (
                                         <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
                                           Верно: {paragraphs.filter((p) => (userInputs[p.letter] || '').trim() === (correctMap[p.letter] || '').trim()).length} из {paragraphs.length}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : task.taskType === 'sentence_gaps' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* 1. Instruction block */}
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-sky-950/40 to-indigo-950/40 border border-sky-500/30 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-extrabold text-xs sm:text-sm text-sky-300 flex items-center space-x-1.5">
+                                <span>🧩 Задание 11 (Чтение): Заполнение пропусков частями предложений</span>
+                              </h4>
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 font-semibold">
+                                ЕГЭ Чтение
+                              </span>
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-medium whitespace-pre-wrap">
+                              {task.taskPrompt || task.instruction || 'Прочитайте текст и заполните пропуски A–F частями предложений, обозначенными цифрами 1–7. Одна из частей в списке 1–7 лишняя. Занесите цифры, обозначающие соответствующие части предложений, в таблицу.'}
+                            </p>
+                          </div>
+
+                          {/* 2. Text Title (if provided) */}
+                          {Boolean(task.textTitle) && (
+                            <div className="text-center py-1">
+                              <h3 className="text-base sm:text-lg font-black tracking-wide text-white drop-shadow-sm">
+                                {task.textTitle}
+                              </h3>
+                            </div>
+                          )}
+
+                          {/* 3. Text with Gaps */}
+                          {Boolean(task.textWithGaps) && (
+                            <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+                              isDarkMode ? 'bg-[#151f2b]/90 border-slate-700/80 text-slate-100' : 'bg-slate-50 border-slate-300 text-slate-800'
+                            }`}>
+                              <div className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-serif tracking-normal">
+                                {task.textWithGaps}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 4. Sentence Parts Options (1-7) */}
+                          {Boolean(task.sentenceParts && task.sentenceParts.length > 0) && (
+                            <div className="p-3.5 sm:p-4 rounded-2xl bg-black/30 border border-slate-700/80 space-y-2.5">
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                  Варианты для вставок:
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  (одна часть предложения лишняя)
+                                </span>
+                              </div>
+                              <div className="space-y-2">
+                                {task.sentenceParts!.map((part, pIdx) => (
+                                  <div
+                                    key={pIdx}
+                                    className={`p-2.5 sm:p-3 rounded-xl border flex items-start space-x-2.5 transition-all ${
+                                      isDarkMode ? 'bg-[#1a2634] border-slate-700/80 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                                    }`}
+                                  >
+                                    <span className="w-6 h-6 rounded-lg bg-sky-600/25 border border-sky-500/40 text-sky-300 font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                                      {pIdx + 1}
+                                    </span>
+                                    <span className="text-xs sm:text-sm font-medium leading-relaxed">
+                                      {part}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 5. Interactive Answer Block */}
+                          {(() => {
+                            const letters = Object.keys(task.correctAnswers || {}).length > 0
+                              ? Object.keys(task.correctAnswers!).sort()
+                              : ['A', 'B', 'C', 'D', 'E', 'F'];
+                            const userInputs = currentAnswer.sentenceGapsInputs || currentAnswer.matchHeadingsInputs || {};
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const correctMap = task.correctAnswers || {};
+
+                            return (
+                              <div className="p-4 rounded-2xl bg-slate-900/85 border border-sky-500/30 space-y-4 shadow-lg">
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-sky-300 flex items-center space-x-1.5">
+                                    <span>✍️ Таблица ответов:</span>
+                                  </h5>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    Впишите цифру выбранной части предложения (1–{task.sentenceParts?.length || 7}) под каждым пропуском:
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                                  {letters.map((letter) => {
+                                    const val = userInputs[letter] || '';
+                                    const status = sentenceGapsChecked[task.id]?.[letter];
+                                    const isCorrect = status === 'correct';
+                                    const isIncorrect = status === 'incorrect';
+                                    const targetDigit = (correctMap[letter] || '').trim();
+
+                                    return (
+                                      <div
+                                        key={letter}
+                                        className={`flex flex-col items-center p-2 rounded-xl border min-w-[54px] sm:min-w-[62px] transition-all ${
+                                          isCorrect
+                                            ? 'bg-emerald-500/15 border-emerald-500/50'
+                                            : isIncorrect
+                                            ? 'bg-rose-500/15 border-rose-500/50'
+                                            : 'bg-black/40 border-slate-700/80'
+                                        }`}
+                                      >
+                                        <span className="font-black text-xs sm:text-sm text-sky-400 mb-1.5">
+                                          {letter}
+                                        </span>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          maxLength={1}
+                                          disabled={isSubmissionBlocked || isTaskChecked}
+                                          value={val}
+                                          onChange={(e) => {
+                                            if (isSubmissionBlocked || isTaskChecked) return;
+                                            const cleaned = e.target.value.replace(/[^1-9]/g, '');
+                                            const updatedInputs = {
+                                              ...userInputs,
+                                              [letter]: cleaned,
+                                            };
+
+                                            const summary = letters.map((l) => `${l}: ${updatedInputs[l] || '-'}`).join(', ');
+
+                                            setTaskAnswers((prev) => ({
+                                              ...prev,
+                                              [task.id]: {
+                                                ...prev[task.id],
+                                                textAnswer: summary,
+                                                sentenceGapsInputs: updatedInputs,
+                                              },
+                                            }));
+                                          }}
+                                          placeholder="—"
+                                          className={`w-9 h-9 sm:w-10 sm:h-10 text-center text-sm sm:text-base font-black rounded-lg border focus:outline-none transition-all shadow-sm ${
+                                            isCorrect
+                                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/30'
+                                              : isIncorrect
+                                              ? 'bg-rose-500/20 border-rose-500 text-rose-300 ring-2 ring-rose-500/30'
+                                              : isDarkMode
+                                              ? 'bg-[#1e2c3a] border-slate-600 text-white focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20'
+                                              : 'bg-white border-slate-300 text-slate-900 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20'
+                                          } ${isSubmissionBlocked || isTaskChecked ? 'cursor-not-allowed opacity-90' : ''}`}
+                                        />
+                                        {isIncorrect && targetDigit && (
+                                          <span
+                                            className="mt-1.5 text-[10px] font-bold text-rose-300 font-mono bg-rose-500/25 px-1.5 py-0.5 rounded border border-rose-500/40"
+                                            title={`Правильный ответ: ${targetDigit}`}
+                                          >
+                                            {targetDigit}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Validation & Check Button */}
+                                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-700/50">
+                                  {isSubmissionBlocked ? (
+                                    <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                      <span>Режим просмотра (сдача закрыта)</span>
+                                    </div>
+                                  ) : isTaskChecked ? (
+                                    <button
+                                      type="button"
+                                      disabled={true}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                    >
+                                      <Check className="w-4 h-4 text-emerald-400" />
+                                      <span>Ответы зафиксированы</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newCheckedMap: Record<string, 'correct' | 'incorrect'> = {};
+                                        let correctCount = 0;
+
+                                        letters.forEach((letter) => {
+                                          const userVal = (userInputs[letter] || '').trim();
+                                          const target = (correctMap[letter] || '').trim();
+                                          const isMatch = userVal !== '' && userVal === target;
+                                          newCheckedMap[letter] = isMatch ? 'correct' : 'incorrect';
+                                          if (isMatch) correctCount++;
+                                        });
+
+                                        setSentenceGapsChecked((prev) => ({
+                                          ...prev,
+                                          [task.id]: newCheckedMap,
+                                        }));
+
+                                        const allCorrect = letters.length > 0 && correctCount === letters.length;
+                                        setCheckedTasks((prev) => ({
+                                          ...prev,
+                                          [task.id]: allCorrect ? 'correct' : 'incorrect',
+                                        }));
+
+                                        const summary = letters.map((l) => `${l}: ${userInputs[l] || '-'}`).join(', ');
+                                        setTaskAnswers((prev) => ({
+                                          ...prev,
+                                          [task.id]: {
+                                            ...prev[task.id],
+                                            textAnswer: summary,
+                                            sentenceGapsInputs: { ...userInputs },
+                                          },
+                                        }));
+                                      }}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-sky-600/25 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                    >
+                                      <Check className="w-4 h-4" />
+                                      <span>Проверить ответы</span>
+                                    </button>
+                                  )}
+
+                                  {isTaskChecked && letters.length > 0 && (
+                                    <div className="text-xs font-bold flex items-center gap-1.5">
+                                      {letters.every((l) => (userInputs[l] || '').trim() === (correctMap[l] || '').trim()) ? (
+                                        <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                          <span>Все пропуски заполнены верно! 🎉</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                                          Верно: {letters.filter((l) => (userInputs[l] || '').trim() === (correctMap[l] || '').trim()).length} из {letters.length}
                                         </span>
                                       )}
                                     </div>

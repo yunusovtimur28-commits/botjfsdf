@@ -315,6 +315,44 @@ export const initialHomeworks: Homework[] = [
       },
     ],
   },
+  {
+    id: 'hw-reading-11',
+    title: 'ЕГЭ Чтение: Задание 11 (Заполнение пропусков частями предложений)',
+    block: 'reading',
+    type: 'test',
+    deadline: '18 августа, 23:59',
+    deadlineDate: '2026-08-18T23:59:00',
+    maxPoints: 6,
+    description: 'Прочитайте текст и заполните пропуски A–F частями предложений 1–7. Помните: одна часть в списке лишняя!',
+    tasks: [
+      {
+        id: 'task-read-11',
+        taskNumber: 'Задание 11',
+        block: 'reading',
+        taskType: 'sentence_gaps',
+        taskPrompt: 'Прочитайте текст и заполните пропуски A–F частями предложений, обозначенными цифрами 1–7. Одна из частей в списке 1–7 лишняя. Занесите цифры, обозначающие соответствующие части предложений, в таблицу.',
+        textTitle: 'The Sydney Opera House',
+        textWithGaps: `The Sydney Opera House is one of the 20th century's most distinctive and famous buildings. Situated on Bennelong Point in Sydney Harbour, with parkland to the south and close to the enormous Sydney Harbour Bridge, the building and its surroundings form an iconic Australian image.\n\nThe building is of modern expressionist design, with a series of large precast concrete "shells", each composed of sections of a sphere of 75.2 metres radius, A_________.\n\nThe design was by Danish architect Jørn Utzon, B_________.\n\nAfter the international competition, Utzon arrived in Sydney in 1957 to supervise the construction, C_________.\n\nThe government pushed for work to begin early, D_________. Many design elements were still unresolved when foundation work commenced. The project experienced significant delays, rising costs, and political controversy, E_________.\n\nDespite all the complications during construction, the Sydney Opera House was finally completed in 1973 F_________.\n\nIn 2007, it officially became a UNESCO World Heritage Site.`,
+        sentenceParts: [
+          'which was formally opened by Queen Elizabeth II',
+          'whose entry was selected as the winner from 233 entries from 32 countries',
+          'forming the roofs of the structure',
+          'which became an immediate tourist sensation',
+          'which eventually led to Utzon resigning from the project in 1966',
+          'fearing that funding would be canceled if there were delays',
+          'which was originally estimated to take four years',
+        ],
+        correctAnswers: {
+          A: '3',
+          B: '2',
+          C: '7',
+          D: '6',
+          E: '5',
+          F: '1',
+        },
+      },
+    ],
+  },
 ];
 
 export const initialSubmissions: Submission[] = [
