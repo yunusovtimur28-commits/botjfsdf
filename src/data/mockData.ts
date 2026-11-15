@@ -353,6 +353,43 @@ export const initialHomeworks: Homework[] = [
       },
     ],
   },
+  {
+    id: 'hw-listening-1',
+    title: 'ЕГЭ Аудирование: Задание 1 (Установление соответствия)',
+    block: 'listening',
+    type: 'test',
+    deadline: '20 августа, 23:59',
+    deadlineDate: '2026-08-20T23:59:00',
+    maxPoints: 6,
+    description: 'Прослушайте 6 высказываний (A–F) и установите соответствие между каждым говорящим и утверждениями 1–7. Одно утверждение лишнее!',
+    tasks: [
+      {
+        id: 'task-listen-1',
+        taskNumber: 'Задание 1',
+        block: 'listening',
+        taskType: 'listening_match',
+        taskPrompt: 'Вы услышите 6 высказываний. Установите соответствие между высказываниями каждого говорящего A–F и утверждениями, данными в списке 1–7. Используйте каждое утверждение, обозначенное соответствующей цифрой, только один раз. В задании есть одно лишнее утверждение. Вы услышите запись дважды.',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+        statements: [
+          'Learning a foreign language helps you make friends abroad.',
+          'Online courses are more flexible than traditional classes.',
+          'Reading books in the original is the best way to expand vocabulary.',
+          'Speaking practice is essential to overcome the language barrier.',
+          'Watching films with subtitles improves listening comprehension.',
+          'Studying grammar rules is the most challenging part of language learning.',
+          'Traveling to another country motivates you to study harder.',
+        ],
+        correctAnswers: {
+          A: '4',
+          B: '1',
+          C: '7',
+          D: '2',
+          E: '5',
+          F: '3',
+        },
+      },
+    ],
+  },
 ];
 
 export const initialSubmissions: Submission[] = [

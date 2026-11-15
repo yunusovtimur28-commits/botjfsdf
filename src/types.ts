@@ -70,7 +70,7 @@ export interface QnaItem {
 export interface HomeworkTask {
   id: string;
   block: BlockCategory;
-  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ, вставка слов в пропуски [ответы], сопоставление заголовков (Задание 10), вставка частей предложений (Задание 11)
+  taskType?: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps' | 'listening_match'; // Тип задания: тест, письмо, говорение, текст с пропусками, ЕГЭ 19-29, банк слов, вопрос-ответ, вставка слов в пропуски [ответы], сопоставление заголовков (Задание 10), вставка частей предложений (Задание 11), аудирование соответствие (Задание 1)
   taskNumber: string; // "Задание №1", "Задание №19", "Задание №37", etc.
   instruction?: string; // Инструкция к заданию
   taskPrompt: string; // Задание / Условие / Заголовок текста
@@ -98,6 +98,9 @@ export interface HomeworkTask {
   correctAnswers?: Record<string, string>; // Соответствия { A: '3', B: '7', ... }
   textTitle?: string; // Заголовок текста (для задания 11 и текстов)
   sentenceParts?: string[]; // Список частей предложений для задания 11 (1-7)
+  audioUrl?: string; // Общая аудиозапись для задания 1 (Аудирование)
+  audioUrls?: Record<string, string>; // Отдельные аудиозаписи для говорящих A-F { A: 'url1', B: 'url2', ... }
+  statements?: string[]; // Список утверждений 1-7 для задания 1 (Аудирование)
 }
 
 export interface Homework {
@@ -170,6 +173,7 @@ export interface Submission {
       qnaInputs?: Record<string, string>;
       matchHeadingsInputs?: Record<string, string>;
       sentenceGapsInputs?: Record<string, string>;
+      listeningMatchInputs?: Record<string, string>;
     }
   >;
   // Written data

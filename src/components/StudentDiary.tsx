@@ -504,6 +504,43 @@ export const StudentDiary: React.FC<StudentDiaryProps> = ({
                 }
               });
             }
+
+            // Listening match (Задание 1: Установление соответствия между высказываниями и утверждениями)
+            if (task.taskType === 'listening_match' && task.correctAnswers) {
+              const userInputs = taskAns.listeningMatchInputs || {};
+              const correctMap = task.correctAnswers || {};
+              const letters = Object.keys(correctMap).sort();
+
+              letters.forEach((letter) => {
+                const userVal = (userInputs[letter] || '').trim();
+                const correctVal = (correctMap[letter] || '').trim();
+
+                if (userVal && userVal !== correctVal) {
+                  const stmtIdx = parseInt(correctVal, 10) - 1;
+                  const stmtText = task.statements?.[stmtIdx] || `Утверждение ${correctVal}`;
+                  const userStmtIdx = parseInt(userVal, 10) - 1;
+                  const userStmtText = task.statements?.[userStmtIdx] || `Утверждение ${userVal}`;
+
+                  const alreadyExists = entries.some(
+                    (e) =>
+                      e.correctAnswer.includes(`№${correctVal}`) &&
+                      e.questionPrompt?.includes(`Говорящий ${letter}`)
+                  );
+
+                  if (!alreadyExists && !result.some((r) => r.id === `err-${hw.id}-${task.id}-listen-${letter}`)) {
+                    result.push({
+                      id: `err-${hw.id}-${task.id}-listen-${letter}`,
+                      testTitle: `${hw.title} (Задание 1: Говорящий ${letter})`,
+                      questionPrompt: `Говорящий ${letter} (Аудирование)`,
+                      errorText: `№${userVal} (${userStmtText.slice(0, 50)}${userStmtText.length > 50 ? '...' : ''})`,
+                      correctAnswer: `№${correctVal}: ${stmtText.slice(0, 60)}${stmtText.length > 60 ? '...' : ''}`,
+                      explanation: `Для говорящего ${letter} правильное утверждение: №${correctVal} «${stmtText}». Ошибочно выбран вариант №${userVal}.`,
+                      section: 'Аудирование',
+                    });
+                  }
+                }
+              });
+            }
           });
         }
 

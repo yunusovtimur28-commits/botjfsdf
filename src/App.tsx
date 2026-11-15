@@ -8,7 +8,7 @@ import {
   TGNotification,
   ExamBlockScore,
 } from './types';
-import { getFormattedDateTime, getCurrentMonthLabel, formatRussianDate, getTodayDateString } from './lib/dateUtils';
+import { getFormattedDateTime, getCurrentMonthLabel, getMonthLabelFromDate, formatRussianDate, getTodayDateString } from './lib/dateUtils';
 import {
   initialWebinars,
   initialHomeworks,
@@ -103,7 +103,15 @@ export default function App() {
       const saved = localStorage.getItem('ege_app_cached_webinars');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = [...parsed];
+          initialWebinars.forEach((initW) => {
+            if (!merged.some((w) => w.id === initW.id)) {
+              merged.push(initW);
+            }
+          });
+          return merged;
+        }
       }
     } catch (e) {}
     return initialWebinars;
@@ -114,7 +122,15 @@ export default function App() {
       const saved = localStorage.getItem('ege_app_cached_homeworks');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = [...parsed];
+          initialHomeworks.forEach((initHw) => {
+            if (!merged.some((h) => h.id === initHw.id)) {
+              merged.push(initHw);
+            }
+          });
+          return merged;
+        }
       }
     } catch (e) {}
     return initialHomeworks;
@@ -678,8 +694,14 @@ export default function App() {
     const unsubWebinars = subscribeWebinars(
       (list) => {
         if (list && list.length > 0) {
-          setWebinars(list);
-          try { localStorage.setItem('ege_app_cached_webinars', JSON.stringify(list)); } catch (e) {}
+          const combined = [...list];
+          initialWebinars.forEach((initW) => {
+            if (!combined.some((w) => w.id === initW.id)) {
+              combined.push(initW);
+            }
+          });
+          setWebinars(combined);
+          try { localStorage.setItem('ege_app_cached_webinars', JSON.stringify(combined)); } catch (e) {}
         }
       },
       (err) => console.warn('Webinars snapshot offline/quota fallback:', err)
@@ -688,8 +710,14 @@ export default function App() {
     const unsubHomeworks = subscribeHomeworks(
       (list) => {
         if (list && list.length > 0) {
-          setHomeworks(list);
-          try { localStorage.setItem('ege_app_cached_homeworks', JSON.stringify(list)); } catch (e) {}
+          const combined = [...list];
+          initialHomeworks.forEach((initHw) => {
+            if (!combined.some((h) => h.id === initHw.id)) {
+              combined.push(initHw);
+            }
+          });
+          setHomeworks(combined);
+          try { localStorage.setItem('ege_app_cached_homeworks', JSON.stringify(combined)); } catch (e) {}
         }
       },
       (err) => console.warn('Homeworks snapshot offline/quota fallback:', err)
@@ -1339,21 +1367,30 @@ export default function App() {
   // Получаем доступы текущего ученика
   const currentStudentAccess = React.useMemo(() => {
     if (currentUser.role === 'teacher') return ['ALL'];
-    return currentRegisteredStudent?.accessibleMonths || [];
+    const months = currentRegisteredStudent?.accessibleMonths;
+    // Если у ученика не ограничены месяцы (массив пуст или не задан), открыт полный доступ
+    if (!months || months.length === 0) return ['ALL'];
+    return months;
   }, [currentUser.role, currentRegisteredStudent]);
 
   const visibleHomeworks = React.useMemo(() => {
     let hwList = homeworks.filter((hw) => !deletedHwIds.includes(hw.id));
-    if (currentUser.role === 'student') {
-      hwList = hwList.filter(hw => currentStudentAccess.includes(hw.month || getCurrentMonthLabel()));
+    if (currentUser.role === 'student' && !currentStudentAccess.includes('ALL')) {
+      hwList = hwList.filter(hw => {
+        const m = hw.month || (hw.deadlineDate ? getMonthLabelFromDate(hw.deadlineDate) : getCurrentMonthLabel());
+        return currentStudentAccess.includes(m);
+      });
     }
     return hwList;
   }, [homeworks, deletedHwIds, currentUser.role, currentStudentAccess]);
 
   const visibleWebinars = React.useMemo(() => {
     let webList = webinars.filter(w => !deletedWebinarIds.includes(w.id));
-    if (currentUser.role === 'student') {
-      webList = webList.filter(w => currentStudentAccess.includes(w.month || getCurrentMonthLabel()));
+    if (currentUser.role === 'student' && !currentStudentAccess.includes('ALL')) {
+      webList = webList.filter(w => {
+        const m = w.month || (w.date ? getMonthLabelFromDate(w.date) : getCurrentMonthLabel());
+        return currentStudentAccess.includes(m);
+      });
     }
     return webList;
   }, [webinars, deletedWebinarIds, currentUser.role, currentStudentAccess]);

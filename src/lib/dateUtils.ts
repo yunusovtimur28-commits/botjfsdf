@@ -58,6 +58,19 @@ export function getCurrentMonthLabel(): string {
 }
 
 /**
+ * Returns month label from given Date or date string, e.g. "Август 2026"
+ */
+export function getMonthLabelFromDate(inputDate?: Date | string): string {
+  if (!inputDate) return getCurrentMonthLabel();
+  const d = new Date(inputDate);
+  if (isNaN(d.getTime())) return getCurrentMonthLabel();
+  const m = d.getMonth();
+  const y = d.getFullYear();
+  const name = COURSE_MONTH_NAMES[m]?.split(' ')[0] || 'Январь';
+  return `${name} ${y}`;
+}
+
+/**
  * Returns formatted date and time for notifications / submissions, e.g. "8 окт., 14:30"
  */
 export function getFormattedDateTime(inputDate?: Date | number | string): string {

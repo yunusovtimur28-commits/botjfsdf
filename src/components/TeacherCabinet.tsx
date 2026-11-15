@@ -586,7 +586,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
     {
       id: string;
       block: BlockCategory;
-      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps';
+      taskType: 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps' | 'listening_match';
       taskNumber: string;
       instruction: string;
       taskPrompt: string;
@@ -613,6 +613,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       correctAnswers?: Record<string, string>;
       textTitle?: string;
       sentenceParts?: string[];
+      audioUrl?: string;
+      audioUrls?: Record<string, string>;
+      statements?: string[];
     }[]
   >([
     {
@@ -1126,6 +1129,9 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
           correctAnswers: t.correctAnswers,
           textTitle: t.textTitle,
           sentenceParts: t.sentenceParts,
+          audioUrl: t.audioUrl,
+          audioUrls: t.audioUrls,
+          statements: t.statements,
         }))
       );
     } else {
@@ -1187,8 +1193,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       taskFileName: t.taskFileName,
       taskAudioUrl: t.taskAudioUrl && t.taskAudioUrl.trim() ? t.taskAudioUrl.trim() : undefined,
       taskVideoUrl: t.taskVideoUrl,
-      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings' || t.taskType === 'sentence_gaps') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
-      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings' || t.taskType === 'sentence_gaps') ? undefined : (t.correctOptionIndex ?? 0),
+      options: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings' || t.taskType === 'sentence_gaps' || t.taskType === 'listening_match') ? undefined : (t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D']),
+      correctOptionIndex: (t.taskType === 'gap_fill' || t.taskType === 'ege_gap_fill' || t.taskType === 'text_bank' || t.taskType === 'qna' || t.taskType === 'bracket_gaps' || t.taskType === 'match_headings' || t.taskType === 'sentence_gaps' || t.taskType === 'listening_match') ? undefined : (t.correctOptionIndex ?? 0),
       correctAnswer: t.taskType === 'gap_fill' ? t.correctAnswer?.trim() : (t.options ? t.options[t.correctOptionIndex ?? 0] : undefined),
       explanation: t.explanation?.trim() || undefined,
       baseWord: t.taskType === 'gap_fill' ? t.baseWord?.trim() : undefined,
@@ -1205,11 +1211,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
       paragraphs: t.taskType === 'match_headings' ? (t.paragraphs || []).map((p) => ({ letter: p.letter.trim().toUpperCase(), text: p.text.trim() })).filter((p) => p.letter && p.text) : undefined,
       textTitle: t.taskType === 'sentence_gaps' ? t.textTitle?.trim() : undefined,
       sentenceParts: t.taskType === 'sentence_gaps' ? (t.sentenceParts || []).map((s) => s.trim()).filter(Boolean) : undefined,
-      correctAnswers: (t.taskType === 'match_headings' || t.taskType === 'sentence_gaps') ? t.correctAnswers : undefined,
+      audioUrl: t.taskType === 'listening_match' && t.audioUrl?.trim() ? t.audioUrl.trim() : undefined,
+      audioUrls: t.taskType === 'listening_match' && t.audioUrls
+        ? Object.fromEntries(
+            (Object.entries(t.audioUrls) as [string, string][])
+              .filter(([, u]) => typeof u === 'string' && Boolean(u.trim()))
+              .map(([k, u]) => [k, u.trim()])
+          )
+        : undefined,
+      statements: t.taskType === 'listening_match' ? (t.statements || []).map((s) => s.trim()).filter(Boolean) : undefined,
+      correctAnswers: (t.taskType === 'match_headings' || t.taskType === 'sentence_gaps' || t.taskType === 'listening_match') ? t.correctAnswers : undefined,
     }));
 
     const primaryBlock = formattedTasks[0]?.block || hwBlock;
-    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna' || formattedTasks[0]?.taskType === 'bracket_gaps' || formattedTasks[0]?.taskType === 'match_headings' || formattedTasks[0]?.taskType === 'sentence_gaps') ? 'test' : (formattedTasks[0]?.taskType || 'test');
+    const primaryType = (formattedTasks[0]?.taskType === 'gap_fill' || formattedTasks[0]?.taskType === 'ege_gap_fill' || formattedTasks[0]?.taskType === 'text_bank' || formattedTasks[0]?.taskType === 'qna' || formattedTasks[0]?.taskType === 'bracket_gaps' || formattedTasks[0]?.taskType === 'match_headings' || formattedTasks[0]?.taskType === 'sentence_gaps' || formattedTasks[0]?.taskType === 'listening_match') ? 'test' : (formattedTasks[0]?.taskType || 'test');
     const isEditing = Boolean(editingHomeworkId);
     const targetHwId = editingHomeworkId || `hw-${Date.now()}`;
 
@@ -2817,6 +2832,62 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       </div>
                                     )}
 
+                                    {/* Listening Match Review */}
+                                    {task.taskType === 'listening_match' && (
+                                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-2 mt-2">
+                                        {(() => {
+                                          const letters = Object.keys(task.correctAnswers || {}).length > 0
+                                            ? Object.keys(task.correctAnswers!).sort()
+                                            : ['A', 'B', 'C', 'D', 'E', 'F'];
+                                          const correctMap = task.correctAnswers || {};
+                                          const studentInputs = ans?.listeningMatchInputs || {};
+                                          const correctCount = letters.filter((l) => (studentInputs[l] || '').trim() === (correctMap[l] || '').trim()).length;
+
+                                          return (
+                                            <>
+                                              <div className="flex items-center justify-between font-bold text-emerald-300 text-[11px]">
+                                                <span>Проверка соответствия высказываний (Задание 1 Аудирование):</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                  letters.length > 0 && correctCount === letters.length
+                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                                }`}>
+                                                  Верно {correctCount} из {letters.length}
+                                                </span>
+                                              </div>
+                                              <div className="flex flex-wrap gap-2 pt-1">
+                                                {letters.map((letter) => {
+                                                  const studentVal = (studentInputs[letter] || '').trim();
+                                                  const correctVal = (correctMap[letter] || '').trim();
+                                                  const isMatch = studentVal !== '' && studentVal === correctVal;
+                                                  const statementText = task.statements?.[parseInt(correctVal, 10) - 1] || '';
+                                                  return (
+                                                    <div key={letter} className="p-2 rounded-lg bg-black/40 border border-slate-700/80 flex flex-col space-y-1 min-w-[100px] text-[11px]">
+                                                      <div className="flex items-center justify-between">
+                                                        <span className="font-extrabold text-emerald-400">Говорящий {letter}:</span>
+                                                        {isMatch ? (
+                                                          <span className="text-[10px] text-emerald-400 font-bold">✅</span>
+                                                        ) : (
+                                                          <span className="text-[10px] text-rose-400 font-bold">❌</span>
+                                                        )}
+                                                      </div>
+                                                      <div className="text-[11px]">
+                                                        Ответ: <b className={isMatch ? 'text-emerald-400 font-mono' : 'text-rose-400 font-mono'}>{studentVal || '—'}</b>
+                                                      </div>
+                                                      <div className="text-[10px] text-slate-400">
+                                                        Верно: <b className="text-emerald-300 font-mono">{correctVal}</b>
+                                                        {statementText && <span className="block text-[9px] text-slate-400 truncate max-w-[140px]" title={statementText}>{statementText}</span>}
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </>
+                                          );
+                                        })()}
+                                      </div>
+                                    )}
+
                                     {/* Voice Answer */}
                                     {hasTaskVoice && (
                                       <div className="p-2.5 rounded-xl bg-slate-900/60 border border-emerald-500/30 space-y-2 mt-2">
@@ -3918,19 +3989,21 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                         <select
                           value={task.taskType || 'test'}
                           onChange={(e) => {
-                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps';
+                            const val = e.target.value as 'test' | 'written' | 'speaking' | 'gap_fill' | 'ege_gap_fill' | 'text_bank' | 'qna' | 'bracket_gaps' | 'match_headings' | 'sentence_gaps' | 'listening_match';
                             setHwTasks((prev) =>
                               prev.map((t, i) =>
                                 i === idx
                                   ? {
                                       ...t,
                                       taskType: val,
-                                      block: val === 'match_headings' || val === 'sentence_gaps' ? 'reading' : val === 'speaking' ? 'speaking' : t.block,
+                                      block: val === 'listening_match' ? 'listening' : val === 'match_headings' || val === 'sentence_gaps' ? 'reading' : val === 'speaking' ? 'speaking' : t.block,
                                       taskAudioUrl: t.taskAudioUrl,
                                       options: t.options || ['Вариант A', 'Вариант B', 'Вариант C', 'Вариант D'],
                                       correctOptionIndex: t.correctOptionIndex ?? 0,
                                       instruction:
-                                        val === 'sentence_gaps' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
+                                        val === 'listening_match' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
+                                          ? 'Вы услышите 6 высказываний. Установите соответствие между высказываниями каждого говорящего A–F и утверждениями, данными в списке 1–7. Используйте каждое утверждение только один раз. В задании есть одно лишнее утверждение.'
+                                          : val === 'sentence_gaps' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
                                           ? 'Прочитайте текст и заполните пропуски A–F частями предложений, обозначенными цифрами 1–7. Одна из частей в списке 1–7 лишняя.'
                                           : val === 'match_headings' && (!t.instruction || t.instruction === 'Инструкция к заданию...')
                                           ? 'Установите соответствие между заголовками 1–8 и текстами A–G. Используйте каждую цифру только один раз. В задании один заголовок лишний.'
@@ -3938,11 +4011,27 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                           ? 'Впишите правильные слова в каждый пропуск. Количество слов указано в скобках.'
                                           : t.instruction,
                                       taskPrompt:
-                                        val === 'sentence_gaps' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
+                                        val === 'listening_match' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
+                                          ? 'Вы услышите 6 высказываний. Установите соответствие между высказываниями каждого говорящего A–F и утверждениями 1–7. Запишите в таблицу выбранные цифры под соответствующими буквами.'
+                                          : val === 'sentence_gaps' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
                                           ? 'Заполните пропуски A–F частями предложений 1–7. Занесите цифры в таблицу.'
                                           : val === 'match_headings' && (!t.taskPrompt || t.taskPrompt === 'Text prompt for speaking task...' || t.taskPrompt === 'Условие задания...')
                                           ? 'Прочитайте тексты и соотнесите их с заголовками. Запишите в таблицу цифру выбранного заголовка под соответствующей буквой.'
                                           : t.taskPrompt,
+                                      statements:
+                                        val === 'listening_match'
+                                          ? (t.statements && t.statements.length > 0
+                                              ? t.statements
+                                              : [
+                                                  'Learning a foreign language helps improve memory and focus.',
+                                                  'Travelling abroad is the fastest way to practice speaking.',
+                                                  'Watching films in the original language boosts listening skills.',
+                                                  'Online apps make daily vocabulary practice convenient.',
+                                                  'Speaking with native speakers builds confidence quickly.',
+                                                  'Reading books in a foreign language can be challenging at first.',
+                                                  'Using flashcards is ineffective for advanced learners.',
+                                                ])
+                                          : t.statements,
                                       textTitle:
                                         val === 'sentence_gaps'
                                           ? (t.textTitle || 'The Sydney Opera House')
@@ -3995,7 +4084,11 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                                 ])
                                           : t.paragraphs,
                                       correctAnswers:
-                                        val === 'sentence_gaps'
+                                        val === 'listening_match'
+                                          ? (t.correctAnswers && Object.keys(t.correctAnswers).length > 0
+                                              ? t.correctAnswers
+                                              : { A: '2', B: '4', C: '6', D: '1', E: '5', F: '3' })
+                                          : val === 'sentence_gaps'
                                           ? (t.correctAnswers && Object.keys(t.correctAnswers).length > 0
                                               ? t.correctAnswers
                                               : { A: '3', B: '2', C: '7', D: '6', E: '5', F: '1' })
@@ -4044,6 +4137,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                           }`}
                         >
                           <option value="test">📝 Тест (С выбором ответа)</option>
+                          <option value="listening_match">🎧 Задание 1: Аудирование — Соответствие (A–F / 1–7)</option>
                           <option value="match_headings">📖 Задание 10: Соответствие заголовков (A–G / 1–8)</option>
                           <option value="sentence_gaps">🧩 Задание 11: Заполнение пропусков частями предложений (A–F / 1–7)</option>
                           <option value="gap_fill">Текст с пропусками (Автопроверка)</option>
@@ -5462,6 +5556,318 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                       {parts.map((_, pIdx) => (
                                         <option key={pIdx + 1} value={String(pIdx + 1)}>
                                           {pIdx + 1}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* LISTENING MATCH EDITOR (taskType === 'listening_match') */}
+                    {task.taskType === 'listening_match' && (() => {
+                      const statements = task.statements || [];
+                      const correctAnswers = task.correctAnswers || {};
+                      const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-500/20 pb-2">
+                            <div>
+                              <h4 className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                                <span>🎧 Задание 1 (Аудирование): Соответствие утверждений</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 font-mono font-bold">
+                                  {statements.length} утверждений / 6 говорящих (A–F)
+                                </span>
+                              </h4>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Прикрепите общую аудиозапись и/или отдельные записи для говорящих A–F, а также список утверждений 1–7.
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const sampleStatements = [
+                                  'Learning a foreign language helps improve memory and focus.',
+                                  'Travelling abroad is the fastest way to practice speaking.',
+                                  'Watching films in the original language boosts listening skills.',
+                                  'Online apps make daily vocabulary practice convenient.',
+                                  'Speaking with native speakers builds confidence quickly.',
+                                  'Reading books in a foreign language can be challenging at first.',
+                                  'Using flashcards is ineffective for advanced learners.',
+                                ];
+                                const sampleAnswers = { A: '2', B: '4', C: '6', D: '1', E: '5', F: '3' };
+
+                                setHwTasks((prev) =>
+                                  prev.map((t, i) =>
+                                    i === idx
+                                      ? {
+                                          ...t,
+                                          block: 'listening',
+                                          instruction: 'Вы услышите 6 высказываний. Установите соответствие между высказываниями каждого говорящего A–F и утверждениями, данными в списке 1–7. Используйте каждое утверждение только один раз. В задании есть одно лишнее утверждение.',
+                                          taskPrompt: 'Вы услышите 6 высказываний. Установите соответствие между высказываниями каждого говорящего A–F и утверждениями 1–7. Запишите в таблицу выбранные цифры под соответствующими буквами.',
+                                          statements: sampleStatements,
+                                          correctAnswers: sampleAnswers,
+                                        }
+                                      : t
+                                  )
+                                );
+                              }}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center space-x-1 shrink-0 shadow-sm transition-all self-start sm:self-auto"
+                            >
+                              <span>📋 Вставить пример (ФИПИ 2026)</span>
+                            </button>
+                          </div>
+
+                          {/* 1. Main Audio URL */}
+                          <div className="p-3 rounded-xl bg-black/30 border border-emerald-500/25 space-y-2">
+                            <label className="text-[11px] font-bold text-emerald-300 block">
+                              🎵 Общая аудиозапись задания (опционально):
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                value={task.audioUrl || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setHwTasks((prev) =>
+                                    prev.map((t, i) => (i === idx ? { ...t, audioUrl: val } : t))
+                                  );
+                                }}
+                                placeholder="Вставьте ссылку на общий MP3 / аудиофайл..."
+                                className={`flex-1 min-w-[180px] p-2 rounded-xl text-xs border ${
+                                  isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                                }`}
+                              />
+                              <label className="cursor-pointer px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
+                                <Paperclip className="w-3.5 h-3.5" />
+                                <span>Загрузить аудио</span>
+                                <input
+                                  type="file"
+                                  accept="audio/*"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                      try {
+                                        const res = await uploadFileToServer(file);
+                                        if (res.url) {
+                                          setHwTasks((prev) =>
+                                            prev.map((t, i) => (i === idx ? { ...t, audioUrl: res.url } : t))
+                                          );
+                                        }
+                                      } catch (err) {
+                                        console.error('Failed to upload listening audio:', err);
+                                      }
+                                    }
+                                  }}
+                                />
+                              </label>
+                            </div>
+                            {Boolean(task.audioUrl && task.audioUrl.trim()) && (
+                              <audio controls src={task.audioUrl.trim()} className="w-full h-8 pt-1" />
+                            )}
+                          </div>
+
+                          {/* 2. Per-speaker Audio URLs A-F */}
+                          <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2">
+                            <label className="text-[11px] font-bold text-sky-300 block">
+                              🎙 Или отдельные аудиофайлы для каждого говорящего A–F (опционально):
+                            </label>
+                            <div className="grid grid-cols-1 gap-2">
+                              {letters.map((letter) => {
+                                const curUrl = task.audioUrls?.[letter] || '';
+                                return (
+                                  <div key={letter} className="flex flex-wrap items-center gap-2">
+                                    <span className="w-6 h-6 rounded-lg bg-emerald-600/25 border border-emerald-500/40 font-black text-emerald-300 text-xs flex items-center justify-center shrink-0">
+                                      {letter}
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={curUrl}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setHwTasks((prev) =>
+                                          prev.map((t, i) =>
+                                            i === idx
+                                              ? {
+                                                  ...t,
+                                                  audioUrls: {
+                                                    ...(t.audioUrls || {}),
+                                                    [letter]: val,
+                                                  },
+                                                }
+                                              : t
+                                          )
+                                        );
+                                      }}
+                                      placeholder={`Ссылка на аудио говорящего ${letter}...`}
+                                      className={`flex-1 min-w-[150px] p-1.5 rounded-lg text-xs border ${
+                                        isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                                      }`}
+                                    />
+                                    <label className="cursor-pointer px-2.5 py-1.5 bg-sky-600/80 hover:bg-sky-600 text-white font-bold text-[10px] rounded-lg shrink-0 flex items-center space-x-1">
+                                      <Paperclip className="w-3 h-3" />
+                                      <span>Файл</span>
+                                      <input
+                                        type="file"
+                                        accept="audio/*"
+                                        className="hidden"
+                                        onChange={async (e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) {
+                                            try {
+                                              const res = await uploadFileToServer(file);
+                                              if (res.url) {
+                                                setHwTasks((prev) =>
+                                                  prev.map((t, i) =>
+                                                    i === idx
+                                                      ? {
+                                                          ...t,
+                                                          audioUrls: {
+                                                            ...(t.audioUrls || {}),
+                                                            [letter]: res.url,
+                                                          },
+                                                        }
+                                                      : t
+                                                  )
+                                                );
+                                              }
+                                            } catch (err) {
+                                              console.error(`Failed to upload audio ${letter}:`, err);
+                                            }
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* 3. Statements (1-7) */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-bold text-amber-300 block">
+                                Список утверждений (обычно 7 шт., 1 лишнее):
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHwTasks((prev) =>
+                                    prev.map((t, i) =>
+                                      i === idx
+                                        ? { ...t, statements: [...(t.statements || []), `Утверждение ${(t.statements || []).length + 1}`] }
+                                        : t
+                                    )
+                                  );
+                                }}
+                                className="px-2 py-0.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-all"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Добавить утверждение</span>
+                              </button>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {statements.map((stmt, sIdx) => (
+                                <div key={sIdx} className="flex items-center space-x-2">
+                                  <span className="w-6 h-6 rounded-lg bg-black/40 border border-slate-700 font-mono font-bold text-emerald-300 text-xs flex items-center justify-center shrink-0">
+                                    {sIdx + 1}
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={stmt}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setHwTasks((prev) =>
+                                        prev.map((t, i) =>
+                                          i === idx
+                                            ? {
+                                                ...t,
+                                                statements: t.statements?.map((s, j) => (j === sIdx ? val : s)),
+                                              }
+                                            : t
+                                        )
+                                      );
+                                    }}
+                                    placeholder={`Утверждение #${sIdx + 1}`}
+                                    className={`flex-1 p-2 rounded-xl text-xs border ${
+                                      isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'
+                                    }`}
+                                  />
+                                  {statements.length > 2 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setHwTasks((prev) =>
+                                          prev.map((t, i) =>
+                                            i === idx
+                                              ? { ...t, statements: t.statements?.filter((_, j) => j !== sIdx) }
+                                              : t
+                                          )
+                                        );
+                                      }}
+                                      className="p-1.5 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-500/10 transition-all shrink-0"
+                                      title="Удалить утверждение"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 4. Correct Answers selector */}
+                          <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2">
+                            <label className="text-[11px] font-bold text-emerald-400 block">
+                              Правильные соответствия (цифра утверждения 1–{statements.length} для каждого говорящего A–F):
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {letters.map((letter) => {
+                                const val = correctAnswers[letter] || '';
+
+                                return (
+                                  <div
+                                    key={letter}
+                                    className="p-2 rounded-xl bg-black/40 border border-slate-700 flex items-center space-x-2"
+                                  >
+                                    <span className="font-black text-xs text-emerald-400">
+                                      {letter} =
+                                    </span>
+                                    <select
+                                      value={val}
+                                      onChange={(e) => {
+                                        const newDigit = e.target.value;
+                                        setHwTasks((prev) =>
+                                          prev.map((t, i) =>
+                                            i === idx
+                                              ? {
+                                                  ...t,
+                                                  correctAnswers: {
+                                                    ...(t.correctAnswers || {}),
+                                                    [letter]: newDigit,
+                                                  },
+                                                }
+                                              : t
+                                          )
+                                        );
+                                      }}
+                                      className={`p-1 rounded-lg text-xs font-bold border ${
+                                        isDarkMode ? 'bg-[#1e2c3a] border-slate-600 text-emerald-300' : 'bg-white border-slate-300 text-emerald-700'
+                                      }`}
+                                    >
+                                      <option value="">—</option>
+                                      {statements.map((_, sIdx) => (
+                                        <option key={sIdx + 1} value={String(sIdx + 1)}>
+                                          {sIdx + 1}
                                         </option>
                                       ))}
                                     </select>

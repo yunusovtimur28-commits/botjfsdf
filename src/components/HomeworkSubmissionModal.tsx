@@ -62,6 +62,31 @@ const countEgeWords = (text: string): number => {
   return words.length;
 };
 
+// Стабильный мемоизированный аудиоплеер, изолированный от ререндеров формы
+const StableListeningAudioPlayer = React.memo<{
+  src: string;
+  label?: string;
+  compact?: boolean;
+}>(({ src, label, compact }) => {
+  return (
+    <div className={compact ? 'flex-1 min-w-[200px]' : 'w-full'}>
+      {label && (
+        <div className="flex items-center space-x-1.5 mb-1.5">
+          <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span className="text-xs font-bold text-emerald-300">{label}</span>
+        </div>
+      )}
+      <audio
+        key={src}
+        controls
+        preload="metadata"
+        src={src}
+        className={`w-full accent-emerald-500 rounded-lg ${compact ? 'h-9' : 'h-10'}`}
+      />
+    </div>
+  );
+}, (prev, next) => prev.src === next.src && prev.label === next.label && prev.compact === next.compact);
+
 export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = ({
   homework,
   existingSubmission,
@@ -245,6 +270,14 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
             initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
           }
         }
+        if (t.taskType === 'listening_match' && t.correctAnswers) {
+          const inputs = existingSubmission.taskAnswers?.[t.id]?.listeningMatchInputs;
+          if (inputs && Object.keys(inputs).length > 0) {
+            const letters = Object.keys(t.correctAnswers).sort();
+            const allMatch = letters.length > 0 && letters.every((l) => (inputs[l] || '').trim() === (t.correctAnswers![l] || '').trim());
+            initialChecked[t.id] = allMatch ? 'correct' : 'incorrect';
+          }
+        }
       });
     }
     return initialChecked;
@@ -282,6 +315,30 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       homework.tasks.forEach((t) => {
         if (t.taskType === 'sentence_gaps' && t.correctAnswers) {
           const inputs = existingSubmission.taskAnswers?.[t.id]?.sentenceGapsInputs || existingSubmission.taskAnswers?.[t.id]?.matchHeadingsInputs;
+          if (inputs) {
+            const map: Record<string, 'correct' | 'incorrect'> = {};
+            const letters = Object.keys(t.correctAnswers).sort();
+            letters.forEach((l) => {
+              const val = (inputs[l] || '').trim();
+              const target = (t.correctAnswers![l] || '').trim();
+              if (val && target) {
+                map[l] = val === target ? 'correct' : 'incorrect';
+              }
+            });
+            initial[t.id] = map;
+          }
+        }
+      });
+    }
+    return initial;
+  });
+
+  const [listeningMatchChecked, setListeningMatchChecked] = useState<Record<string, Record<string, 'correct' | 'incorrect'>>>(() => {
+    const initial: Record<string, Record<string, 'correct' | 'incorrect'>> = {};
+    if (homework.tasks && existingSubmission) {
+      homework.tasks.forEach((t) => {
+        if (t.taskType === 'listening_match' && t.correctAnswers) {
+          const inputs = existingSubmission.taskAnswers?.[t.id]?.listeningMatchInputs;
           if (inputs) {
             const map: Record<string, 'correct' | 'incorrect'> = {};
             const letters = Object.keys(t.correctAnswers).sort();
@@ -1614,7 +1671,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                     )}
 
                     {/* Task Audio Prompt Attachment from Teacher (Условие задачи) */}
-                    {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) ? (
+                    {task.taskType !== 'listening_match' && Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) ? (
                       <div className="p-3 rounded-xl bg-gradient-to-r from-sky-950/70 via-indigo-950/50 to-purple-950/40 border border-sky-500/40 space-y-2">
                         <div className="flex items-center justify-between text-xs font-bold text-sky-400">
                           <span className="flex items-center space-x-1.5">
@@ -1629,7 +1686,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
 
                     {/* Response Input based on Type & Block */}
                     <div className="space-y-2 pt-1">
-                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && task.taskType !== 'match_headings' && task.taskType !== 'sentence_gaps' && !isSpeakingTask && (
+                      {task.taskType !== 'gap_fill' && task.taskType !== 'ege_gap_fill' && task.taskType !== 'text_bank' && task.taskType !== 'qna' && task.taskType !== 'bracket_gaps' && task.taskType !== 'match_headings' && task.taskType !== 'sentence_gaps' && task.taskType !== 'listening_match' && !isSpeakingTask && (
                         <label className="text-[11px] font-semibold text-slate-300 block">
                           Ваш ответ на {!task.taskNumber || task.taskNumber === 'Без номера' ? `Задание #${tIdx + 1}` : task.taskNumber}:
                         </label>
@@ -2988,6 +3045,293 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                         <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
                                           <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                                           <span>Все пропуски заполнены верно! 🎉</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                                          Верно: {letters.filter((l) => (userInputs[l] || '').trim() === (correctMap[l] || '').trim()).length} из {letters.length}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : task.taskType === 'listening_match' ? (
+                        <div className="space-y-4 pt-1">
+                          {/* 1. Instruction block */}
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-emerald-950/45 via-teal-950/40 to-sky-950/40 border border-emerald-500/35 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="font-extrabold text-xs sm:text-sm text-emerald-300 flex items-center space-x-1.5">
+                                <span>🎧 Задание 1 (Аудирование): Установление соответствия</span>
+                              </h4>
+                              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold shrink-0">
+                                ЕГЭ Аудирование
+                              </span>
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-200 leading-relaxed font-medium whitespace-pre-wrap">
+                              {task.taskPrompt || task.instruction || 'Вы услышите 6 высказываний. Установите соответствие между высказываниями каждого говорящего A–F и утверждениями, данными в списке 1–7. Используйте каждое утверждение, обозначенное соответствующей цифрой, только один раз. В задании есть одно лишнее утверждение.'}
+                            </p>
+                          </div>
+
+                          {/* 2. Audio Player(s) - Single track and/or Per-Speaker mini players */}
+                          {(() => {
+                            const mainAudio = (task.audioUrl || task.taskAudioUrl || '').trim();
+                            const speakerAudios = task.audioUrls
+                              ? (Object.entries(task.audioUrls) as [string, string][])
+                                  .filter(([, url]) => typeof url === 'string' && Boolean(url.trim()))
+                                  .sort(([a], [b]) => a.localeCompare(b))
+                              : [];
+
+                            if (!mainAudio && speakerAudios.length === 0) {
+                              return (
+                                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center space-x-2">
+                                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                                  <span>Аудиозапись к заданию ещё не прикреплена преподавателем.</span>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="space-y-3">
+                                {mainAudio && (
+                                  <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-slate-900/90 to-emerald-950/30 border border-emerald-500/35 shadow-md space-y-2">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="font-extrabold text-emerald-300 flex items-center space-x-1.5">
+                                        <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                        <span>🎵 Аудиозапись задания (высказывания A–F)</span>
+                                      </span>
+                                      <span className="text-[10px] text-slate-400">Можно перематывать и ставить на паузу</span>
+                                    </div>
+                                    <StableListeningAudioPlayer src={mainAudio} />
+                                  </div>
+                                )}
+
+                                {speakerAudios.length > 0 && (
+                                  <div className="p-3.5 sm:p-4 rounded-2xl bg-black/30 border border-emerald-500/30 space-y-2.5">
+                                    <div className="flex items-center space-x-1.5">
+                                      <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                      <span className="text-xs font-extrabold text-emerald-300">
+                                        Аудиозаписи говорящих (A–F):
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2">
+                                      {speakerAudios.map(([letter, url]) => (
+                                        <div
+                                          key={letter}
+                                          className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center gap-2.5 ${
+                                            isDarkMode ? 'bg-[#17212b]/90 border-slate-700/80' : 'bg-white border-slate-200'
+                                          }`}
+                                        >
+                                          <div className="flex items-center space-x-2 shrink-0 min-w-[110px]">
+                                            <span className="w-7 h-7 rounded-lg bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 font-black text-xs flex items-center justify-center">
+                                              {letter}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-200">
+                                              Говорящий {letter}
+                                            </span>
+                                          </div>
+                                          <StableListeningAudioPlayer src={String(url).trim()} compact />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* 3. Statements list (1-7) */}
+                          {Boolean(task.statements && task.statements.length > 0) && (
+                            <div className="p-3.5 sm:p-4 rounded-2xl bg-black/30 border border-slate-700/80 space-y-2.5">
+                              <div className="flex items-center space-x-1.5">
+                                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                  Утверждения:
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  (одно утверждение лишнее)
+                                </span>
+                              </div>
+                              <div className="space-y-2">
+                                {task.statements!.map((statement, sIdx) => (
+                                  <div
+                                    key={sIdx}
+                                    className={`p-2.5 sm:p-3 rounded-xl border flex items-start space-x-2.5 transition-all ${
+                                      isDarkMode ? 'bg-[#1a2634] border-slate-700/80 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                                    }`}
+                                  >
+                                    <span className="w-6 h-6 rounded-lg bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                                      {sIdx + 1}
+                                    </span>
+                                    <span className="text-xs sm:text-sm font-medium leading-relaxed">
+                                      {statement}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 4. Interactive Answer Block */}
+                          {(() => {
+                            const letters = Object.keys(task.correctAnswers || {}).length > 0
+                              ? Object.keys(task.correctAnswers!).sort()
+                              : task.audioUrls && Object.keys(task.audioUrls).length > 0
+                              ? Object.keys(task.audioUrls).sort()
+                              : ['A', 'B', 'C', 'D', 'E', 'F'];
+                            const userInputs = currentAnswer.listeningMatchInputs || {};
+                            const isTaskChecked = checkedTasks[task.id] !== undefined;
+                            const correctMap = task.correctAnswers || {};
+                            const maxNum = task.statements?.length || 7;
+
+                            return (
+                              <div className="p-4 rounded-2xl bg-slate-900/85 border border-emerald-500/30 space-y-4 shadow-lg">
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-emerald-300 flex items-center space-x-1.5">
+                                    <span>✍️ Таблица ответов:</span>
+                                  </h5>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    Впишите номер утверждения (1–{maxNum}) для каждого говорящего:
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                                  {letters.map((letter) => {
+                                    const val = userInputs[letter] || '';
+                                    const status = listeningMatchChecked[task.id]?.[letter];
+                                    const isCorrect = status === 'correct';
+                                    const isIncorrect = status === 'incorrect';
+                                    const targetDigit = (correctMap[letter] || '').trim();
+
+                                    return (
+                                      <div
+                                        key={letter}
+                                        className={`flex flex-col items-center p-2 rounded-xl border min-w-[54px] sm:min-w-[62px] transition-all ${
+                                          isCorrect
+                                            ? 'bg-emerald-500/15 border-emerald-500/50'
+                                            : isIncorrect
+                                            ? 'bg-rose-500/15 border-rose-500/50'
+                                            : 'bg-black/40 border-slate-700/80'
+                                        }`}
+                                      >
+                                        <span className="font-black text-xs sm:text-sm text-emerald-400 mb-1.5">
+                                          {letter}
+                                        </span>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          maxLength={1}
+                                          disabled={isSubmissionBlocked || isTaskChecked}
+                                          value={val}
+                                          onChange={(e) => {
+                                            if (isSubmissionBlocked || isTaskChecked) return;
+                                            const cleaned = e.target.value.replace(/[^1-9]/g, '');
+                                            const updatedInputs = {
+                                              ...userInputs,
+                                              [letter]: cleaned,
+                                            };
+
+                                            const summary = letters.map((l) => `${l}: ${updatedInputs[l] || '-'}`).join(', ');
+
+                                            setTaskAnswers((prev) => ({
+                                              ...prev,
+                                              [task.id]: {
+                                                ...prev[task.id],
+                                                textAnswer: summary,
+                                                listeningMatchInputs: updatedInputs,
+                                              },
+                                            }));
+                                          }}
+                                          placeholder="—"
+                                          className={`w-9 h-9 sm:w-10 sm:h-10 text-center text-sm sm:text-base font-black rounded-lg border focus:outline-none transition-all shadow-sm ${
+                                            isCorrect
+                                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 ring-2 ring-emerald-500/30'
+                                              : isIncorrect
+                                              ? 'bg-rose-500/20 border-rose-500 text-rose-300 ring-2 ring-rose-500/30'
+                                              : isDarkMode
+                                              ? 'bg-[#1e2c3a] border-slate-600 text-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20'
+                                              : 'bg-white border-slate-300 text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20'
+                                          } ${isSubmissionBlocked || isTaskChecked ? 'cursor-not-allowed opacity-90' : ''}`}
+                                        />
+                                        {isIncorrect && targetDigit && (
+                                          <span
+                                            className="mt-1.5 text-[10px] font-bold text-rose-300 font-mono bg-rose-500/25 px-1.5 py-0.5 rounded border border-rose-500/40"
+                                            title={`Правильное утверждение: ${targetDigit}`}
+                                          >
+                                            {targetDigit}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Validation & Check Button */}
+                                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-700/50">
+                                  {isSubmissionBlocked ? (
+                                    <div className="w-full sm:w-auto px-4 py-2 bg-slate-800 border border-slate-700 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5">
+                                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                      <span>Режим просмотра (сдача закрыта)</span>
+                                    </div>
+                                  ) : isTaskChecked ? (
+                                    <button
+                                      type="button"
+                                      disabled={true}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-slate-800/80 border border-slate-700/80 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed flex items-center justify-center space-x-2 shadow-inner"
+                                    >
+                                      <Check className="w-4 h-4 text-emerald-400" />
+                                      <span>Ответы зафиксированы</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newCheckedMap: Record<string, 'correct' | 'incorrect'> = {};
+                                        let correctCount = 0;
+
+                                        letters.forEach((letter) => {
+                                          const userVal = (userInputs[letter] || '').trim();
+                                          const target = (correctMap[letter] || '').trim();
+                                          const isMatch = userVal !== '' && userVal === target;
+                                          newCheckedMap[letter] = isMatch ? 'correct' : 'incorrect';
+                                          if (isMatch) correctCount++;
+                                        });
+
+                                        setListeningMatchChecked((prev) => ({
+                                          ...prev,
+                                          [task.id]: newCheckedMap,
+                                        }));
+
+                                        const allCorrect = letters.length > 0 && correctCount === letters.length;
+                                        setCheckedTasks((prev) => ({
+                                          ...prev,
+                                          [task.id]: allCorrect ? 'correct' : 'incorrect',
+                                        }));
+
+                                        const summary = letters.map((l) => `${l}: ${userInputs[l] || '-'}`).join(', ');
+                                        setTaskAnswers((prev) => ({
+                                          ...prev,
+                                          [task.id]: {
+                                            ...prev[task.id],
+                                            textAnswer: summary,
+                                            listeningMatchInputs: { ...userInputs },
+                                          },
+                                        }));
+                                      }}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 hover:from-emerald-700 hover:to-sky-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center space-x-2 active:scale-95"
+                                    >
+                                      <Check className="w-4 h-4" />
+                                      <span>Проверить ответы</span>
+                                    </button>
+                                  )}
+
+                                  {isTaskChecked && letters.length > 0 && (
+                                    <div className="text-xs font-bold flex items-center gap-1.5">
+                                      {letters.every((l) => (userInputs[l] || '').trim() === (correctMap[l] || '').trim()) ? (
+                                        <span className="text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/30 flex items-center gap-1">
+                                          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                          <span>Все высказывания сопоставлены верно! 🎉</span>
                                         </span>
                                       ) : (
                                         <span className="text-amber-300 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/30">
