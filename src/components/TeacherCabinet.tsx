@@ -2484,8 +2484,8 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                   </div>
                                 )}
 
-                                {/* Teacher Voice condition player: ALWAYS shown under each task if present */}
-                                {Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) ? (
+                                {/* Teacher Voice condition player: ALWAYS shown under each task if present (except listening_match where external link is shown) */}
+                                {task.taskType !== 'listening_match' && Boolean(task.taskAudioUrl && task.taskAudioUrl.trim()) ? (
                                   <div className="p-2.5 rounded-xl bg-sky-950/50 border border-sky-500/40 space-y-1.5 my-1.5">
                                     <div className="flex items-center justify-between text-[11px] font-bold text-sky-400">
                                       <span className="flex items-center space-x-1.5">
@@ -2845,6 +2845,20 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
 
                                           return (
                                             <>
+                                              {(task.audioUrl || task.taskAudioUrl) && (
+                                                <a
+                                                  href={(() => {
+                                                    const raw = (task.audioUrl || task.taskAudioUrl || '').trim();
+                                                    return /^(https?:\/\/|\/|data:|blob:)/i.test(raw) ? raw : `https://${raw}`;
+                                                  })()}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 hover:text-emerald-200 hover:underline mb-1"
+                                                >
+                                                  <ExternalLink className="w-3.5 h-3.5" />
+                                                  <span>Открыть ссылку на аудиозапись</span>
+                                                </a>
+                                              )}
                                               <div className="flex items-center justify-between font-bold text-emerald-300 text-[11px]">
                                                 <span>Проверка соответствия высказываний (Задание 1 Аудирование):</span>
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -5585,7 +5599,7 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                 </span>
                               </h4>
                               <p className="text-[11px] text-slate-400 mt-0.5">
-                                Прикрепите общую аудиозапись и/или отдельные записи для говорящих A–F, а также список утверждений 1–7.
+                                Вставьте ссылку на диск или облако с аудиозаписью (Google Диск, Яндекс Диск и др.) и список утверждений 1–7. Ученики будут переходить по ссылке для прослушивания.
                               </p>
                             </div>
 
@@ -5624,10 +5638,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             </button>
                           </div>
 
-                          {/* 1. Main Audio URL */}
+                          {/* 1. Main Audio Disk Link */}
                           <div className="p-3 rounded-xl bg-black/30 border border-emerald-500/25 space-y-2">
                             <label className="text-[11px] font-bold text-emerald-300 block">
-                              🎵 Общая аудиозапись задания (опционально):
+                              🔗 Ссылка на аудиозапись (Google Диск / Яндекс Диск / облако):
                             </label>
                             <div className="flex flex-wrap items-center gap-2">
                               <input
@@ -5639,45 +5653,35 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                     prev.map((t, i) => (i === idx ? { ...t, audioUrl: val } : t))
                                   );
                                 }}
-                                placeholder="Вставьте ссылку на общий MP3 / аудиофайл..."
-                                className={`flex-1 min-w-[180px] p-2 rounded-xl text-xs border ${
+                                placeholder="Вставьте ссылку на диск с аудио (например, https://drive.google.com/...)"
+                                className={`flex-1 min-w-[180px] p-2.5 rounded-xl text-xs border ${
                                   isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                                 }`}
                               />
-                              <label className="cursor-pointer px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1">
-                                <Paperclip className="w-3.5 h-3.5" />
-                                <span>Загрузить аудио</span>
-                                <input
-                                  type="file"
-                                  accept="audio/*"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      try {
-                                        const res = await uploadFileToServer(file);
-                                        if (res.url) {
-                                          setHwTasks((prev) =>
-                                            prev.map((t, i) => (i === idx ? { ...t, audioUrl: res.url } : t))
-                                          );
-                                        }
-                                      } catch (err) {
-                                        console.error('Failed to upload listening audio:', err);
-                                      }
-                                    }
-                                  }}
-                                />
-                              </label>
+                              {Boolean(task.audioUrl && task.audioUrl.trim()) && (
+                                <a
+                                  href={(() => {
+                                    const raw = task.audioUrl!.trim();
+                                    return /^(https?:\/\/|\/|data:|blob:)/i.test(raw) ? raw : `https://${raw}`;
+                                  })()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-sm shrink-0 flex items-center space-x-1.5 transition-all"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                  <span>Проверить ссылку</span>
+                                </a>
+                              )}
                             </div>
-                            {Boolean(task.audioUrl && task.audioUrl.trim()) && (
-                              <audio controls src={task.audioUrl.trim()} className="w-full h-8 pt-1" />
-                            )}
+                            <p className="text-[10px] text-slate-400">
+                              Ученик нажмёт кнопку «Открыть аудио» и перейдёт по этой ссылке в новой вкладке.
+                            </p>
                           </div>
 
-                          {/* 2. Per-speaker Audio URLs A-F */}
+                          {/* 2. Optional Per-speaker Disk Links A-F */}
                           <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2">
                             <label className="text-[11px] font-bold text-sky-300 block">
-                              🎙 Или отдельные аудиофайлы для каждого говорящего A–F (опционально):
+                              🔗 Или отдельные ссылки на диск для каждого говорящего A–F (опционально):
                             </label>
                             <div className="grid grid-cols-1 gap-2">
                               {letters.map((letter) => {
@@ -5706,45 +5710,26 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                           )
                                         );
                                       }}
-                                      placeholder={`Ссылка на аудио говорящего ${letter}...`}
+                                      placeholder={`Ссылка на аудио говорящего ${letter} (Google / Яндекс Диск)...`}
                                       className={`flex-1 min-w-[150px] p-1.5 rounded-lg text-xs border ${
                                         isDarkMode ? 'bg-[#1e2c3a] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
                                       }`}
                                     />
-                                    <label className="cursor-pointer px-2.5 py-1.5 bg-sky-600/80 hover:bg-sky-600 text-white font-bold text-[10px] rounded-lg shrink-0 flex items-center space-x-1">
-                                      <Paperclip className="w-3 h-3" />
-                                      <span>Файл</span>
-                                      <input
-                                        type="file"
-                                        accept="audio/*"
-                                        className="hidden"
-                                        onChange={async (e) => {
-                                          const file = e.target.files?.[0];
-                                          if (file) {
-                                            try {
-                                              const res = await uploadFileToServer(file);
-                                              if (res.url) {
-                                                setHwTasks((prev) =>
-                                                  prev.map((t, i) =>
-                                                    i === idx
-                                                      ? {
-                                                          ...t,
-                                                          audioUrls: {
-                                                            ...(t.audioUrls || {}),
-                                                            [letter]: res.url,
-                                                          },
-                                                        }
-                                                      : t
-                                                  )
-                                                );
-                                              }
-                                            } catch (err) {
-                                              console.error(`Failed to upload audio ${letter}:`, err);
-                                            }
-                                          }
-                                        }}
-                                      />
-                                    </label>
+                                    {Boolean(curUrl && curUrl.trim()) && (
+                                      <a
+                                        href={(() => {
+                                          const raw = curUrl.trim();
+                                          return /^(https?:\/\/|\/|data:|blob:)/i.test(raw) ? raw : `https://${raw}`;
+                                        })()}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title={`Открыть ссылку говорящего ${letter}`}
+                                        className="px-2.5 py-1.5 bg-sky-600/80 hover:bg-sky-600 text-white font-bold text-[10px] rounded-lg shrink-0 flex items-center space-x-1 transition-all"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        <span>Открыть</span>
+                                      </a>
+                                    )}
                                   </div>
                                 );
                               })}

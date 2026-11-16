@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   Paperclip,
   Lock,
+  ExternalLink,
 } from 'lucide-react';
 import { formatSeconds } from '../lib/dateUtils';
 import {
@@ -62,30 +63,13 @@ const countEgeWords = (text: string): number => {
   return words.length;
 };
 
-// Стабильный мемоизированный аудиоплеер, изолированный от ререндеров формы
-const StableListeningAudioPlayer = React.memo<{
-  src: string;
-  label?: string;
-  compact?: boolean;
-}>(({ src, label, compact }) => {
-  return (
-    <div className={compact ? 'flex-1 min-w-[200px]' : 'w-full'}>
-      {label && (
-        <div className="flex items-center space-x-1.5 mb-1.5">
-          <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="text-xs font-bold text-emerald-300">{label}</span>
-        </div>
-      )}
-      <audio
-        key={src}
-        controls
-        preload="metadata"
-        src={src}
-        className={`w-full accent-emerald-500 rounded-lg ${compact ? 'h-9' : 'h-10'}`}
-      />
-    </div>
-  );
-}, (prev, next) => prev.src === next.src && prev.label === next.label && prev.compact === next.compact);
+// Нормализация внешней ссылки на облако / диск для безопасного открытия в новой вкладке
+const normalizeExternalUrl = (url: string): string => {
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^(https?:\/\/|\/|data:|blob:)/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+};
 
 export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = ({
   homework,
@@ -3075,20 +3059,21 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             </p>
                           </div>
 
-                          {/* 2. Audio Player(s) - Single track and/or Per-Speaker mini players */}
+                          {/* 2. External Audio Link(s) - Opens in new tab (Google Drive / Yandex Disk / external source) */}
                           {(() => {
                             const mainAudio = (task.audioUrl || task.taskAudioUrl || '').trim();
+                            const hasFileLink = Boolean(task.taskFileLink && task.taskFileLink.trim());
                             const speakerAudios = task.audioUrls
                               ? (Object.entries(task.audioUrls) as [string, string][])
                                   .filter(([, url]) => typeof url === 'string' && Boolean(url.trim()))
                                   .sort(([a], [b]) => a.localeCompare(b))
                               : [];
 
-                            if (!mainAudio && speakerAudios.length === 0) {
+                            if (!mainAudio && speakerAudios.length === 0 && !hasFileLink) {
                               return (
                                 <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center space-x-2">
                                   <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
-                                  <span>Аудиозапись к заданию ещё не прикреплена преподавателем.</span>
+                                  <span>Ссылка на аудиозапись к заданию ещё не прикреплена преподавателем.</span>
                                 </div>
                               );
                             }
@@ -3096,15 +3081,30 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             return (
                               <div className="space-y-3">
                                 {mainAudio && (
-                                  <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-slate-900/90 to-emerald-950/30 border border-emerald-500/35 shadow-md space-y-2">
-                                    <div className="flex items-center justify-between text-xs">
-                                      <span className="font-extrabold text-emerald-300 flex items-center space-x-1.5">
+                                  <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-slate-900/90 to-sky-950/50 border border-emerald-500/40 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="space-y-1 min-w-0">
+                                      <div className="flex items-center space-x-2">
                                         <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                                        <span>🎵 Аудиозапись задания (высказывания A–F)</span>
-                                      </span>
-                                      <span className="text-[10px] text-slate-400">Можно перематывать и ставить на паузу</span>
+                                        <span className="text-xs sm:text-sm font-extrabold text-emerald-300">
+                                          🎧 Аудиозапись задания (внешний источник / Диск)
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-300 leading-snug">
+                                        Нажмите на кнопку, чтобы перейти по ссылке и прослушать аудиозапись, затем вернитесь и впишите ответы A–F ниже.
+                                      </p>
+                                      <p className="text-[10px] text-slate-400 truncate font-mono">
+                                        {mainAudio}
+                                      </p>
                                     </div>
-                                    <StableListeningAudioPlayer src={mainAudio} />
+                                    <a
+                                      href={normalizeExternalUrl(mainAudio)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-extrabold shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center space-x-2 shrink-0"
+                                    >
+                                      <ExternalLink className="w-4 h-4 shrink-0" />
+                                      <span>Открыть аудио</span>
+                                    </a>
                                   </div>
                                 )}
 
@@ -3113,28 +3113,44 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     <div className="flex items-center space-x-1.5">
                                       <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
                                       <span className="text-xs font-extrabold text-emerald-300">
-                                        Аудиозаписи говорящих (A–F):
+                                        Ссылки на аудиозаписи говорящих (A–F):
                                       </span>
                                     </div>
-                                    <div className="grid grid-cols-1 gap-2">
-                                      {speakerAudios.map(([letter, url]) => (
-                                        <div
-                                          key={letter}
-                                          className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center gap-2.5 ${
-                                            isDarkMode ? 'bg-[#17212b]/90 border-slate-700/80' : 'bg-white border-slate-200'
-                                          }`}
-                                        >
-                                          <div className="flex items-center space-x-2 shrink-0 min-w-[110px]">
-                                            <span className="w-7 h-7 rounded-lg bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 font-black text-xs flex items-center justify-center">
-                                              {letter}
-                                            </span>
-                                            <span className="text-xs font-bold text-slate-200">
-                                              Говорящий {letter}
-                                            </span>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {speakerAudios.map(([letter, url]) => {
+                                        const cleanUrl = String(url).trim();
+                                        return (
+                                          <div
+                                            key={letter}
+                                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2.5 ${
+                                              isDarkMode ? 'bg-[#17212b]/90 border-slate-700/80' : 'bg-white border-slate-200'
+                                            }`}
+                                          >
+                                            <div className="flex items-center space-x-2 min-w-0">
+                                              <span className="w-7 h-7 rounded-lg bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 font-black text-xs flex items-center justify-center shrink-0">
+                                                {letter}
+                                              </span>
+                                              <div className="min-w-0">
+                                                <span className="text-xs font-bold text-slate-200 block">
+                                                  Говорящий {letter}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 truncate block font-mono">
+                                                  {cleanUrl}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <a
+                                              href={normalizeExternalUrl(cleanUrl)}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold flex items-center space-x-1.5 shrink-0 shadow-sm transition-all"
+                                            >
+                                              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                              <span>Слушать</span>
+                                            </a>
                                           </div>
-                                          <StableListeningAudioPlayer src={String(url).trim()} compact />
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 )}
