@@ -323,13 +323,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
       homework.tasks.forEach((t) => {
         if (t.taskType === 'listening_match' && t.correctAnswers) {
           const inputs = existingSubmission.taskAnswers?.[t.id]?.listeningMatchInputs;
-          if (inputs) {
+          if (inputs && Object.values(inputs).some((v) => String(v || '').trim() !== '')) {
             const map: Record<string, 'correct' | 'incorrect'> = {};
             const letters = Object.keys(t.correctAnswers).sort();
             letters.forEach((l) => {
               const val = (inputs[l] || '').trim();
               const target = (t.correctAnswers![l] || '').trim();
-              if (val && target) {
+              if (target) {
                 map[l] = val === target ? 'correct' : 'incorrect';
               }
             });
@@ -3158,36 +3158,42 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             );
                           })()}
 
-                          {/* 3. Statements list (1-7) */}
-                          {Boolean(task.statements && task.statements.length > 0) && (
-                            <div className="p-3.5 sm:p-4 rounded-2xl bg-black/30 border border-slate-700/80 space-y-2.5">
-                              <div className="flex items-center space-x-1.5">
-                                <span className="text-xs font-black uppercase tracking-wider text-amber-300">
-                                  Утверждения:
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-medium">
-                                  (одно утверждение лишнее)
-                                </span>
-                              </div>
-                              <div className="space-y-2">
-                                {task.statements!.map((statement, sIdx) => (
-                                  <div
-                                    key={sIdx}
-                                    className={`p-2.5 sm:p-3 rounded-xl border flex items-start space-x-2.5 transition-all ${
-                                      isDarkMode ? 'bg-[#1a2634] border-slate-700/80 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
-                                    }`}
-                                  >
-                                    <span className="w-6 h-6 rounded-lg bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
-                                      {sIdx + 1}
+                          {/* 3. Statements list */}
+                          {Boolean(task.statements && task.statements.length > 0) && (() => {
+                            const answerKeyCount = Object.keys(task.correctAnswers || {}).length || 6;
+                            const hasExtraStatement = task.statements!.length === answerKeyCount + 1;
+                            return (
+                              <div className="p-3.5 sm:p-4 rounded-2xl bg-black/30 border border-slate-700/80 space-y-2.5">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                    Утверждения:
+                                  </span>
+                                  {hasExtraStatement && (
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      (одно утверждение лишнее)
                                     </span>
-                                    <span className="text-xs sm:text-sm font-medium leading-relaxed">
-                                      {statement}
-                                    </span>
-                                  </div>
-                                ))}
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  {task.statements!.map((statement, sIdx) => (
+                                    <div
+                                      key={sIdx}
+                                      className={`p-2.5 sm:p-3 rounded-xl border flex items-start space-x-2.5 transition-all ${
+                                        isDarkMode ? 'bg-[#1a2634] border-slate-700/80 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                                      }`}
+                                    >
+                                      <span className="w-6 h-6 rounded-lg bg-emerald-600/25 border border-emerald-500/40 text-emerald-300 font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                                        {sIdx + 1}
+                                      </span>
+                                      <span className="text-xs sm:text-sm font-medium leading-relaxed">
+                                        {statement}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* 4. Interactive Answer Block */}
                           {(() => {
@@ -3199,7 +3205,13 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                             const userInputs = currentAnswer.listeningMatchInputs || {};
                             const isTaskChecked = checkedTasks[task.id] !== undefined;
                             const correctMap = task.correctAnswers || {};
-                            const maxNum = task.statements?.length || 7;
+                            const maxAnswerVal = Math.max(
+                              0,
+                              ...Object.values(correctMap).map((v) => parseInt(String(v), 10) || 0)
+                            );
+                            const maxNum = task.statements && task.statements.length > 0
+                              ? Math.max(task.statements.length, maxAnswerVal)
+                              : maxAnswerVal || 7;
 
                             return (
                               <div className="p-4 rounded-2xl bg-slate-900/85 border border-emerald-500/30 space-y-4 shadow-lg">
@@ -3208,7 +3220,7 @@ export const HomeworkSubmissionModal: React.FC<HomeworkSubmissionModalProps> = (
                                     <span>✍️ Таблица ответов:</span>
                                   </h5>
                                   <p className="text-[11px] text-slate-400 mt-0.5">
-                                    Впишите номер утверждения (1–{maxNum}) для каждого говорящего:
+                                    Впишите цифру (1–{maxNum}) для каждого пункта ({letters[0]}{letters.length > 1 ? `–${letters[letters.length - 1]}` : ''}):
                                   </p>
                                 </div>
 

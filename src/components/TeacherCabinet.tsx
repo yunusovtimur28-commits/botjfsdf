@@ -5586,20 +5586,35 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                     {task.taskType === 'listening_match' && (() => {
                       const statements = task.statements || [];
                       const correctAnswers = task.correctAnswers || {};
-                      const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+                      const letters = Object.keys(correctAnswers).length > 0
+                        ? Object.keys(correctAnswers).sort()
+                        : ['A', 'B', 'C', 'D', 'E', 'F'];
+                      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+                      const getNextLetter = (curLetters: string[]): string | null => {
+                        const last = curLetters[curLetters.length - 1];
+                        if (last) {
+                          const lastIdx = alphabet.indexOf(last);
+                          if (lastIdx >= 0 && lastIdx + 1 < alphabet.length) {
+                            return alphabet[lastIdx + 1];
+                          }
+                        }
+                        return alphabet.find((ch) => !curLetters.includes(ch)) || null;
+                      };
+                      const nextLetter = getNextLetter(letters);
+                      const lettersRangeLabel = `${letters[0]}${letters.length > 1 ? `–${letters[letters.length - 1]}` : ''}`;
 
                       return (
                         <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-4">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-500/20 pb-2">
                             <div>
                               <h4 className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
-                                <span>🎧 Задание 1 (Аудирование): Соответствие утверждений</span>
+                                <span>🎧 Аудирование: Соответствие / True-False</span>
                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 font-mono font-bold">
-                                  {statements.length} утверждений / 6 говорящих (A–F)
+                                  {statements.length} утверждений / {letters.length} {letters.length === 1 ? 'ответ' : letters.length < 5 ? 'ответа' : 'ответов'} ({lettersRangeLabel})
                                 </span>
                               </h4>
                               <p className="text-[11px] text-slate-400 mt-0.5">
-                                Вставьте ссылку на диск или облако с аудиозаписью (Google Диск, Яндекс Диск и др.) и список утверждений 1–7. Ученики будут переходить по ссылке для прослушивания.
+                                Вставьте ссылку на диск или облако с аудиозаписью (Google Диск, Яндекс Диск и др.) и список утверждений. Ученики будут переходить по ссылке для прослушивания.
                               </p>
                             </div>
 
@@ -5678,10 +5693,10 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             </p>
                           </div>
 
-                          {/* 2. Optional Per-speaker Disk Links A-F */}
+                          {/* 2. Optional Per-speaker Disk Links */}
                           <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2">
                             <label className="text-[11px] font-bold text-sky-300 block">
-                              🔗 Или отдельные ссылки на диск для каждого говорящего A–F (опционально):
+                              🔗 Или отдельные ссылки на диск для каждого пункта {lettersRangeLabel} (опционально):
                             </label>
                             <div className="grid grid-cols-1 gap-2">
                               {letters.map((letter) => {
@@ -5810,11 +5825,42 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                             </div>
                           </div>
 
-                          {/* 4. Correct Answers selector */}
-                          <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2">
-                            <label className="text-[11px] font-bold text-emerald-400 block">
-                              Правильные соответствия (цифра утверждения 1–{statements.length} для каждого говорящего A–F):
-                            </label>
+                          {/* 4. Correct Answers editor (dynamic letters + duplicate digits allowed) */}
+                          <div className="p-3 rounded-xl bg-black/30 border border-slate-700/70 space-y-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <label className="text-[11px] font-bold text-emerald-400 block">
+                                  Правильные ответы ({lettersRangeLabel}):
+                                </label>
+                                <span className="text-[10px] text-slate-400 block">
+                                  Впишите цифру для каждой буквы (повторяющиеся цифры разрешены, например для True/False/Not stated).
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={!nextLetter}
+                                onClick={() => {
+                                  if (!nextLetter) return;
+                                  setHwTasks((prev) =>
+                                    prev.map((t, i) => {
+                                      if (i !== idx) return t;
+                                      const baseAnswers: Record<string, string> =
+                                        t.correctAnswers && Object.keys(t.correctAnswers).length > 0
+                                          ? { ...t.correctAnswers }
+                                          : Object.fromEntries(letters.map((l) => [l, '']));
+                                      baseAnswers[nextLetter] = '';
+                                      return {
+                                        ...t,
+                                        correctAnswers: baseAnswers,
+                                      };
+                                    })
+                                  );
+                                }}
+                                className="px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 disabled:opacity-40 text-emerald-200 border border-emerald-500/40 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition-all shrink-0"
+                              >
+                                <span>+ Добавить ответ</span>
+                              </button>
+                            </div>
                             <div className="flex flex-wrap items-center gap-2">
                               {letters.map((letter) => {
                                 const val = correctAnswers[letter] || '';
@@ -5822,40 +5868,68 @@ export const TeacherCabinet: React.FC<TeacherCabinetProps> = ({
                                 return (
                                   <div
                                     key={letter}
-                                    className="p-2 rounded-xl bg-black/40 border border-slate-700 flex items-center space-x-2"
+                                    className="p-2 rounded-xl bg-black/40 border border-slate-700 flex items-center space-x-1.5"
                                   >
                                     <span className="font-black text-xs text-emerald-400">
                                       {letter} =
                                     </span>
-                                    <select
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      maxLength={1}
                                       value={val}
                                       onChange={(e) => {
-                                        const newDigit = e.target.value;
+                                        const newDigit = e.target.value.replace(/[^1-9]/g, '');
                                         setHwTasks((prev) =>
-                                          prev.map((t, i) =>
-                                            i === idx
-                                              ? {
-                                                  ...t,
-                                                  correctAnswers: {
-                                                    ...(t.correctAnswers || {}),
-                                                    [letter]: newDigit,
-                                                  },
-                                                }
-                                              : t
-                                          )
+                                          prev.map((t, i) => {
+                                            if (i !== idx) return t;
+                                            const baseAnswers: Record<string, string> =
+                                              t.correctAnswers && Object.keys(t.correctAnswers).length > 0
+                                                ? { ...t.correctAnswers }
+                                                : Object.fromEntries(letters.map((l) => [l, '']));
+                                            baseAnswers[letter] = newDigit;
+                                            return {
+                                              ...t,
+                                              correctAnswers: baseAnswers,
+                                            };
+                                          })
                                         );
                                       }}
-                                      className={`p-1 rounded-lg text-xs font-bold border ${
+                                      placeholder="—"
+                                      className={`w-9 h-8 text-center rounded-lg text-xs font-black border focus:outline-none focus:border-emerald-400 ${
                                         isDarkMode ? 'bg-[#1e2c3a] border-slate-600 text-emerald-300' : 'bg-white border-slate-300 text-emerald-700'
                                       }`}
-                                    >
-                                      <option value="">—</option>
-                                      {statements.map((_, sIdx) => (
-                                        <option key={sIdx + 1} value={String(sIdx + 1)}>
-                                          {sIdx + 1}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    />
+                                    {letters.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setHwTasks((prev) =>
+                                            prev.map((t, i) => {
+                                              if (i !== idx) return t;
+                                              const baseAnswers: Record<string, string> =
+                                                t.correctAnswers && Object.keys(t.correctAnswers).length > 0
+                                                  ? { ...t.correctAnswers }
+                                                  : Object.fromEntries(letters.map((l) => [l, '']));
+                                              delete baseAnswers[letter];
+                                              const nextAudioUrls = t.audioUrls ? { ...t.audioUrls } : undefined;
+                                              if (nextAudioUrls && letter in nextAudioUrls) {
+                                                delete nextAudioUrls[letter];
+                                              }
+                                              return {
+                                                ...t,
+                                                correctAnswers: baseAnswers,
+                                                audioUrls: nextAudioUrls,
+                                              };
+                                            })
+                                          );
+                                        }}
+                                        className="p-1 text-rose-400 hover:text-rose-300 rounded-md hover:bg-rose-500/15 transition-all"
+                                        title={`Удалить ответ ${letter}`}
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })}
